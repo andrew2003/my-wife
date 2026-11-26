@@ -36,6 +36,17 @@ export type SessionRecord = {
   revokedAt: string | null;
 };
 
+/** One change of a user setting; the history is visible to the user (spec 40 section 2). */
+export type SettingAuditRecord = {
+  id: string;
+  userId: string;
+  actorId: string;
+  key: string;
+  before: unknown;
+  after: unknown;
+  at: string;
+};
+
 /** Persistence port. The Drizzle implementation (identity schema) replaces the in-memory one. */
 export interface IdentityStore {
   findUserByEmail(email: string): Promise<UserRecord | undefined>;
@@ -53,6 +64,16 @@ export interface IdentityStore {
   findSession(id: string): Promise<SessionRecord | undefined>;
   listSessions(userId: string): Promise<SessionRecord[]>;
   revokeSession(id: string, at: string): Promise<void>;
+  /** Only values the user changed; missing keys fall back to the registry default. */
+  getSettingOverrides(userId: string): Promise<Record<string, unknown>>;
+  /** Saves the value and its audit entry together. */
+  saveSetting(
+    userId: string,
+    key: string,
+    value: unknown,
+    audit: SettingAuditRecord,
+  ): Promise<void>;
+  listSettingAudit(userId: string): Promise<SettingAuditRecord[]>;
 }
 
 export function createMemoryStore(): IdentityStore {
@@ -60,7 +81,19 @@ export function createMemoryStore(): IdentityStore {
   const invitations = new Map<string, InvitationRecord>();
   const loginTokens = new Map<string, LoginTokenRecord>();
   const sessions = new Map<string, SessionRecord>();
+  const settings = new Map<string, Record<string, unknown>>();
+  const audit: SettingAuditRecord[] = [];
   return {
+    async getSettingOverrides(userId) {
+      return { ...settings.get(userId) };
+    },
+    async saveSetting(userId, key, value, entry) {
+      settings.set(userId, { ...settings.get(userId), [key]: value });
+      audit.push(entry);
+    },
+    async listSettingAudit(userId) {
+      return audit.filter((a) => a.userId === userId);
+    },
     async findUserByEmail(email) {
       return [...users.values()].find((u) => u.email === email);
     },
