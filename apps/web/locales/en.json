@@ -93,5 +93,19 @@
   "schedule.sample.exercise_dinner": "Exercise, dinner",
   "schedule.sample.study": "Study or personal projects",
   "schedule.sample.reflection": "Daily reflection",
-  "schedule.sample.sleep": "Sleep"
+  "schedule.sample.sleep": "Sleep",
+  "funding.title": "Fund your budget cycle",
+  "funding.intro": "Transfer each amount below with the exact code as the memo. We only read your bank receipt to confirm; we never move money.",
+  "funding.loading": "Loading your transfers...",
+  "funding.empty": "No budget cycle is waiting for funds.",
+  "funding.error": "Could not load your transfers.",
+  "funding.retry": "Try again",
+  "funding.refresh": "Refresh",
+  "funding.amount": "Amount:",
+  "funding.currency": "VND",
+  "funding.code": "Memo code:",
+  "funding.status.waiting": "Waiting for your transfer",
+  "funding.status.funded": "Funded",
+  "funding.all_funded": "All accounts are funded. Your cycle is starting.",
+  "funding.qr_alt": "Transfer QR code for {name}"
 }
