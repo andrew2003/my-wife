@@ -7,6 +7,8 @@ export interface ChatServiceDeps {
   provider: LlmProvider;
   publish: (event: { name: "ai.message_sent"; payload: unknown }) => Promise<void>;
   newId?: () => string;
+  /** Structured warn logger; never receives user text or secrets. */
+  warn?: (fields: Record<string, unknown>, message: string) => void;
 }
 
 export interface ChatResult {
@@ -34,8 +36,12 @@ export class ChatService {
         locale,
       });
       replyText = response.text;
-    } catch {
+    } catch (error) {
       // Plain error reply; nothing from the provider is acted on.
+      this.deps.warn?.(
+        { provider: this.deps.provider.id, errorName: error instanceof Error ? error.name : "unknown" },
+        "llm provider call failed",
+      );
       return {
         messageId,
         reply: { key: "ai.chat.error", params: {} },

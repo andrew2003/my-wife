@@ -1,5 +1,5 @@
 import type { AppConfig } from "@my-wife/config";
-import { ChatMessageRequestSchema } from "@my-wife/contracts";
+import { ChatMessageRequestSchema, ChatMessageResponseSchema } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { ChatService } from "./chat/chat-service";
 import { renderMessage } from "./i18n";
@@ -22,6 +22,7 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
   const chat = new ChatService({
     provider: deps.provider ?? createProvider(),
     publish: deps.publish ?? (async () => {}),
+    warn: (fields, message) => app.log.warn(fields, message),
   });
   app.post("/chat/message", async (req, reply) => {
     const parsed = ChatMessageRequestSchema.safeParse(req.body);
@@ -29,7 +30,7 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     const result = await chat.handleMessage(parsed.data.text, config.uiLanguage);
     const text =
       "key" in result.reply ? renderMessage(result.reply, config.uiLanguage) : result.reply.text;
-    return { ok: true, data: { ...result, reply: { text } } };
+    return ChatMessageResponseSchema.parse({ ok: true, data: { ...result, reply: { text } } });
   });
   return app;
 }

@@ -54,7 +54,46 @@ describe("chat reply", () => {
       "Sorry, I cannot answer right now. Please try again in a moment.",
     );
     expect(body.data.degraded).toBe(true);
+    expect(body.data.pendingConfirmations).toEqual([]);
+    expect(Object.keys(body.data).sort()).toEqual(
+      ["degraded", "messageId", "pendingConfirmations", "reply"].sort(),
+    );
     expect(events).toEqual([]);
+  });
+
+  it("does not execute proposed tool calls on success", async () => {
+    const provider = new FakeLlmProvider({
+      reply: () => ({
+        text: "ok",
+        toolCalls: [{ tool: "record_cash_expense", args: { amountVnd: 35000 } }],
+      }),
+    });
+    const { app, events } = await setup(provider);
+    const body = (await send(app, "bought milk 35k")).json();
+    expect(body.data.pendingConfirmations).toEqual([]);
+    expect(events).toHaveLength(1);
+    expect((events[0]?.payload as { toolCalls: number }).toolCalls).toBe(0);
+  });
+
+  it("returns 400 for an invalid body", async () => {
+    const { app } = await setup(new FakeLlmProvider());
+    const res = await app.inject({ method: "POST", url: "/chat/message", payload: {} });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("replies in vi, including the error reply, with em/anh address terms", async () => {
+    const vi = loadConfig({ SESSION_SECRET: "x".repeat(32), LOG_LEVEL: "silent", UI_LANGUAGE: "vi" });
+    const provider = new FakeLlmProvider({ unavailable: true });
+    const app = await createApp(vi, { provider });
+    const body = (await send(app, "chào")).json();
+    expect(body.data.reply.text).toContain("Xin lỗi");
+    expect(provider.requests[0]?.locale).toBe("vi");
+    const ok = new FakeLlmProvider();
+    const app2 = await createApp(vi, { provider: ok });
+    expect((await send(app2, "chào")).json().data.reply.text).toBe("chào");
+    expect(ok.requests[0]?.system).toContain("em");
+    expect(ok.requests[0]?.system).toContain("anh");
+    expect(ok.requests[0]?.locale).toBe("vi");
   });
 
   it("allows only the fake provider before M4", () => {
