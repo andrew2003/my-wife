@@ -56,7 +56,10 @@ export interface CameraMonitorOptions {
   onVisibility?: (cb: (hidden: boolean) => void) => () => void;
 }
 
-export function createCameraMonitor(opts: CameraMonitorOptions): { start: () => void; stop: () => void } {
+export function createCameraMonitor(opts: CameraMonitorOptions): {
+  start: () => void;
+  stop: () => void;
+} {
   const clock = opts.clock ?? systemClock;
   const ticker = opts.ticker ?? workerTicker;
   let stopTicker: (() => void) | null = null;
