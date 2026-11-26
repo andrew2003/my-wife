@@ -82,7 +82,11 @@ describe("chat reply", () => {
   });
 
   it("replies in vi, including the error reply, with em/anh address terms", async () => {
-    const vi = loadConfig({ SESSION_SECRET: "x".repeat(32), LOG_LEVEL: "silent", UI_LANGUAGE: "vi" });
+    const vi = loadConfig({
+      SESSION_SECRET: "x".repeat(32),
+      LOG_LEVEL: "silent",
+      UI_LANGUAGE: "vi",
+    });
     const provider = new FakeLlmProvider({ unavailable: true });
     const app = await createApp(vi, { provider });
     const body = (await send(app, "chào")).json();

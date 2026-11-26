@@ -39,7 +39,10 @@ export class ChatService {
     } catch (error) {
       // Plain error reply; nothing from the provider is acted on.
       this.deps.warn?.(
-        { provider: this.deps.provider.id, errorName: error instanceof Error ? error.name : "unknown" },
+        {
+          provider: this.deps.provider.id,
+          errorName: error instanceof Error ? error.name : "unknown",
+        },
         "llm provider call failed",
       );
       return {
