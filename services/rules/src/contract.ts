@@ -50,7 +50,12 @@ export class InMemoryContractStore implements ContractStore {
     return this.latest(userId, cycleId)?.contract.version ?? 0;
   }
   save(userId: string, contract: CommitmentContract) {
-    this.rows.push({ userId, contract: Object.freeze(contract), eventPublishedAt: null, eventClaimed: false });
+    this.rows.push({
+      userId,
+      contract: Object.freeze(contract),
+      eventPublishedAt: null,
+      eventClaimed: false,
+    });
   }
   markEventPublished(contractId: string, at: string) {
     const row = this.rows.find((r) => r.contract.id === contractId);
