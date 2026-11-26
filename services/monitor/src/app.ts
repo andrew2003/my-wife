@@ -31,7 +31,7 @@ export type MonitorServiceDeps = ServiceDeps & {
   readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
   /** Announces events on the bus; a no-op without NATS. */
   publish?: (event: EventEnvelope) => void | Promise<void>;
-  /** Hands an urgent message to notify (`POST /messages`); a no-op until the HTTP client is wired. */
+  /** Hands an urgent message to notify (`POST /messages`); the default throws, so nothing counts as delivered until notify is wired. */
   sendUrgent?: (message: OutboundMessage) => Promise<void>;
   /** Storage ports; in memory until the Drizzle stores land. */
   state?: Partial<MonitorState>;
@@ -65,7 +65,11 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     publish: deps.publish ?? (() => undefined),
     readSettings: deps.readSettings ?? (async () => ({})),
     locale: config.uiLanguage,
-    sendUrgent: deps.sendUrgent ?? (async () => undefined),
+    sendUrgent:
+      deps.sendUrgent ??
+      (async () => {
+        throw new Error("notify is not wired");
+      }),
   };
 
   const fail = (reply: { code(n: number): unknown }, status: number, code: string) => {

@@ -220,7 +220,11 @@ type PositiveKey =
   | "monitor.urgent_min_gap_minutes";
 
 /** A positive integer setting, or the registry default when the answer is missing or invalid. */
-async function positiveSetting(deps: MonitorDeps, userId: string, key: PositiveKey): Promise<number> {
+async function positiveSetting(
+  deps: MonitorDeps,
+  userId: string,
+  key: PositiveKey,
+): Promise<number> {
   const answer = (await deps.readSettings(userId))[key];
   return typeof answer === "number" && Number.isInteger(answer) && answer > 0
     ? answer
@@ -277,8 +281,7 @@ export async function runGapCheck(
 }
 
 export type GiveReasonResult =
-  | { ok: true; ticket: ReasonTicket }
-  | { ok: false; error: "ticket.not_found" | "ticket.not_open" };
+  { ok: true; ticket: ReasonTicket } | { ok: false; error: "ticket.not_found" | "ticket.not_open" };
 
 /** The user answers a ticket that is still `open` or `escalated`; a repeat or a late answer is refused. */
 export async function giveReason(
@@ -290,18 +293,28 @@ export async function giveReason(
   const t = deps.state.tickets.get(userId, input.ticketId);
   if (!t) return { ok: false, error: "ticket.not_found" };
   if (t.state !== "open" && t.state !== "escalated") return { ok: false, error: "ticket.not_open" };
+  const previous = { ...t };
   t.state = "answered";
   t.answeredAt = now.toISOString();
   t.reasonKind = input.kind;
   if (input.text) t.reasonText = input.text;
-  await deps.publish(
-    envelope(now, `reason-given-${t.id}`, "reason.given", userId, {
-      ticketId: t.id,
-      signalRef: t.signalRef,
-      kind: input.kind,
-      givenAt: t.answeredAt,
-    }),
-  );
+  try {
+    await deps.publish(
+      envelope(now, `reason-given-${t.id}`, "reason.given", userId, {
+        ticketId: t.id,
+        signalRef: t.signalRef,
+        kind: input.kind,
+        givenAt: t.answeredAt,
+      }),
+    );
+  } catch (err) {
+    // The answer is not recorded unless it was announced; the user can answer again.
+    Object.assign(t, previous);
+    delete t.answeredAt;
+    delete t.reasonKind;
+    delete t.reasonText;
+    throw err;
+  }
   return { ok: true, ticket: t };
 }
 
@@ -324,13 +337,16 @@ async function sendUrgentOnce(
   } catch {
     return false;
   }
-  msg.delivered = true;
+  // Announce first: if this throws the message stays undelivered and the next run resends
+  // (same message id, same event id) instead of losing `urgent.sent`.
   await deps.publish(
     envelope(now, `urgent-sent-${msg.ticketId}-${channel}`, "urgent.sent", msg.userId, {
       ticketId: msg.ticketId,
       channel,
     }),
   );
+  msg.delivered = true;
+  msg.sentAt ??= now.toISOString();
   return true;
 }
 
@@ -338,8 +354,9 @@ async function sendUrgentOnce(
  * Idempotent escalation job: (1) the first urgent message goes through notify (web banner) unless
  * another one went out within `monitor.urgent_min_gap_minutes`; (2) after the chat delay the same
  * message is sent as a chat message and the ticket is `escalated`; (3) after the silence delay the
- * ticket is `expired`, `reason.expired` and `fault.detected` (reason none) are emitted. Delays count
- * from the ticket creation. `now` is a parameter.
+ * ticket is `expired`, `reason.expired` and `fault.detected` (reason none) are emitted, but only
+ * for a ticket whose urgent message was delivered. The chat delay counts from the ticket creation,
+ * the silence delay from the delivered first send. State changes after the events are published. `now` is a parameter.
  */
 export async function runUrgentJob(deps: MonitorDeps, now: Date): Promise<{ failed: string[] }> {
   const failed: string[] = [];
@@ -355,10 +372,15 @@ export async function runUrgentJob(deps: MonitorDeps, now: Date): Promise<{ fail
     try {
       const msg = deps.state.urgent.all().find((m) => m.ticketId === t.id);
       const age = now.getTime() - Date.parse(t.createdAt);
-      const silent = await positiveSetting(deps, t.userId, "monitor.urgent_silent_fault_after_seconds");
-      if (age >= silent * SECOND_MS) {
-        t.state = "expired";
-        t.expiredAt = now.toISOString();
+      const silent = await positiveSetting(
+        deps,
+        t.userId,
+        "monitor.urgent_silent_fault_after_seconds",
+      );
+      if (
+        msg?.delivered &&
+        now.getTime() - Date.parse(msg.sentAt ?? msg.createdAt) >= silent * SECOND_MS
+      ) {
         await deps.publish(
           envelope(now, `reason-expired-${t.id}`, "reason.expired", t.userId, {
             ticketId: t.id,
@@ -376,6 +398,8 @@ export async function runUrgentJob(deps: MonitorDeps, now: Date): Promise<{ fail
             overlapsOutage: false,
           }),
         );
+        t.state = "expired";
+        t.expiredAt = now.toISOString();
         continue;
       }
       if (!msg) continue;
@@ -384,7 +408,6 @@ export async function runUrgentJob(deps: MonitorDeps, now: Date): Promise<{ fail
         const prev = lastSent.get(t.userId);
         if (prev !== undefined && now.getTime() - prev < minGap * 60 * SECOND_MS) continue;
         if (await sendUrgentOnce(deps, msg, "web", now)) {
-          msg.sentAt = now.toISOString();
           lastSent.set(t.userId, now.getTime());
         } else failed.push(t.id);
         continue;

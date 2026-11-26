@@ -185,16 +185,24 @@ describe("urgent escalation and reason ticket (MW-036)", () => {
   const SILENT = SETTINGS["monitor.urgent_silent_fault_after_seconds"].default;
   const MIN_GAP = SETTINGS["monitor.urgent_min_gap_minutes"].default;
 
-  async function withTicket(settings: Record<string, unknown> = {}, fail = false) {
+  async function withTicket(
+    settings: Record<string, unknown> = {},
+    fail = false,
+    sendOk: { value: boolean } = { value: true },
+    publishFail: { value: boolean } = { value: false },
+  ) {
     const sent: OutboundMessage[] = [];
     let nowMs = T0;
     const events: EventEnvelope[] = [];
     const app = await createApp(config, {
       now: () => new Date(nowMs),
-      publish: (e: EventEnvelope) => void events.push(e),
+      publish: (e: EventEnvelope) => {
+        if (publishFail.value && e.type !== "monitor.session_started") throw new Error("bus down");
+        events.push(e);
+      },
       readSettings: async () => settings,
       sendUrgent: async (m: OutboundMessage) => {
-        if (fail) throw new Error("notify down");
+        if (fail || !sendOk.value) throw new Error("notify down");
         sent.push(m);
       },
     });
@@ -219,7 +227,9 @@ describe("urgent escalation and reason ticket (MW-036)", () => {
   }
   const types = (e: EventEnvelope[]) => e.map((x) => x.type);
   const channels = (e: EventEnvelope[]) =>
-    e.filter((x) => x.type === "urgent.sent").map((x) => (x.payload as { channel: string }).channel);
+    e
+      .filter((x) => x.type === "urgent.sent")
+      .map((x) => (x.payload as { channel: string }).channel);
 
   it("sends the urgent message through notify and emits urgent.sent", async () => {
     const s = await withTicket();
@@ -294,8 +304,12 @@ describe("urgent escalation and reason ticket (MW-036)", () => {
     expect(other.statusCode).toBe(404);
     const bad = await s.call("/reasons", { ticketId: s.ticket.id, kind: "bogus" });
     expect(bad.statusCode).toBe(400);
-    expect((await s.call("/reasons", { ticketId: s.ticket.id, kind: "water" })).statusCode).toBe(200);
-    expect((await s.call("/reasons", { ticketId: s.ticket.id, kind: "water" })).statusCode).toBe(409);
+    expect((await s.call("/reasons", { ticketId: s.ticket.id, kind: "water" })).statusCode).toBe(
+      200,
+    );
+    expect((await s.call("/reasons", { ticketId: s.ticket.id, kind: "water" })).statusCode).toBe(
+      409,
+    );
     expect(s.events.filter((e) => e.type === "reason.given")).toHaveLength(1);
   });
 
@@ -334,5 +348,109 @@ describe("urgent escalation and reason ticket (MW-036)", () => {
     expect(s.app.monitorState.tickets.all()[0]?.state).toBe("escalated");
     await s.app.runUrgentJob(at(DEFAULT_GAP + 20));
     expect(types(s.events)).toContain("fault.detected");
+  });
+
+  it("never expires a ticket whose urgent message was not delivered", async () => {
+    const s = await withTicket({}, true);
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT + 100));
+    expect(types(s.events)).not.toContain("reason.expired");
+    expect(types(s.events)).not.toContain("fault.detected");
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("open");
+  });
+
+  it("counts the silence from the delivered send, not from the ticket", async () => {
+    const ok = { value: false };
+    const s = await withTicket({}, false, ok);
+    await s.app.runUrgentJob(at(DEFAULT_GAP + 100));
+    ok.value = true;
+    await s.app.runUrgentJob(at(DEFAULT_GAP + 200));
+    await s.app.runUrgentJob(at(DEFAULT_GAP + 200 + SILENT - 1));
+    expect(types(s.events)).not.toContain("fault.detected");
+    await s.app.runUrgentJob(at(DEFAULT_GAP + 200 + SILENT));
+    expect(types(s.events)).toContain("fault.detected");
+  });
+
+  it("keeps retrying the chat message after a failed escalation send", async () => {
+    const ok = { value: true };
+    const s = await withTicket({ "monitor.urgent_silent_fault_after_seconds": 3600 }, false, ok);
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    ok.value = false;
+    expect((await s.app.runUrgentJob(at(DEFAULT_GAP + CHAT))).failed).toEqual([s.ticket.id]);
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("open");
+    ok.value = true;
+    await s.app.runUrgentJob(at(DEFAULT_GAP + CHAT + 5));
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("escalated");
+    expect(channels(s.events)).toEqual(["web", "chat"]);
+  });
+
+  it("accepts an answer after escalation but before the silence delay", async () => {
+    const s = await withTicket();
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    await s.app.runUrgentJob(at(DEFAULT_GAP + CHAT));
+    s.setNow(DEFAULT_GAP + SILENT - 5);
+    expect((await s.call("/reasons", { ticketId: s.ticket.id, kind: "other" })).statusCode).toBe(
+      200,
+    );
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT + 100));
+    expect(types(s.events)).not.toContain("fault.detected");
+  });
+
+  it("falls back to the registry defaults for invalid urgent settings", async () => {
+    const s = await withTicket({
+      "monitor.urgent_chat_after_seconds": -1,
+      "monitor.urgent_silent_fault_after_seconds": "soon",
+      "monitor.urgent_min_gap_minutes": 0,
+    });
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    await s.app.runUrgentJob(at(DEFAULT_GAP + CHAT - 1));
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("open");
+    await s.app.runUrgentJob(at(DEFAULT_GAP + CHAT));
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("escalated");
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT - 1));
+    expect(types(s.events)).not.toContain("fault.detected");
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT));
+    expect(types(s.events)).toContain("fault.detected");
+  });
+
+  it("retries after a publish failure instead of losing the event", async () => {
+    const pf = { value: true };
+    const s = await withTicket({}, false, { value: true }, pf);
+    const first = await s.app.runUrgentJob(at(DEFAULT_GAP));
+    expect(first.failed).toEqual([s.ticket.id]);
+    expect(s.app.monitorState.urgent.all()[0]?.delivered).toBe(false);
+    pf.value = false;
+    await s.app.runUrgentJob(at(DEFAULT_GAP + 1));
+    expect(channels(s.events)).toEqual(["web"]);
+    pf.value = true;
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT + 1));
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("open");
+    pf.value = false;
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT + 2));
+    expect(types(s.events)).toContain("fault.detected");
+  });
+
+  it("keeps the ticket open when publishing reason.given fails", async () => {
+    const pf = { value: false };
+    const s = await withTicket({}, false, { value: true }, pf);
+    pf.value = true;
+    const res = await s.call("/reasons", { ticketId: s.ticket.id, kind: "water" });
+    expect(res.statusCode).toBe(500);
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("open");
+  });
+
+  it("does not claim delivery when notify is not wired", async () => {
+    const events: EventEnvelope[] = [];
+    const app = await createApp(config, { publish: (e: EventEnvelope) => void events.push(e) });
+    await app.inject({
+      method: "POST",
+      url: "/sessions/start",
+      headers: { "x-user-id": "u1" },
+      payload: { taskId: "t1", profile: "camera", deviceId: "d" },
+    });
+    await app.runGapCheck(new Date(Date.now() + 3600_000));
+    await app.runUrgentJob(new Date(Date.now() + 3600_000));
+    expect(events.map((e) => e.type)).not.toContain("urgent.sent");
+    expect(app.monitorState.urgent.all()[0]?.delivered).toBe(false);
   });
 });
