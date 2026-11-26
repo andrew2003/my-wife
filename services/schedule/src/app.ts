@@ -5,6 +5,7 @@ import {
   CreateTaskRequestSchema,
   IdSchema,
   IsoDateSchema,
+  IsoDateTimeSchema,
   parseEvent,
   SETTINGS,
   StartTaskRequestSchema,
@@ -38,6 +39,16 @@ import {
   type LedgerStore,
 } from "./review";
 import { createMemorySleepStore, runSleepJob, type SleepStore } from "./sleep";
+import {
+  applyPhotoGrade,
+  createMemoryWakeStore,
+  fakeChallengeGenerator,
+  receiveWakePhoto,
+  runWakeJob,
+  type MessageRef,
+  type WakeDeps,
+  type WakeStore,
+} from "./wake";
 import { buildSampleDay, type SampleAnswers, type SampleBlock } from "./sample-schedule";
 
 export const SERVICE_NAME = "schedule";
@@ -57,6 +68,14 @@ export type ScheduleDeps = ServiceDeps & {
   ledgerStore?: LedgerStore;
   /** `sleep_night` storage port; in memory until the Drizzle store lands. */
   sleepStore?: SleepStore;
+  /** `wake` challenge storage port; in memory until the Drizzle store lands. */
+  wakeStore?: WakeStore;
+  /** Daily challenge text; the fake generator in M1. */
+  generateWakeChallenge?: WakeDeps["generateChallenge"];
+  /** notify `sendPhotoRequest` (internal REST in production); a no-op without notify. */
+  sendPhotoRequest?: WakeDeps["sendPhotoRequest"];
+  /** Plain chat reply through notify; a no-op without notify. */
+  sendReply?: (userId: string, message: MessageRef) => Promise<void>;
 };
 
 declare module "fastify" {
@@ -65,6 +84,8 @@ declare module "fastify" {
     runSessionJob: (now: Date) => Promise<{ ended: string[]; failed: string[] }>;
     /** Advances the `sleep_night` machines and announces bedtime reminders; the caller passes `now`. */
     runSleepJob: (now: Date) => Promise<{ checked: number; failed: string[] }>;
+    /** Sends the daily wake challenge once wake time is reached; the caller passes `now`. */
+    runWakeJob: (now: Date) => Promise<{ checked: number; failed: string[] }>;
   }
 }
 
@@ -307,6 +328,43 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (!night) return fail(reply, 404, "schedule.night_not_found");
     const { userId: _u, ...view } = night;
     return { ok: true, data: { night: view } };
+  });
+  const wakeDeps: WakeDeps = {
+    plan,
+    store: deps.wakeStore ?? createMemoryWakeStore(),
+    readSettings: readSettings as WakeDeps["readSettings"],
+    generateChallenge: deps.generateWakeChallenge ?? fakeChallengeGenerator,
+    sendPhotoRequest: deps.sendPhotoRequest ?? (async () => undefined),
+    sendReply: deps.sendReply ?? (async () => undefined),
+  };
+  app.decorate("runWakeJob", (at: Date) => runWakeJob(wakeDeps, at));
+  app.post("/jobs/wake", async () => ({ ok: true, data: await runWakeJob(wakeDeps, now()) }));
+  /** notify reports a photo (metadata only, never the image) before handing it to ai. */
+  app.post("/wake/photos", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const b = (req.body ?? {}) as { challengeId?: unknown; sentAt?: unknown };
+    const id = IdSchema.safeParse(b.challengeId);
+    const sentAt = IsoDateTimeSchema.safeParse(b.sentAt);
+    if (!id.success || !sentAt.success) return fail(reply, 400, "schedule.invalid_request");
+    const res = await receiveWakePhoto(wakeDeps, userId, id.data, new Date(sentAt.data));
+    if (res.ok)
+      return { ok: true, data: { accepted: res.accepted, challengeKey: res.challengeKey } };
+    return res.error === "not_found"
+      ? fail(reply, 404, "schedule.challenge_not_found")
+      : fail(reply, 409, "schedule.challenge_graded");
+  });
+  /** Internal entry for the bus bridge: `ai.photo_graded`. */
+  app.post("/events/photo-graded", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (!parsed.success || parsed.data.type !== "ai.photo_graded") {
+      return fail(reply, 400, "schedule.invalid_event");
+    }
+    const { payload } = parsed.data as EventEnvelope<"ai.photo_graded">;
+    return {
+      ok: true,
+      data: { result: await applyPhotoGrade(wakeDeps, payload.challengeId, payload.grade) },
+    };
   });
   app.post("/jobs/session-end", async () => ({
     ok: true,
