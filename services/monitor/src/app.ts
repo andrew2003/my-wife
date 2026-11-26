@@ -1,8 +1,10 @@
 import type { AppConfig } from "@my-wife/config";
 import {
+  GiveReasonRequestSchema,
   HeartbeatRequestSchema,
   MonitorStartSessionRequestSchema,
   type EventEnvelope,
+  type OutboundMessage,
   type SettingKey,
 } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
@@ -11,8 +13,10 @@ import {
   createMemoryTicketStore,
   createMemoryUrgentStore,
   endMonitoring,
+  giveReason,
   recordHeartbeat,
   runGapCheck,
+  runUrgentJob,
   startMonitoring,
   type MonitorDeps,
   type MonitorState,
@@ -27,6 +31,8 @@ export type MonitorServiceDeps = ServiceDeps & {
   readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
   /** Announces events on the bus; a no-op without NATS. */
   publish?: (event: EventEnvelope) => void | Promise<void>;
+  /** Hands an urgent message to notify (`POST /messages`); the default throws, so nothing counts as delivered until notify is wired. */
+  sendUrgent?: (message: OutboundMessage) => Promise<void>;
   /** Storage ports; in memory until the Drizzle stores land. */
   state?: Partial<MonitorState>;
 };
@@ -35,6 +41,8 @@ declare module "fastify" {
   interface FastifyInstance {
     /** Opens tickets for sessions whose heartbeat is missing; the caller passes `now`. */
     runGapCheck: (now: Date) => Promise<{ tickets: string[]; failed: string[] }>;
+    /** Sends, escalates and expires urgent messages; the caller passes `now`. */
+    runUrgentJob: (now: Date) => Promise<{ failed: string[] }>;
     monitorState: MonitorState;
   }
 }
@@ -57,6 +65,11 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     publish: deps.publish ?? (() => undefined),
     readSettings: deps.readSettings ?? (async () => ({})),
     locale: config.uiLanguage,
+    sendUrgent:
+      deps.sendUrgent ??
+      (async () => {
+        throw new Error("notify is not wired");
+      }),
   };
 
   const fail = (reply: { code(n: number): unknown }, status: number, code: string) => {
@@ -98,12 +111,27 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     return { ok: true, data: { sessionId: s.id, endedAt: s.endedAt } };
   });
 
+  app.post("/reasons", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "monitor.unauthenticated");
+    const parsed = GiveReasonRequestSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "monitor.invalid_request");
+    const res = await giveReason(monitor, userId, parsed.data, monitor.now());
+    if (!res.ok) return fail(reply, res.error === "ticket.not_found" ? 404 : 409, res.error);
+    return { ok: true, data: { ticketId: res.ticket.id, state: res.ticket.state } };
+  });
+
   /** Entry for the scheduler and the dev-runner clock; `now` is a parameter. */
   app.decorate("runGapCheck", (at: Date) => runGapCheck(monitor, at));
+  app.decorate("runUrgentJob", (at: Date) => runUrgentJob(monitor, at));
   app.decorate("monitorState", state);
   app.post("/jobs/gap-check", async () => ({
     ok: true,
     data: await runGapCheck(monitor, monitor.now()),
+  }));
+  app.post("/jobs/urgent", async () => ({
+    ok: true,
+    data: await runUrgentJob(monitor, monitor.now()),
   }));
   return app;
 }
