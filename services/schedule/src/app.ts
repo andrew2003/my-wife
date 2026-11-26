@@ -37,6 +37,7 @@ import {
   runReviewJob,
   type LedgerStore,
 } from "./review";
+import { createMemorySleepStore, runSleepJob, type SleepStore } from "./sleep";
 import { buildSampleDay, type SampleAnswers, type SampleBlock } from "./sample-schedule";
 
 export const SERVICE_NAME = "schedule";
@@ -54,12 +55,16 @@ export type ScheduleDeps = ServiceDeps & {
   sessionStore?: SessionStore;
   /** Fault and overspend ledger copies for the weekly review; in memory for now. */
   ledgerStore?: LedgerStore;
+  /** `sleep_night` storage port; in memory until the Drizzle store lands. */
+  sleepStore?: SleepStore;
 };
 
 declare module "fastify" {
   interface FastifyInstance {
     /** Ends due sessions and announces `session.ended`; the caller passes `now`. */
     runSessionJob: (now: Date) => Promise<{ ended: string[]; failed: string[] }>;
+    /** Advances the `sleep_night` machines and announces bedtime reminders; the caller passes `now`. */
+    runSleepJob: (now: Date) => Promise<{ checked: number; failed: string[] }>;
   }
 }
 
@@ -283,6 +288,26 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
 
   /** Entry for the scheduler and the dev-runner clock; `now` is a parameter. */
   app.decorate("runSessionJob", (at: Date) => runSessionJob(sessionDeps, at));
+  const sleepDeps = {
+    plan,
+    store: deps.sleepStore ?? createMemorySleepStore(),
+    readSettings: readSettings as (userId: string) => Promise<Record<string, unknown>>,
+  };
+  app.decorate("runSleepJob", (at: Date) => runSleepJob(sleepDeps, at));
+  app.post("/jobs/sleep", async () => ({
+    ok: true,
+    data: await runSleepJob(sleepDeps, now()),
+  }));
+  app.get("/sleep/night", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const date = IsoDateSchema.safeParse((req.query as { date?: string }).date);
+    if (!date.success) return fail(reply, 400, "schedule.invalid_request");
+    const night = sleepDeps.store.get(userId, date.data);
+    if (!night) return fail(reply, 404, "schedule.night_not_found");
+    const { userId: _u, ...view } = night;
+    return { ok: true, data: { night: view } };
+  });
   app.post("/jobs/session-end", async () => ({
     ok: true,
     data: await runSessionJob(sessionDeps, now()),

@@ -8,5 +8,6 @@
   "schedule.sample.exercise_dinner": "Tập thể dục, ăn tối",
   "schedule.sample.study": "Học tập hoặc dự án cá nhân",
   "schedule.sample.reflection": "Nhìn lại ngày, đóng danh sách việc",
-  "schedule.sample.sleep": "Đi ngủ"
+  "schedule.sample.sleep": "Đi ngủ",
+  "routine.bedtime_reminder": "Còn {minutes} phút nữa là đến giờ đi ngủ ({bedtime}). Hãy chuẩn bị kết thúc."
 }
