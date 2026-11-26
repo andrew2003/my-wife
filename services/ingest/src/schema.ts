@@ -22,6 +22,8 @@ export const receipt = schema.table(
     templateVersion: integer("template_version"),
     bankTransactionRef: text("bank_transaction_ref"),
     fields: jsonb("fields"),
+    pairKey: text("pair_key"),
+    pairedReceiptId: text("paired_receipt_id"),
   },
   (t) => [
     index("receipt_user_message_idx").on(t.userId, t.messageId),
@@ -29,5 +31,6 @@ export const receipt = schema.table(
     uniqueIndex("receipt_parsed_ref_uq")
       .on(t.userId, t.bankTransactionRef)
       .where(sql`${t.state} = 'parsed'`),
+    index("receipt_user_pair_key_idx").on(t.userId, t.pairKey),
   ],
 );

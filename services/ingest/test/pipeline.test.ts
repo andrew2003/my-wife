@@ -52,7 +52,7 @@ beforeEach(() => {
       events.push(parsed.data);
     },
     newId: () => `id-${++seq}`,
-    settings: { maxEmailBytes: 1048576 },
+    settings: { maxEmailBytes: 1048576, holdMatchWindowHours: 72 },
   };
 });
 
@@ -143,7 +143,7 @@ describe("processInbound", () => {
       state: "rejected",
       reason: "no_consent",
     });
-    deps.settings = { maxEmailBytes: 10 };
+    deps.settings = { maxEmailBytes: 10, holdMatchWindowHours: 72 };
     expect(await run(await buildMail())).toMatchObject({ state: "rejected", reason: "too_large" });
     expect(types()).toEqual(["receipt.rejected", "receipt.rejected"]);
   });

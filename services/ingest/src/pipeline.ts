@@ -15,8 +15,8 @@ export type PipelineDeps = {
   templates: RegisteredTemplate[];
   publish: (event: EventEnvelope) => Promise<void>;
   newId: () => string;
-  /** `ingest.max_email_bytes` (admin setting). */
-  settings: { maxEmailBytes: number };
+  /** `ingest.max_email_bytes` (admin) and `ingest.hold_match_window_hours` (user). */
+  settings: { maxEmailBytes: number; holdMatchWindowHours: number };
 };
 
 export type InboundMail = { toAddress: string; raw: Buffer };
@@ -28,6 +28,10 @@ function tokenOf(address: string): string | null {
   const m = /^u-([A-Za-z0-9_-]+)@/.exec(address.trim());
   return m?.[1] ?? null;
 }
+
+const HOUR_MS = 3_600_000;
+const withinWindow = (a: string, b: string, hours: number) =>
+  Math.abs(Date.parse(a) - Date.parse(b)) <= hours * HOUR_MS;
 
 const stripTags = (html: string) => html.replace(/<[^>]*>/g, "\n");
 
@@ -142,18 +146,52 @@ export async function processInbound(
     return finish({ ...authed, state: "duplicate", fingerprint, bankTransactionRef: ref });
   }
 
+  // 6. Foreign card: an authorization is held, never booked; the debit carries the final VND.
+  const foreign = result.foreign;
+  const windowHours = deps.settings.holdMatchWindowHours;
+  const common = { ...authed, fingerprint, templateId: template.id, bankTransactionRef: ref };
+  let held: ReceiptRecord | null = null;
+  if (foreign) {
+    const at = result.fields.occurredAt;
+    const heldAuth = await deps.store.findHeldByPairKey(user.userId, foreign.pairKey);
+    const parsedPeer = await deps.store.findParsedByPairKey(user.userId, foreign.pairKey);
+    const inWindow = (r: ReceiptRecord | null) =>
+      r?.fields !== undefined && withinWindow(r.fields.occurredAt, at, windowHours);
+    if (foreign.stage === "authorization") {
+      // Already held, or its debit was booked first: counting it again would double the expense.
+      if (inWindow(heldAuth) || inWindow(parsedPeer)) {
+        return finish({ ...common, state: "duplicate", pairKey: foreign.pairKey });
+      }
+      return finish({
+        ...common,
+        state: "parsing",
+        templateVersion: template.version,
+        fields: result.fields,
+        pairKey: foreign.pairKey,
+      });
+    }
+    held = inWindow(heldAuth) ? heldAuth : null;
+  }
+
   const outcome = await finish({
-    ...authed,
+    ...common,
     state: "parsed",
-    fingerprint,
-    templateId: template.id,
     templateVersion: template.version,
-    bankTransactionRef: ref,
     fields: result.fields,
+    ...(foreign ? { pairKey: foreign.pairKey } : {}),
   });
+  // The authorization is consumed by its debit; the purchase is booked once, from the debit.
+  if (held) await deps.store.save({ ...held, state: "duplicate", pairedReceiptId: receiptId });
   await emit("receipt.parsed", {
     receiptId,
     ...result.fields,
+    ...(foreign
+      ? {
+          currency: foreign.currency,
+          foreignAmountMinor: foreign.foreignAmountMinor,
+          merchant: foreign.merchant,
+        }
+      : {}),
     source: "parser",
     templateId: template.id,
     templateVersion: template.version,

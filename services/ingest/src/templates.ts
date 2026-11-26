@@ -14,10 +14,21 @@ export type ParsedFields = {
 };
 
 /** The exact strings the fields were read from; each must appear verbatim in the email. */
-export type RawEvidence = { amount: string; ref: string; time: string };
+export type RawEvidence = { amount: string; ref: string; time: string; foreignAmount?: string };
+
+/** Foreign-card facts. An authorization has no final VND amount; the debit carries it. */
+export type ForeignCard = {
+  stage: "authorization" | "debit";
+  /** Identifies one purchase across its authorization and debit mails. */
+  pairKey: string;
+  currency: string;
+  foreignAmountMinor: number;
+  merchant: string;
+};
 
 export type ParseResult =
-  { ok: true; raw: RawEvidence; fields: ParsedFields } | { ok: false; reason: string };
+  | { ok: true; raw: RawEvidence; fields: ParsedFields; foreign?: ForeignCard }
+  | { ok: false; reason: string };
 
 /** A parser is data plus a pure function: no network, no clock, no LLM. */
 export type TemplateParser = {
@@ -65,7 +76,9 @@ export function appearsVerbatim(evidence: string, body: string): boolean {
 }
 
 export function verifyEvidence(raw: RawEvidence, body: string): boolean {
-  return [raw.amount, raw.ref, raw.time].every((e) => appearsVerbatim(e, body));
+  const items = [raw.amount, raw.ref, raw.time];
+  if (raw.foreignAmount !== undefined) items.push(raw.foreignAmount);
+  return items.every((e) => appearsVerbatim(e, body));
 }
 
 const TIME_RE = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/;
@@ -141,5 +154,86 @@ export const BASIC_BANK_TEMPLATE: TemplateParser = {
       fields.balanceAfterVnd = balance;
     }
     return { ok: true, raw: { amount: amountText, ref, time: timeText }, fields };
+  },
+};
+
+/** Decimal places of the minor unit; currencies not listed use two. */
+const MINOR_DIGITS: Record<string, number> = { JPY: 0, KRW: 0, VND: 0, KWD: 3, BHD: 3 };
+
+const FOREIGN_RE = /^(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s+([A-Z]{3})$/;
+
+/** "9.99 USD" to minor units; the decimals must match the currency exactly, else null. */
+export function parseForeignAmount(text: string): { currency: string; minor: number } | null {
+  const m = FOREIGN_RE.exec(text.trim());
+  if (!m) return null;
+  const currency = m[3] ?? "";
+  const digits = MINOR_DIGITS[currency] ?? 2;
+  const fraction = m[2] ?? "";
+  if (fraction.length !== digits) return null;
+  const minor = Number((m[1] ?? "").replace(/,/g, "") + fraction);
+  return Number.isSafeInteger(minor) ? { currency, minor } : null;
+}
+
+/**
+ * Foreign-card layout, both mails. The authorization has an `Authorization:` line and no final
+ * VND amount; the debit has `Debit:` (VND, wins) and `Foreign amount:`. They are paired by the
+ * account tail and the `Auth code:` line.
+ */
+export const FOREIGN_CARD_TEMPLATE: TemplateParser = {
+  id: "foreign-card",
+  version: 1,
+  parse(body) {
+    const v = valuesOf(body);
+    const authText = v.get("authorization");
+    const debitText = v.get("debit");
+    if ((authText ? 1 : 0) + (debitText ? 1 : 0) !== 1) return fail("stage");
+
+    const ref = v.get("ref") ?? "";
+    if (!/^[A-Za-z0-9]{4,40}$/.test(ref)) return fail("ref");
+    const timeText = v.get("time") ?? "";
+    const occurredAt = toUtcIso(timeText, 420);
+    if (!occurredAt) return fail("time");
+    const hint = /(\d{3,})$/.exec(v.get("account") ?? "")?.[1];
+    if (!hint) return fail("account");
+    const code = v.get("auth code") ?? "";
+    if (!/^[A-Za-z0-9]{3,40}$/.test(code)) return fail("auth_code");
+    const merchant = v.get("merchant") ?? "";
+    if (!merchant) return fail("merchant");
+
+    const foreignText = authText ?? v.get("foreign amount") ?? "";
+    const foreignAmount = parseForeignAmount(foreignText);
+    if (!foreignAmount) return fail("foreign_amount");
+    const foreign: ForeignCard = {
+      stage: authText ? "authorization" : "debit",
+      pairKey: `${hint}|${code.toLowerCase()}`,
+      currency: foreignAmount.currency,
+      foreignAmountMinor: foreignAmount.minor,
+      merchant,
+    };
+
+    let amountVnd = 0;
+    let amountText = foreignText;
+    if (debitText) {
+      amountText = debitText.replace(/\s*VND$/, "");
+      const parsed = parseAmountVnd(amountText);
+      if (parsed === null) return fail("amount");
+      amountVnd = parsed;
+    }
+    const fields: ParsedFields = {
+      bankTransactionRef: ref,
+      bankAccountHint: hint,
+      direction: "out",
+      amountVnd,
+      currency: "VND",
+      counterparty: null,
+      memo: v.get("details") ?? "",
+      occurredAt,
+    };
+    return {
+      ok: true,
+      raw: { amount: amountText, ref, time: timeText, foreignAmount: foreignText },
+      fields,
+      foreign,
+    };
   },
 };

@@ -17,6 +17,10 @@ export type ReceiptRecord = {
   templateVersion?: number;
   bankTransactionRef?: string;
   fields?: ParsedFields;
+  /** Foreign-card purchase key shared by an authorization and its debit. */
+  pairKey?: string;
+  /** Set on a consumed authorization: the debit receipt it was paired with. */
+  pairedReceiptId?: string;
 };
 
 /**
@@ -28,6 +32,11 @@ export interface IngestStore {
   /** Must match only `parsed` or `duplicate` receipts, never `rejected` ones. */
   findByMessageId(userId: string, messageId: string): Promise<ReceiptRecord | null>;
   findParsedByRef(userId: string, bankTransactionRef: string): Promise<ReceiptRecord | null>;
+  /** Latest held foreign-card authorization (state `parsing`) of the purchase, if any. */
+  findHeldByPairKey(userId: string, pairKey: string): Promise<ReceiptRecord | null>;
+  /** Latest `parsed` receipt carrying the purchase key, if any. */
+  findParsedByPairKey(userId: string, pairKey: string): Promise<ReceiptRecord | null>;
+  /** Inserts the record, or replaces the one with the same id. */
   save(record: ReceiptRecord): Promise<void>;
 }
 
@@ -54,8 +63,26 @@ export class MemoryIngestStore implements IngestStore {
     );
   }
 
+  private latest(userId: string, pairKey: string, state: ReceiptState) {
+    return (
+      [...this.records]
+        .reverse()
+        .find((r) => r.userId === userId && r.state === state && r.pairKey === pairKey) ?? null
+    );
+  }
+
+  async findHeldByPairKey(userId: string, pairKey: string) {
+    return this.latest(userId, pairKey, "parsing");
+  }
+
+  async findParsedByPairKey(userId: string, pairKey: string) {
+    return this.latest(userId, pairKey, "parsed");
+  }
+
   async save(record: ReceiptRecord) {
-    this.records.push({ ...record });
+    const at = this.records.findIndex((r) => r.id === record.id);
+    if (at >= 0) this.records[at] = { ...record };
+    else this.records.push({ ...record });
   }
 
   size(): number {
