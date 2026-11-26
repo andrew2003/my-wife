@@ -14,11 +14,15 @@ type StoredContract = {
   contract: CommitmentContract;
   /** Set once contract.signed was published; null means the event is still owed. */
   eventPublishedAt: string | null;
+  /** True while one caller is publishing; guards against a concurrent second publish. */
+  eventClaimed: boolean;
 };
 
 export interface ContractStore {
   findSigned(userId: string, cycleId: string): CommitmentContract | undefined;
-  findOwedEvent(userId: string, cycleId: string): CommitmentContract | undefined;
+  /** Atomically claims the owed event of the contract; undefined if none is owed or it is claimed. */
+  claimOwedEvent(userId: string, cycleId: string): CommitmentContract | undefined;
+  releaseEventClaim(contractId: string): void;
   latestVersion(userId: string, cycleId: string): number;
   save(userId: string, contract: CommitmentContract): void;
   markEventPublished(contractId: string, at: string): void;
@@ -31,15 +35,22 @@ export class InMemoryContractStore implements ContractStore {
   findSigned(userId: string, cycleId: string) {
     return this.latest(userId, cycleId)?.contract;
   }
-  findOwedEvent(userId: string, cycleId: string) {
+  // Synchronous check-and-set: no await between the test and the write.
+  claimOwedEvent(userId: string, cycleId: string) {
     const row = this.latest(userId, cycleId);
-    return row && row.eventPublishedAt === null ? row.contract : undefined;
+    if (!row || row.eventPublishedAt !== null || row.eventClaimed) return undefined;
+    row.eventClaimed = true;
+    return row.contract;
+  }
+  releaseEventClaim(contractId: string) {
+    const row = this.rows.find((r) => r.contract.id === contractId);
+    if (row) row.eventClaimed = false;
   }
   latestVersion(userId: string, cycleId: string) {
     return this.latest(userId, cycleId)?.contract.version ?? 0;
   }
   save(userId: string, contract: CommitmentContract) {
-    this.rows.push({ userId, contract: Object.freeze(contract), eventPublishedAt: null });
+    this.rows.push({ userId, contract: Object.freeze(contract), eventPublishedAt: null, eventClaimed: false });
   }
   markEventPublished(contractId: string, at: string) {
     const row = this.rows.find((r) => r.contract.id === contractId);
@@ -94,6 +105,7 @@ export function createContractService(deps: ContractServiceDeps) {
       } as EventEnvelope);
       deps.store.markEventPublished(contract.id, deps.now().toISOString());
     } catch (err) {
+      deps.store.releaseEventClaim(contract.id);
       deps.onPublishError?.(err);
     }
   }
@@ -103,7 +115,7 @@ export function createContractService(deps: ContractServiceDeps) {
     async sign(userId: string, cycleId: string) {
       const existing = deps.store.findSigned(userId, cycleId);
       if (existing) {
-        const owed = deps.store.findOwedEvent(userId, cycleId);
+        const owed = deps.store.claimOwedEvent(userId, cycleId);
         if (owed) await emit(userId, owed);
         return { contract: existing, alreadySigned: true };
       }
@@ -115,7 +127,8 @@ export function createContractService(deps: ContractServiceDeps) {
         summary: buildSummary(userId, cycleId),
       };
       deps.store.save(userId, contract);
-      await emit(userId, contract);
+      const claimed = deps.store.claimOwedEvent(userId, cycleId);
+      if (claimed) await emit(userId, claimed);
       return { contract, alreadySigned: false };
     },
   };

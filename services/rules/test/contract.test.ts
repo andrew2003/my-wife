@@ -73,6 +73,32 @@ describe("sign commitment contract", () => {
     expect(events).toHaveLength(1);
   });
 
+  it("publishes once when two sign calls run concurrently with a slow publish", async () => {
+    const events: EventEnvelope[] = [];
+    const service = createContractService({
+      store: new InMemoryContractStore(),
+      publish: async (e) => {
+        await new Promise((r) => setTimeout(r, 20));
+        events.push(e);
+      },
+      now: () => NOW,
+      newId: ids(),
+    });
+    const [a, b] = await Promise.all([service.sign(USER, CYCLE), service.sign(USER, CYCLE)]);
+    expect(a.contract.id).toBe(b.contract.id);
+    expect(events).toHaveLength(1);
+  });
+
+  it("gives a second user signing the same cycle a separate contract", async () => {
+    const { events, service } = setup();
+    const other = "33333333-3333-4333-8333-333333333333";
+    const a = await service.sign(USER, CYCLE);
+    const b = await service.sign(other, CYCLE);
+    expect(b.alreadySigned).toBe(false);
+    expect(b.contract.id).not.toBe(a.contract.id);
+    expect(events.map((e) => e.userId)).toEqual([USER, other]);
+  });
+
   it("serves POST /contracts/sign", async () => {
     const events: EventEnvelope[] = [];
     const app = await createApp(
