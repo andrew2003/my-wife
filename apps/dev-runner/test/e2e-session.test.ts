@@ -86,8 +86,12 @@ describe("seedE2eSession", () => {
     runner = await startAll(config, { ephemeralPorts: true, identity: { store } });
     // The runner's gateway uses fixed ports; a gateway pointed at the ephemeral identity
     // service verifies the same cookie the same way.
-    const { identity, budget, schedule } = runner.urls;
-    const gateway = await createGateway(config, {}, { upstreams: { identity, budget, schedule } });
+    const { identity, budget, schedule, rules } = runner.urls;
+    const gateway = await createGateway(
+      config,
+      {},
+      { upstreams: { identity, budget, schedule, rules } },
+    );
     const res = await gateway.inject({
       method: "GET",
       url: "/api/me",
