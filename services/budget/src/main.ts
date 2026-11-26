@@ -2,7 +2,12 @@ import { loadConfig, servicePort } from "@my-wife/config";
 import { type EventEnvelope } from "@my-wife/contracts";
 import { connectNats, subject } from "@my-wife/service-kit";
 import { createApp, SERVICE_NAME } from "./app";
-import { createSettingsReader, runOnboardingConsumer } from "./consumer";
+import {
+  createSettingsReader,
+  RECEIPT_SUBJECT,
+  runEventConsumer,
+  runOnboardingConsumer,
+} from "./consumer";
 
 const config = loadConfig(process.env);
 const nats = await connectNats(config.natsUrl, SERVICE_NAME);
@@ -20,6 +25,14 @@ void runOnboardingConsumer({
   nats,
   prefix,
   handler: app.onOnboardingStepCompleted,
+  log: app.log,
+});
+
+void runEventConsumer({
+  nats,
+  prefix,
+  type: RECEIPT_SUBJECT,
+  handler: app.onReceiptParsed,
   log: app.log,
 });
 

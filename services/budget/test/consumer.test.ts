@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { EventEnvelope } from "@my-wife/contracts";
-import { createSettingsReader, runOnboardingConsumer } from "../src/consumer";
+import {
+  createSettingsReader,
+  RECEIPT_SUBJECT,
+  runEventConsumer,
+  runOnboardingConsumer,
+} from "../src/consumer";
 
 const envelope = (type: string, payload: unknown) =>
   JSON.stringify({
@@ -111,5 +116,33 @@ describe("settings reader", () => {
   ])("returns {} on $name", async ({ fetchFn }) => {
     const read = createSettingsReader({ identityUrl: "http://id", fetchFn: fetchFn as never });
     expect(await read("u1")).toEqual({});
+  });
+});
+
+describe("receipt consumer", () => {
+  it("subscribes to receipt.parsed in the budget queue group and drops other types", async () => {
+    const subscribed: { subject: string; queue: string }[] = [];
+    const handled: EventEnvelope[] = [];
+    await runEventConsumer({
+      prefix: "wt1",
+      type: RECEIPT_SUBJECT,
+      log: { warn: vi.fn(), error: vi.fn() },
+      nats: {
+        subscribe(subject, opts) {
+          subscribed.push({ subject, queue: opts.queue });
+          return (async function* () {
+            yield {
+              string: () =>
+                envelope("onboarding.step_completed", { step: "qa_templates", skipped: true }),
+            };
+          })();
+        },
+      },
+      handler: async (e) => {
+        handled.push(e);
+      },
+    });
+    expect(subscribed).toEqual([{ subject: "wt1.receipt.parsed", queue: "budget" }]);
+    expect(handled).toEqual([]);
   });
 });

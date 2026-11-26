@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AppConfig } from "@my-wife/config";
 import type { EventEnvelope, SettingKey } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
+import { createReceiptHandler } from "./accounts";
 import {
   createOnboardingHandler,
   MemorySampleBudgetStore,
@@ -26,10 +27,12 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     logLevel: config.logLevel,
     nats: deps.nats,
   });
+  const store = deps.store ?? new MemorySampleBudgetStore();
+  const now = deps.now ?? (() => new Date());
   const onOnboardingStepCompleted = createOnboardingHandler({
-    store: deps.store ?? new MemorySampleBudgetStore(),
+    store,
     locale: config.uiLanguage,
-    now: deps.now ?? (() => new Date()),
+    now,
     newId: randomUUID,
     publish: deps.publish ?? (() => undefined),
     readSettings: deps.readSettings,
@@ -37,6 +40,7 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
   });
   // Event consumers are wired by main.ts (NATS) and the dev runner.
   app.decorate("onOnboardingStepCompleted", onOnboardingStepCompleted);
+  app.decorate("onReceiptParsed", createReceiptHandler({ store, now }));
   return app;
 }
 
@@ -44,5 +48,7 @@ declare module "fastify" {
   interface FastifyInstance {
     /** Consumer of `onboarding.step_completed`; wired to NATS by main.ts. */
     onOnboardingStepCompleted: (event: EventEnvelope) => Promise<void>;
+    /** Consumer of `receipt.parsed`; confirms the account the receipt resolves to. */
+    onReceiptParsed: (event: EventEnvelope) => Promise<void>;
   }
 }
