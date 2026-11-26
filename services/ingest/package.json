@@ -1,0 +1,25 @@
+{
+  "name": "@my-wife/ingest",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "start": "NODE_OPTIONS=--max-old-space-size=2048 tsx src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "NODE_OPTIONS=--max-old-space-size=2048 vitest run"
+  },
+  "dependencies": {
+    "@my-wife/config": "workspace:*",
+    "@my-wife/contracts": "workspace:*",
+    "@my-wife/service-kit": "workspace:*",
+    "drizzle-orm": "^0.38.0",
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "vitest": "^3.0.0"
+  }
+}
