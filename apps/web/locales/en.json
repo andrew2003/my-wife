@@ -30,5 +30,6 @@
   "checklist.state.done": "Finished",
   "checklist.state.skipped": "Skipped",
   "checklist.state.carried": "Carried over",
-  "checklist.state.cancelled": "Cancelled"
+  "checklist.state.cancelled": "Cancelled",
+  "countdown.label": "Time remaining"
 }

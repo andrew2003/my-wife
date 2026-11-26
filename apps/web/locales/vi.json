@@ -30,5 +30,6 @@
   "checklist.state.done": "Đã xong",
   "checklist.state.skipped": "Đã bỏ qua",
   "checklist.state.carried": "Chuyển sang sau",
-  "checklist.state.cancelled": "Đã hủy"
+  "checklist.state.cancelled": "Đã hủy",
+  "countdown.label": "Thời gian còn lại"
 }

@@ -1,6 +1,7 @@
 import type { Task } from "@my-wife/contracts";
 import { translate, type Locale } from "../lib/i18n";
 import type { TaskAction } from "../lib/checklist";
+import { TaskCountdown } from "./session-countdown";
 
 export type ChecklistStatus = "loading" | "ready" | "error";
 
@@ -64,6 +65,9 @@ export function ChecklistView(props: ChecklistViewProps) {
                 </span>
               </div>
               <div className="checklist-actions">
+                {task.state === "in_progress" ? (
+                  <TaskCountdown locale={locale} taskId={task.id} />
+                ) : null}
                 {task.state === "planned" ? (
                   <button type="button" disabled={busy} onClick={() => onAction("start", task.id)}>
                     {t("checklist.start")}
