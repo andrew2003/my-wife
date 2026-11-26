@@ -40,6 +40,7 @@ function setup() {
         : json(401, { ok: false, error: { code: "identity.invalid_session" } });
     }
     if (url.startsWith("http://schedule/")) return json(200, { ok: true, data: { sched: 1 } });
+    if (url.startsWith("http://rules/")) return json(200, { ok: true, data: { contract: 1 } });
     if (url.startsWith("http://budget/")) return json(201, { ok: true, data: { raw: 1 } });
     if (url === "http://identity/settings") return json(200, { ok: true, data: { values: {} } });
     if (url === "http://identity/invitations/accept")
@@ -55,6 +56,7 @@ function setup() {
         identity: "http://identity",
         budget: "http://budget",
         schedule: "http://schedule",
+        rules: "http://rules",
       },
     },
   );
@@ -156,6 +158,21 @@ describe("gateway session proxy", () => {
       url: "http://schedule/sessions/active?taskId=t1",
       headers: { "x-user-id": "u1" },
     });
+  });
+
+  it("forwards contract routes to rules with the user id", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good`, "content-type": "application/json" };
+    const res = await (
+      await app
+    ).inject({ method: "POST", url: "/api/contracts/sign", headers, payload: { cycleId: "c1" } });
+    expect(res.json()).toEqual({ ok: true, data: { contract: 1 } });
+    expect(calls[1]).toMatchObject({
+      url: "http://rules/contracts/sign",
+      method: "POST",
+      headers: { "x-user-id": "u1" },
+    });
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ cycleId: "c1" });
   });
 
   it("keeps invitation accept public", async () => {
