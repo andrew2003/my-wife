@@ -1,6 +1,6 @@
-import { expect, test } from "@playwright/test";
 import pg from "pg";
 import { DATABASE_URL, GATEWAY_URL } from "../support/env";
+import { expect, test } from "../support/signed-in";
 
 test("web app, gateway, a service and the database are alive", async ({ page, request }) => {
   await test.step("web app renders from the production build", async () => {

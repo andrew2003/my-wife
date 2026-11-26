@@ -5,7 +5,7 @@ import type { CreateApp, ServiceDeps } from "@my-wife/service-kit";
 import { createApp as ai } from "@my-wife/ai";
 import { createApp as budget } from "@my-wife/budget";
 import { createApp as gateway } from "@my-wife/gateway";
-import { createApp as identity } from "@my-wife/identity";
+import { createApp as identity, type IdentityDeps } from "@my-wife/identity";
 import { createApp as ingest } from "@my-wife/ingest";
 import { createApp as monitor, type MonitorServiceDeps } from "@my-wife/monitor";
 import { createApp as notify } from "@my-wife/notify";
@@ -46,6 +46,8 @@ export type RunnerOptions = {
   /** Let the OS pick ports (tests). */
   ephemeralPorts?: boolean;
   deps?: ServiceDeps;
+  /** Extra dependencies for the identity service (for example a pre-seeded store). */
+  identity?: IdentityDeps;
   /** Extra dependencies for the rules service (publisher, stores, settings reader). */
   rules?: RulesDeps;
   /** Extra dependencies for the schedule service (publisher, clock, settings reader). */
@@ -65,13 +67,15 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
   try {
     for (const name of SERVICE_NAMES) {
       const extra =
-        name === "rules"
-          ? opts.rules
-          : name === "schedule"
-            ? opts.schedule
-            : name === "monitor"
-              ? opts.monitor
-              : undefined;
+        name === "identity"
+          ? opts.identity
+          : name === "rules"
+            ? opts.rules
+            : name === "schedule"
+              ? opts.schedule
+              : name === "monitor"
+                ? opts.monitor
+                : undefined;
       const deps = extra ? { ...opts.deps, ...extra } : opts.deps;
       const app = await FACTORIES[name](config, deps);
       if (name === "rules") trialJob = app.runTrialJob;
