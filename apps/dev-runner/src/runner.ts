@@ -35,6 +35,8 @@ export type Runner = {
   runTrialJob(now: Date): Promise<void>;
   /** Ends due work sessions with an injected `now`. */
   runSessionJob(now: Date): Promise<void>;
+  /** Advances the bedtime state machines with an injected `now`. */
+  runSleepJob(now: Date): Promise<void>;
   /** Checks missing heartbeats with an injected `now`. */
   runGapCheck(now: Date): Promise<void>;
   stop(): Promise<void>;
@@ -58,6 +60,7 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
   const urls = {} as Record<ServiceName, string>;
   let trialJob: ((now: Date) => Promise<void>) | undefined;
   let sessionJob: ((now: Date) => Promise<unknown>) | undefined;
+  let sleepJob: ((now: Date) => Promise<unknown>) | undefined;
   let gapCheck: ((now: Date) => Promise<unknown>) | undefined;
   try {
     for (const name of SERVICE_NAMES) {
@@ -73,6 +76,7 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
       const app = await FACTORIES[name](config, deps);
       if (name === "rules") trialJob = app.runTrialJob;
       if (name === "schedule") sessionJob = (app as unknown as ScheduleApp).runSessionJob;
+      if (name === "schedule") sleepJob = (app as unknown as ScheduleApp).runSleepJob;
       if (name === "monitor") gapCheck = (app as unknown as MonitorApp).runGapCheck;
       apps.push(app);
       await app.listen({ host: "127.0.0.1", port: opts.ephemeralPorts ? 0 : servicePort(name) });
@@ -91,6 +95,9 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
     },
     runSessionJob: async (now) => {
       await sessionJob?.(now);
+    },
+    runSleepJob: async (now) => {
+      await sleepJob?.(now);
     },
     runGapCheck: async (now) => {
       await gapCheck?.(now);
@@ -120,4 +127,9 @@ export function mountSessionJob(runner: Runner, clock: JobClock, intervalMs: num
 /** Runs the heartbeat gap check on the shared clock; the job receives `now` from the simulator. */
 export function mountGapCheckJob(runner: Runner, clock: JobClock, intervalMs: number): number {
   return clock.scheduleEvery(intervalMs, () => runner.runGapCheck(clock.now()));
+}
+
+/** Runs the bedtime reminder job on the shared clock; the job receives `now` from the simulator. */
+export function mountSleepJob(runner: Runner, clock: JobClock, intervalMs: number): number {
+  return clock.scheduleEvery(intervalMs, () => runner.runSleepJob(clock.now()));
 }

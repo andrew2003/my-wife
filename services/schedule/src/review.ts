@@ -149,7 +149,7 @@ function reviewSetting(raw: unknown): { weekday: string; time: string } {
 }
 
 const zoneFormats = new Map<string, Intl.DateTimeFormat>();
-function zoneParts(at: number, zone: string) {
+export function zoneParts(at: number, zone: string) {
   let f = zoneFormats.get(zone);
   if (!f) {
     f = new Intl.DateTimeFormat("en-US", {
@@ -175,7 +175,7 @@ function zoneParts(at: number, zone: string) {
 }
 
 /** UTC instant of local wall time `h:m` on a local date of `zone` (fixed-offset search). */
-function zonedInstant(y: number, mo: number, d: number, h: number, m: number, zone: string) {
+export function zonedInstant(y: number, mo: number, d: number, h: number, m: number, zone: string) {
   const guess = Date.UTC(y, mo - 1, d, h, m);
   const p = new Intl.DateTimeFormat("en-US", {
     timeZone: zone,
@@ -192,7 +192,7 @@ function zonedInstant(y: number, mo: number, d: number, h: number, m: number, zo
   return guess - (asLocal - guess);
 }
 
-function zoneSetting(raw: unknown): string {
+export function zoneSetting(raw: unknown): string {
   const def = SETTINGS["calendar.time_zone"].default as string;
   if (typeof raw !== "string") return def;
   try {

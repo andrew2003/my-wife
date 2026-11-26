@@ -8,5 +8,6 @@
   "schedule.sample.exercise_dinner": "Exercise, dinner",
   "schedule.sample.study": "Study or personal project",
   "schedule.sample.reflection": "Reflection, close the checklist",
-  "schedule.sample.sleep": "Sleep"
+  "schedule.sample.sleep": "Sleep",
+  "routine.bedtime_reminder": "Bedtime in {minutes} minutes (at {bedtime}). Time to wrap up."
 }
