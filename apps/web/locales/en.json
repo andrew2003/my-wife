@@ -156,5 +156,9 @@
   "monitor.start": "Start camera monitoring",
   "monitor.running": "Monitoring is on. Video stays on this device.",
   "monitor.denied": "Camera access was not granted.",
-  "monitor.delegate": "Analysis mode: {delegate}"
+  "monitor.delegate": "Analysis mode: {delegate}",
+  "wake.title": "Wake-up recorded",
+  "wake.recorded": "Your wake time was recorded at {time}.",
+  "wake.on_time": "On time",
+  "wake.late": "Late by {minutes} min"
 }
