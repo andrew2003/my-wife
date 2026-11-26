@@ -39,6 +39,7 @@ function setup() {
         ? json(200, session)
         : json(401, { ok: false, error: { code: "identity.invalid_session" } });
     }
+    if (url.startsWith("http://schedule/")) return json(200, { ok: true, data: { sched: 1 } });
     if (url.startsWith("http://budget/")) return json(201, { ok: true, data: { raw: 1 } });
     if (url === "http://identity/settings") return json(200, { ok: true, data: { values: {} } });
     if (url === "http://identity/invitations/accept")
@@ -48,7 +49,14 @@ function setup() {
   const app = createApp(
     config,
     {},
-    { fetch: fetchFn, upstreams: { identity: "http://identity", budget: "http://budget" } },
+    {
+      fetch: fetchFn,
+      upstreams: {
+        identity: "http://identity",
+        budget: "http://budget",
+        schedule: "http://schedule",
+      },
+    },
   );
   return { app, calls };
 }
@@ -121,6 +129,23 @@ describe("gateway session proxy", () => {
       headers: { "x-user-id": "u1" },
     });
     expect(JSON.parse(calls[1]!.body!)).toEqual({ weeks: 4 });
+  });
+
+  it("forwards checklist and task routes to schedule with the user id", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good`, "content-type": "application/json" };
+    const get = await (
+      await app
+    ).inject({ method: "GET", url: "/api/checklist?date=2026-11-26", headers });
+    expect(get.json()).toEqual({ ok: true, data: { sched: 1 } });
+    expect(calls[1]).toMatchObject({
+      url: "http://schedule/checklist?date=2026-11-26",
+      headers: { "x-user-id": "u1" },
+    });
+    await (
+      await app
+    ).inject({ method: "POST", url: "/api/tasks/complete", headers, payload: { taskId: "t" } });
+    expect(calls.at(-1)).toMatchObject({ url: "http://schedule/tasks/complete", method: "POST" });
   });
 
   it("keeps invitation accept public", async () => {

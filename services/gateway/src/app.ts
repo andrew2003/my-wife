@@ -8,11 +8,19 @@ export const USER_ID_HEADER = "x-user-id";
 
 export type GatewayOptions = {
   fetch?: typeof fetch;
-  upstreams?: { identity: string; budget: string };
+  upstreams?: { identity: string; budget: string; schedule: string };
 };
 
 /** Routes reachable without a session. Everything else under /api needs one. */
 const PUBLIC_ROUTES = new Set(["POST /api/invitations/accept"]);
+
+/** Paths owned by the schedule service (daily checklist and task actions). */
+const SCHEDULE_PREFIXES = ["/checklist", "/tasks"];
+const BUDGET_PREFIXES = ["/budget"];
+
+function isUnder(path: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((p) => path === p || path.startsWith(`${p}/`));
+}
 
 function readCookie(header: string | undefined, name: string): string | undefined {
   for (const part of (header ?? "").split(";")) {
@@ -36,6 +44,7 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
   const upstreams = options.upstreams ?? {
     identity: process.env.IDENTITY_URL ?? `http://localhost:${servicePort("identity")}`,
     budget: process.env.BUDGET_URL ?? `http://localhost:${servicePort("budget")}`,
+    schedule: process.env.SCHEDULE_URL ?? `http://localhost:${servicePort("schedule")}`,
   };
 
   async function forward(
@@ -87,8 +96,11 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
 
         if (path === "/me") return reply.code(200).send(session);
 
-        const base =
-          path === "/budget" || path.startsWith("/budget/") ? upstreams.budget : upstreams.identity;
+        const base = isUnder(path, BUDGET_PREFIXES)
+          ? upstreams.budget
+          : isUnder(path, SCHEDULE_PREFIXES)
+            ? upstreams.schedule
+            : upstreams.identity;
         return await send(
           await forward(base, path + suffix, req.method, req.body, session.data.user.id),
         );
