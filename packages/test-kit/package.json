@@ -1,0 +1,27 @@
+{
+  "name": "@my-wife/test-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "NODE_OPTIONS=--max-old-space-size=2048 vitest run",
+    "seed": "NODE_OPTIONS=--max-old-space-size=2048 tsx src/cli/seed.ts",
+    "inject-emails": "NODE_OPTIONS=--max-old-space-size=2048 tsx src/cli/inject-emails.ts"
+  },
+  "dependencies": {
+    "@my-wife/contracts": "workspace:*",
+    "mailauth": "^8.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.19.0",
+    "vitest": "^3.0.0"
+  }
+}
