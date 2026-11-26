@@ -74,12 +74,14 @@ export type PenaltyLedgerEntry = {
   sourceKey: string;
   auditRefs: string[];
   issuedAt: string;
+  /** Receipt that paid the entry; set when `status` becomes `paid`. */
+  paymentTransactionId?: string;
 };
 
 export type PenaltyAuditRecord = {
   id: string;
   penaltyId: string;
-  action: "penalty.created";
+  action: "penalty.created" | "penalty.paid";
   at: string;
   detail: Record<string, unknown>;
 };
@@ -88,6 +90,15 @@ type Stored = {
   entry: PenaltyLedgerEntry;
   eventPublishedAt: string | null;
   eventClaimed: boolean;
+  paidEventPublishedAt: string | null;
+  paidEventClaimed: boolean;
+};
+
+export type PenaltyPayment = {
+  /** Bank reference of the receipt; one reference pays one entry only. */
+  bankTransactionRef: string;
+  /** Id carried by `penalty.paid` as `transactionId` (the receipt id). */
+  transactionId: string;
 };
 
 export interface PenaltyStore {
@@ -97,19 +108,39 @@ export interface PenaltyStore {
   claimOwedEvent(userId: string, sourceKey: string): PenaltyLedgerEntry | undefined;
   releaseEventClaim(penaltyId: string): void;
   markEventPublished(penaltyId: string, at: string): void;
+  /**
+   * Synchronously moves a `due` entry to `paid` with its audit record, unless the entry is not
+   * `due` or the bank reference was already used by the user. Returns the paid entry.
+   */
+  markPaid(
+    userId: string,
+    penaltyId: string,
+    payment: PenaltyPayment,
+    audit: PenaltyAuditRecord,
+  ): PenaltyLedgerEntry | undefined;
+  claimPaidEvent(userId: string, penaltyId: string): PenaltyLedgerEntry | undefined;
+  releasePaidEventClaim(penaltyId: string): void;
+  markPaidEventPublished(penaltyId: string, at: string): void;
   list(userId: string): readonly PenaltyLedgerEntry[];
   audit(userId: string): readonly PenaltyAuditRecord[];
 }
 
-/** Append-only: entries are frozen; later status changes belong to other issues. */
+/** Entries are frozen; a status change replaces the entry and adds an audit record. */
 export class InMemoryPenaltyStore implements PenaltyStore {
   private readonly rows = new Map<string, Stored[]>();
   private readonly audits = new Map<string, PenaltyAuditRecord[]>();
+  private readonly paidRefs = new Map<string, Set<string>>();
 
   insertOnce(userId: string, entry: PenaltyLedgerEntry, audit: PenaltyAuditRecord) {
     const list = this.rows.get(userId) ?? [];
     if (list.some((r) => r.entry.sourceKey === entry.sourceKey)) return false;
-    list.push({ entry: Object.freeze(entry), eventPublishedAt: null, eventClaimed: false });
+    list.push({
+      entry: Object.freeze(entry),
+      eventPublishedAt: null,
+      eventClaimed: false,
+      paidEventPublishedAt: null,
+      paidEventClaimed: false,
+    });
     this.rows.set(userId, list);
     this.audits.set(userId, [...(this.audits.get(userId) ?? []), Object.freeze(audit)]);
     return true;
@@ -130,6 +161,37 @@ export class InMemoryPenaltyStore implements PenaltyStore {
   markEventPublished(penaltyId: string, at: string) {
     for (const list of this.rows.values())
       for (const r of list) if (r.entry.id === penaltyId) r.eventPublishedAt = at;
+  }
+  markPaid(userId: string, penaltyId: string, payment: PenaltyPayment, audit: PenaltyAuditRecord) {
+    const row = this.rows.get(userId)?.find((r) => r.entry.id === penaltyId);
+    const refs = this.paidRefs.get(userId) ?? new Set<string>();
+    if (!row || row.entry.status !== "due" || refs.has(payment.bankTransactionRef))
+      return undefined;
+    refs.add(payment.bankTransactionRef);
+    this.paidRefs.set(userId, refs);
+    row.entry = Object.freeze({
+      ...row.entry,
+      status: "paid" as const,
+      paymentTransactionId: payment.transactionId,
+      auditRefs: [...row.entry.auditRefs, audit.id],
+    });
+    this.audits.set(userId, [...(this.audits.get(userId) ?? []), Object.freeze(audit)]);
+    return row.entry;
+  }
+  claimPaidEvent(userId: string, penaltyId: string) {
+    const row = this.rows.get(userId)?.find((r) => r.entry.id === penaltyId);
+    if (!row || row.entry.status !== "paid" || row.paidEventPublishedAt !== null) return undefined;
+    if (row.paidEventClaimed) return undefined;
+    row.paidEventClaimed = true;
+    return row.entry;
+  }
+  releasePaidEventClaim(penaltyId: string) {
+    for (const list of this.rows.values())
+      for (const r of list) if (r.entry.id === penaltyId) r.paidEventClaimed = false;
+  }
+  markPaidEventPublished(penaltyId: string, at: string) {
+    for (const list of this.rows.values())
+      for (const r of list) if (r.entry.id === penaltyId) r.paidEventPublishedAt = at;
   }
   list(userId: string) {
     return (this.rows.get(userId) ?? []).map((r) => r.entry);
@@ -154,10 +216,29 @@ export type PenaltyServiceDeps = {
     userId: string,
     ref: { cycleId: string; weekIndex: number; categoryId: string },
   ) => Promise<string>;
+  /**
+   * Tells whether a receipt account hint is the user's penalty savings account. The account
+   * codes live in `budget`; without a resolver the seeded code `PEN` (any case) is accepted.
+   */
+  isPenaltySavingsAccount?: (userId: string, bankAccountHint: string) => Promise<boolean>;
   dueDays?: number;
   newId?: () => string;
   onPublishError?: (err: unknown) => void;
 };
+
+export const DEFAULT_PENALTY_SAVINGS_CODE = "PEN";
+
+/** Uppercase, strip diacritics (including d-stroke) and every non-alphanumeric. Same as budget. */
+export function normalizeMemo(memo: string): string {
+  return memo
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[đĐ]/g, "D")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+export type PaymentResult = { status: "paid"; duplicate: false } | { status: "ignored" };
 
 export type OverspendResult =
   | { status: "none"; warnOnly: boolean; amountVnd: 0; duplicate: false }
@@ -205,7 +286,100 @@ export function createPenaltyService(deps: PenaltyServiceDeps) {
     }
   }
 
+  const isPenaltySavings =
+    deps.isPenaltySavingsAccount ??
+    (async (_u: string, hint: string) =>
+      normalizeMemo(hint) === normalizeMemo(DEFAULT_PENALTY_SAVINGS_CODE));
+
+  async function emitPaid(userId: string, penaltyId: string, now: Date): Promise<void> {
+    const e = deps.store.claimPaidEvent(userId, penaltyId);
+    if (!e) return;
+    try {
+      await deps.publish?.({
+        id: `penalty-paid-${e.id}`,
+        type: "penalty.paid",
+        userId,
+        schemaVersion: EVENT_SCHEMA_VERSION,
+        occurredAt: now.toISOString(),
+        payload: {
+          penaltyId: e.id,
+          source: e.source,
+          amountVnd: e.amountVnd,
+          transactionId: e.paymentTransactionId!,
+        } satisfies EventPayload<"penalty.paid">,
+      } as EventEnvelope);
+      deps.store.markPaidEventPublished(e.id, now.toISOString());
+    } catch (err) {
+      deps.store.releasePaidEventClaim(e.id);
+      deps.onPublishError?.(err);
+    }
+  }
+
   return {
+    /**
+     * Consumes `receipt.parsed`: an incoming transfer into the penalty savings account whose
+     * memo contains the transfer code of a `due` entry and whose amount covers it marks the
+     * entry `paid` (audited, once per bank reference) and emits `penalty.paid`. Anything else
+     * changes nothing. A failed publish is retried by the next delivery of the receipt.
+     */
+    async onReceiptParsed(event: EventEnvelope, now: Date): Promise<PaymentResult> {
+      const { userId } = event;
+      const p = event.payload as EventPayload<"receipt.parsed">;
+      const memo = normalizeMemo(p.memo);
+      let match: PenaltyLedgerEntry | undefined;
+      if (
+        p.direction === "in" &&
+        memo !== "" &&
+        (await isPenaltySavings(userId, p.bankAccountHint))
+      ) {
+        let best = 0;
+        for (const e of deps.store.list(userId)) {
+          const code = normalizeMemo(e.transferCode);
+          if (
+            e.status === "due" &&
+            code !== "" &&
+            p.amountVnd >= e.amountVnd &&
+            memo.includes(code) &&
+            code.length > best
+          ) {
+            match = e;
+            best = code.length;
+          }
+        }
+      }
+      if (!match) {
+        // A receipt already booked may still owe its event after a failed publish.
+        const paid = deps.store
+          .list(userId)
+          .find((e) => e.paymentTransactionId === p.receiptId && e.status === "paid");
+        if (paid) await emitPaid(userId, paid.id, now);
+        return { status: "ignored" };
+      }
+      const audit: PenaltyAuditRecord = {
+        id: newId(),
+        penaltyId: match.id,
+        action: "penalty.paid",
+        at: now.toISOString(),
+        detail: {
+          sourceEventId: event.id,
+          receiptId: p.receiptId,
+          bankTransactionRef: p.bankTransactionRef,
+          paidVnd: p.amountVnd,
+          penaltyVnd: match.amountVnd,
+          transferCode: match.transferCode,
+        },
+      };
+      const paid = deps.store.markPaid(
+        userId,
+        match.id,
+        { bankTransactionRef: p.bankTransactionRef, transactionId: p.receiptId },
+        audit,
+      );
+      if (!paid) return { status: "ignored" };
+      await emitPaid(userId, paid.id, now);
+      return { status: "paid", duplicate: false };
+    },
+
     /**
      * Consumes `overspend.detected`: computes the penalty from the user's settings, writes
      * one ledger entry with its audit record, then emits `penalty.suspended` while the
