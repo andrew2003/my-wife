@@ -7,6 +7,7 @@ export {
   type ApproveResult,
   type TransferRequest,
 } from "./approval";
+export { createFundingHandler, matchFunding, type FundingReceipt } from "./funding";
 export { createApp, SERVICE_NAME, type BudgetDeps } from "./app";
 export {
   createOnboardingHandler,
