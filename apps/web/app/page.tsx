@@ -6,6 +6,9 @@ export default function HomePage() {
     <main>
       <h1>{translate(locale, "home.title")}</h1>
       <p>{translate(locale, "home.subtitle")}</p>
+      <p>
+        <a href="/onboarding">{translate(locale, "onboarding.open")}</a>
+      </p>
     </main>
   );
 }
