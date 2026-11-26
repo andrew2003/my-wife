@@ -347,7 +347,10 @@ export async function viewWakeToday(
     wakeAt: c.wakeAt,
     wakeTime: passed ? c.receivedAt : null,
     minutesLate: passed
-      ? Math.max(0, Math.floor((Date.parse(c.receivedAt as string) - Date.parse(c.wakeAt)) / MINUTE_MS))
+      ? Math.max(
+          0,
+          Math.floor((Date.parse(c.receivedAt as string) - Date.parse(c.wakeAt)) / MINUTE_MS),
+        )
       : null,
   };
 }
