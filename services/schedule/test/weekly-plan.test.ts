@@ -27,7 +27,12 @@ const task = {
 };
 
 async function create(app: App, extra = {}) {
-  const res = await app.inject({ method: "POST", url: "/tasks", headers: H, payload: { ...task, ...extra } });
+  const res = await app.inject({
+    method: "POST",
+    url: "/tasks",
+    headers: H,
+    payload: { ...task, ...extra },
+  });
   return res.json().data.task.id as string;
 }
 
@@ -36,9 +41,19 @@ describe("task state machine", () => {
     const { appP, events } = setup();
     const app = await appP;
     const taskId = await create(app);
-    const start = await app.inject({ method: "POST", url: "/tasks/start", headers: H, payload: { taskId } });
+    const start = await app.inject({
+      method: "POST",
+      url: "/tasks/start",
+      headers: H,
+      payload: { taskId },
+    });
     expect(start.statusCode).toBe(200);
-    const done = await app.inject({ method: "POST", url: "/tasks/complete", headers: H, payload: { taskId } });
+    const done = await app.inject({
+      method: "POST",
+      url: "/tasks/complete",
+      headers: H,
+      payload: { taskId },
+    });
     expect(done.statusCode).toBe(200);
     expect(events.map((e) => e.type)).toEqual(["task.started", "task.ended"]);
     const list = await app.inject({ method: "GET", url: "/checklist?date=2026-11-23", headers: H });
@@ -49,7 +64,12 @@ describe("task state machine", () => {
     const { appP, events } = setup();
     const app = await appP;
     const taskId = await create(app);
-    const done = await app.inject({ method: "POST", url: "/tasks/complete", headers: H, payload: { taskId } });
+    const done = await app.inject({
+      method: "POST",
+      url: "/tasks/complete",
+      headers: H,
+      payload: { taskId },
+    });
     expect(done.statusCode).toBe(200);
     expect(events.map((e) => e.type)).toEqual(["task.started", "task.ended"]);
   });
@@ -57,12 +77,22 @@ describe("task state machine", () => {
   it("rejects start for a task not in the plan", async () => {
     const { appP, events } = setup();
     const app = await appP;
-    const res = await app.inject({ method: "POST", url: "/tasks/start", headers: H, payload: { taskId: "nope" } });
+    const res = await app.inject({
+      method: "POST",
+      url: "/tasks/start",
+      headers: H,
+      payload: { taskId: "nope" },
+    });
     expect(res.statusCode).toBe(404);
     expect(res.json().ok).toBe(false);
     const taskId = await create(app);
     await app.inject({ method: "POST", url: "/tasks/complete", headers: H, payload: { taskId } });
-    const again = await app.inject({ method: "POST", url: "/tasks/start", headers: H, payload: { taskId } });
+    const again = await app.inject({
+      method: "POST",
+      url: "/tasks/start",
+      headers: H,
+      payload: { taskId },
+    });
     expect(again.statusCode).toBe(409);
     const other = await app.inject({
       method: "POST",
@@ -88,7 +118,11 @@ describe("week boundary job", () => {
       payload: { firstDay: "2026-11-23" },
     });
     const weekId = created.json().data.week.id as string;
-    const approved = await app.inject({ method: "POST", url: `/weeks/${weekId}/approve`, headers: H });
+    const approved = await app.inject({
+      method: "POST",
+      url: `/weeks/${weekId}/approve`,
+      headers: H,
+    });
     expect(approved.json().data.week.state).toBe("planned");
     await job(app);
     await job(app);
@@ -147,7 +181,11 @@ describe("review fixes", () => {
       publish: slowPublish(events),
     });
     const created = await post(app, "/weeks", { firstDay: "2026-11-23" });
-    await app.inject({ method: "POST", url: `/weeks/${created.json().data.week.id}/approve`, headers: H });
+    await app.inject({
+      method: "POST",
+      url: `/weeks/${created.json().data.week.id}/approve`,
+      headers: H,
+    });
     await Promise.all([job(app), job(app)]);
     expect(events.filter((e) => e.type === "week.closed")).toHaveLength(1);
   });
@@ -189,7 +227,11 @@ describe("review fixes", () => {
     await post(app, "/tasks/complete", { taskId });
     expect(events.map((e) => e.type)).toEqual(["task.started", "task.ended"]);
     const w = await post(app, "/weeks", { firstDay: "2026-11-23" });
-    await app.inject({ method: "POST", url: `/weeks/${w.json().data.week.id}/approve`, headers: H });
+    await app.inject({
+      method: "POST",
+      url: `/weeks/${w.json().data.week.id}/approve`,
+      headers: H,
+    });
     expect(events.map((e) => e.type)).toEqual(["task.started", "task.ended", "week.planned"]);
     for (const e of events) expect(parseEvent(e)).toMatchObject({ success: true });
   });
@@ -198,7 +240,11 @@ describe("review fixes", () => {
     const { appP, events, setNow } = setup();
     const app = await appP;
     const w = await post(app, "/weeks", { firstDay: "2026-11-23" });
-    await app.inject({ method: "POST", url: `/weeks/${w.json().data.week.id}/approve`, headers: H });
+    await app.inject({
+      method: "POST",
+      url: `/weeks/${w.json().data.week.id}/approve`,
+      headers: H,
+    });
     setNow("2026-12-01T00:00:00Z");
     await job(app);
     const closed = events.find((e) => e.type === "week.closed")!;
@@ -209,10 +255,15 @@ describe("review fixes", () => {
     const { appP, events, setNow } = setup("2026-11-20T08:00:00Z");
     const app = await appP;
     const w = await post(app, "/weeks", { firstDay: "2026-11-23" });
-    await app.inject({ method: "POST", url: `/weeks/${w.json().data.week.id}/approve`, headers: H });
+    await app.inject({
+      method: "POST",
+      url: `/weeks/${w.json().data.week.id}/approve`,
+      headers: H,
+    });
     await job(app);
     const state = async () =>
-      (await app.inject({ method: "GET", url: "/weeks/current", headers: H })).json().data.week.state;
+      (await app.inject({ method: "GET", url: "/weeks/current", headers: H })).json().data.week
+        .state;
     expect(await state()).toBe("planned");
     setNow("2026-11-23T00:00:00Z");
     await job(app);

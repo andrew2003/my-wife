@@ -111,7 +111,8 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     let defaultMinutes: number = SETTINGS["schedule.task_default_minutes"].default;
     if (b.estimatedMinutes === undefined) {
       const answer = (await readSettings(userId))["schedule.task_default_minutes"];
-      if (typeof answer === "number" && Number.isInteger(answer) && answer > 0) defaultMinutes = answer;
+      if (typeof answer === "number" && Number.isInteger(answer) && answer > 0)
+        defaultMinutes = answer;
     }
     const task: PlanTask = {
       id: randomUUID(),
@@ -133,8 +134,14 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
   });
 
   const transition =
-    (run: typeof startTask, schema: typeof StartTaskRequestSchema | typeof CompleteTaskRequestSchema) =>
-    async (req: { headers: Record<string, unknown>; body: unknown }, reply: { code(n: number): unknown }) => {
+    (
+      run: typeof startTask,
+      schema: typeof StartTaskRequestSchema | typeof CompleteTaskRequestSchema,
+    ) =>
+    async (
+      req: { headers: Record<string, unknown>; body: unknown },
+      reply: { code(n: number): unknown },
+    ) => {
       const userId = userOf(req.headers);
       if (!userId) return fail(reply, 401, "schedule.unauthenticated");
       const parsed = schema.safeParse(req.body);
@@ -154,7 +161,10 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (!userId) return fail(reply, 401, "schedule.unauthenticated");
     const date = IsoDateSchema.safeParse((req.query as { date?: string }).date);
     if (!date.success) return fail(reply, 400, "schedule.invalid_request");
-    return { ok: true, data: { date: date.data, tasks: plan.store.tasksOn(userId, date.data).map(taskView) } };
+    return {
+      ok: true,
+      data: { date: date.data, tasks: plan.store.tasksOn(userId, date.data).map(taskView) },
+    };
   });
 
   app.post("/weeks", async (req, reply) => {

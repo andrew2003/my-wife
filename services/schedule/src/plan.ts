@@ -49,7 +49,8 @@ export function createMemoryPlanStore(): PlanStore {
       const t = tasks.get(id);
       return t && t.userId === userId ? t : undefined;
     },
-    tasksOn: (userId, day) => [...tasks.values()].filter((t) => t.userId === userId && t.day === day),
+    tasksOn: (userId, day) =>
+      [...tasks.values()].filter((t) => t.userId === userId && t.day === day),
     addWeek: (w) => void weeks.set(w.id, w),
     getWeek: (userId, id) => {
       const w = weeks.get(id);
@@ -86,13 +87,18 @@ function envelope(deps: PlanDeps, id: string, type: string, userId: string, payl
   } as EventEnvelope;
 }
 
-export type TaskResult = { ok: true; task: PlanTask } | { ok: false; error: "not_in_plan" | "invalid_state" };
+export type TaskResult =
+  { ok: true; task: PlanTask } | { ok: false; error: "not_in_plan" | "invalid_state" };
 
 /**
  * Start: only a task of this user that is still `planned` can be started. The state is claimed
  * before the publish so concurrent calls emit once; a failed publish rolls the claim back.
  */
-export async function startTask(deps: PlanDeps, userId: string, taskId: string): Promise<TaskResult> {
+export async function startTask(
+  deps: PlanDeps,
+  userId: string,
+  taskId: string,
+): Promise<TaskResult> {
   const task = deps.store.getTask(userId, taskId);
   if (!task) return { ok: false, error: "not_in_plan" };
   if (task.state !== "planned") return { ok: false, error: "invalid_state" };
@@ -117,7 +123,11 @@ async function publishStarted(deps: PlanDeps, task: PlanTask) {
 }
 
 /** Tick done. A task ticked while still `planned` passes through `in_progress`. No chat message. */
-export async function completeTask(deps: PlanDeps, userId: string, taskId: string): Promise<TaskResult> {
+export async function completeTask(
+  deps: PlanDeps,
+  userId: string,
+  taskId: string,
+): Promise<TaskResult> {
   const task = deps.store.getTask(userId, taskId);
   if (!task) return { ok: false, error: "not_in_plan" };
   const from = task.state;
@@ -137,14 +147,25 @@ export async function completeTask(deps: PlanDeps, userId: string, taskId: strin
 }
 
 export function createWeek(deps: PlanDeps, userId: string, firstDay: string): PlanWeek {
-  const week: PlanWeek = { id: randomUUID(), userId, firstDay, state: "draft", closedAnnounced: false };
+  const week: PlanWeek = {
+    id: randomUUID(),
+    userId,
+    firstDay,
+    state: "draft",
+    closedAnnounced: false,
+  };
   deps.store.addWeek(week);
   return week;
 }
 
-export type ApproveResult = { ok: true; week: PlanWeek } | { ok: false; error: "not_found" | "not_draft" };
+export type ApproveResult =
+  { ok: true; week: PlanWeek } | { ok: false; error: "not_found" | "not_draft" };
 
-export async function approveWeek(deps: PlanDeps, userId: string, weekId: string): Promise<ApproveResult> {
+export async function approveWeek(
+  deps: PlanDeps,
+  userId: string,
+  weekId: string,
+): Promise<ApproveResult> {
   const week = deps.store.getWeek(userId, weekId);
   if (!week) return { ok: false, error: "not_found" };
   if (week.state !== "draft") return { ok: false, error: "not_draft" };
@@ -167,7 +188,9 @@ export async function approveWeek(deps: PlanDeps, userId: string, weekId: string
  * Idempotent boundary job. Moves weeks along planned -> active -> reviewing and announces
  * `week.closed` once per week; a failed publish keeps the week unannounced for the next run.
  */
-export async function runWeekBoundary(deps: PlanDeps): Promise<{ closed: string[]; failed: string[] }> {
+export async function runWeekBoundary(
+  deps: PlanDeps,
+): Promise<{ closed: string[]; failed: string[] }> {
   const nowMs = deps.now().getTime();
   const result = { closed: [] as string[], failed: [] as string[] };
   for (const week of deps.store.allWeeks()) {
