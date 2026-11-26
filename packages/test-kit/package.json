@@ -15,6 +15,7 @@
     "inject-emails": "NODE_OPTIONS=--max-old-space-size=2048 tsx src/cli/inject-emails.ts"
   },
   "dependencies": {
+    "@my-wife/config": "workspace:^",
     "@my-wife/contracts": "workspace:*",
     "mailauth": "^8.1.0",
     "ws": "^8.18.0"

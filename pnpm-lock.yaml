@@ -151,6 +151,9 @@ importers:
 
   packages/test-kit:
     dependencies:
+      '@my-wife/config':
+        specifier: workspace:^
+        version: link:../config
       '@my-wife/contracts':
         specifier: workspace:*
         version: link:../contracts

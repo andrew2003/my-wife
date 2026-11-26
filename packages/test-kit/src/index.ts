@@ -4,3 +4,4 @@ export * from "./fakes/base";
 export * from "./fakes/telegram";
 export * from "./fakes/discord";
 export * from "./fakes/channels";
+export * from "./emails";

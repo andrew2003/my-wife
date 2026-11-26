@@ -34,3 +34,6 @@ playwright-report/
 test-results/
 next-env.d.ts
 *.tsbuildinfo
+
+# Local demo state (seed file, test DKIM keys)
+.demo/
