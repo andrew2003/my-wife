@@ -15,7 +15,9 @@ const { values } = parseArgs({
   options: {
     url: {
       type: "string",
-      default: process.env.INGEST_WEBHOOK_URL ?? `http://localhost:${servicePort("ingest")}/webhook/inbound-email`,
+      default:
+        process.env.INGEST_WEBHOOK_URL ??
+        `http://localhost:${servicePort("ingest")}/webhook/inbound-email`,
     },
     secret: { type: "string", default: process.env.INGEST_WEBHOOK_SECRET },
     to: { type: "string", default: process.env.DEMO_FORWARD_ADDRESS ?? "u-demo@in.example.test" },
@@ -27,7 +29,8 @@ const { values } = parseArgs({
 
 /** Test keys persist so the published DNS record stays valid between runs. */
 function loadKeys(file: string): { bank: DkimKey; attacker: DkimKey } {
-  if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8")) as { bank: DkimKey; attacker: DkimKey };
+  if (existsSync(file))
+    return JSON.parse(readFileSync(file, "utf8")) as { bank: DkimKey; attacker: DkimKey };
   const keys = { bank: createDkimKey("test"), attacker: createDkimKey("attacker") };
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify(keys, null, 2), { mode: 0o600 });
@@ -44,7 +47,9 @@ const fixtures = await buildEmailFixtures({
 
 if (values.list) {
   for (const f of fixtures) console.log(`${f.name}\t${f.expect.state}\tdkim=${f.expect.dkim}`);
-  console.log(`\nTest DKIM key for ${BANK_DKIM_DOMAIN}: ${keys.bank.selector}._domainkey TXT "${dkimTxtRecord(keys.bank)}"`);
+  console.log(
+    `\nTest DKIM key for ${BANK_DKIM_DOMAIN}: ${keys.bank.selector}._domainkey TXT "${dkimTxtRecord(keys.bank)}"`,
+  );
 } else {
   if (!values.secret) throw new Error("Set INGEST_WEBHOOK_SECRET or pass --secret");
   const results = await injectEmails(fixtures, {

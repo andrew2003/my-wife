@@ -85,7 +85,10 @@ export class TelegramFake extends FakeChatServer {
 
     switch (m[2]) {
       case "getMe":
-        return sendJson(res, 200, { ok: true, result: { id: 1, is_bot: true, username: "fake_bot" } });
+        return sendJson(res, 200, {
+          ok: true,
+          result: { id: 1, is_bot: true, username: "fake_bot" },
+        });
       case "sendMessage":
       case "sendPhoto": {
         if (!this.admitSend(res)) return;

@@ -1,6 +1,11 @@
 import { defineConfig, devices } from "@playwright/test";
 import {
-  CAMERA_DELEGATE, DATABASE_URL, FAKE_VIDEO, NATS_SUBJECT_PREFIX, WEB_PORT, WEB_URL,
+  CAMERA_DELEGATE,
+  DATABASE_URL,
+  FAKE_VIDEO,
+  NATS_SUBJECT_PREFIX,
+  WEB_PORT,
+  WEB_URL,
 } from "./support/env";
 
 const root = new URL("../..", import.meta.url).pathname;

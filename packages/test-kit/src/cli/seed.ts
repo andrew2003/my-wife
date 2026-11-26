@@ -12,4 +12,6 @@ const { values } = parseArgs({
 const locale = values.locale === "en" ? "en" : "vi";
 const now = values.now ? new Date(values.now) : new Date();
 const result = await applySeed(new FileSeedStore(values.file as string), buildSeed(now, locale));
-console.log(`seed: ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`);
+console.log(
+  `seed: ${result.created} created, ${result.updated} updated, ${result.unchanged} unchanged`,
+);

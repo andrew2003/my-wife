@@ -46,9 +46,7 @@ describe("DiscordFake REST", () => {
   it("records channel messages with button components", async () => {
     const res = await rest("/channels/c1/messages", {
       content: "budget.question",
-      components: [
-        { type: 1, components: [{ type: 2, label: "a", custom_id: "q1:a", style: 1 }] },
-      ],
+      components: [{ type: 1, components: [{ type: 2, label: "a", custom_id: "q1:a", style: 1 }] }],
     });
     expect(res.status).toBe(200);
     expect(((await res.json()) as any).id).toBe("1");
@@ -82,9 +80,15 @@ describe("DiscordFake gateway", () => {
     const sent = await (await rest("/channels/c1/messages", { content: "q" })).json();
     dc.tapButton("c1", "u1", (sent as any).id, "q1:a");
     await until(() => events.length === 2);
-    expect(events[0]).toMatchObject({ t: "MESSAGE_CREATE", d: { channel_id: "c1", content: "hello" } });
+    expect(events[0]).toMatchObject({
+      t: "MESSAGE_CREATE",
+      d: { channel_id: "c1", content: "hello" },
+    });
     expect(events[0].d.author.id).toBe("u1");
-    expect(events[1]).toMatchObject({ t: "INTERACTION_CREATE", d: { data: { custom_id: "q1:a" } } });
+    expect(events[1]).toMatchObject({
+      t: "INTERACTION_CREATE",
+      d: { data: { custom_id: "q1:a" } },
+    });
     ws.close();
   });
 

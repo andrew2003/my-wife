@@ -53,7 +53,11 @@ describe("createServiceApp", () => {
   it("does not log secrets passed in an authorization header", async () => {
     const { lines, stream } = capture();
     const app = createServiceApp({ name: "budget", logLevel: "info", logStream: stream });
-    await app.inject({ method: "GET", url: "/health", headers: { authorization: "Bearer SECRET" } });
+    await app.inject({
+      method: "GET",
+      url: "/health",
+      headers: { authorization: "Bearer SECRET" },
+    });
     expect(JSON.stringify(lines)).not.toContain("SECRET");
   });
 });

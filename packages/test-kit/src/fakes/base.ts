@@ -33,7 +33,8 @@ export abstract class FakeChatServer {
   private failures = 0;
   private bot: BotMessage[] = [];
   private nextMessageId = 1;
-  private waiters: Array<{ pred: (m: BotMessage) => boolean; resolve: (m: BotMessage) => void }> = [];
+  private waiters: Array<{ pred: (m: BotMessage) => boolean; resolve: (m: BotMessage) => void }> =
+    [];
 
   get url(): string {
     return `http://127.0.0.1:${this.port}`;
@@ -116,7 +117,13 @@ export abstract class FakeChatServer {
   }
 
   protected recordBot(chatId: string, text: string, buttons: BotMessage["buttons"]): BotMessage {
-    const msg: BotMessage = { id: String(this.nextMessageId++), chatId, text, buttons, sentAt: this.clock.now().getTime() };
+    const msg: BotMessage = {
+      id: String(this.nextMessageId++),
+      chatId,
+      text,
+      buttons,
+      sentAt: this.clock.now().getTime(),
+    };
     this.bot.push(msg);
     for (const w of [...this.waiters]) {
       if (w.pred(msg)) {

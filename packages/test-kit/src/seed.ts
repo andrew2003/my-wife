@@ -45,7 +45,9 @@ function localDate(ms: number): string {
 function weekStart(now: Date): { date: string; ms: number } {
   const local = new Date(now.getTime() + DEMO_UTC_OFFSET_HOURS * 3_600_000);
   const sinceMonday = (local.getUTCDay() + 6) % 7;
-  const ms = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) - sinceMonday * DAY_MS;
+  const ms =
+    Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate()) -
+    sinceMonday * DAY_MS;
   return { date: new Date(ms).toISOString().slice(0, 10), ms };
 }
 
@@ -53,7 +55,12 @@ function weekStart(now: Date): { date: string; ms: number } {
 export function buildSeed(now: Date, locale: "vi" | "en" = "vi"): SeedData {
   const week = weekStart(now);
   const day = (offset: number) => localDate(week.ms + offset * DAY_MS);
-  const account = (id: string, name: string, code: string, kind: BankAccount["kind"]): BankAccount => ({
+  const account = (
+    id: string,
+    name: string,
+    code: string,
+    kind: BankAccount["kind"],
+  ): BankAccount => ({
     id,
     name,
     code,
@@ -79,7 +86,12 @@ export function buildSeed(now: Date, locale: "vi" | "en" = "vi"): SeedData {
     cycleLimitVnd,
     wantOrder,
   });
-  const planned = (categoryId: string, number: number, amountVnd: number, code: string): PlannedItem => ({
+  const planned = (
+    categoryId: string,
+    number: number,
+    amountVnd: number,
+    code: string,
+  ): PlannedItem => ({
     id: `seed-planned-${code.toLowerCase()}`,
     categoryId,
     number,
@@ -156,11 +168,35 @@ export function buildSeed(now: Date, locale: "vi" | "en" = "vi"): SeedData {
     },
     scheduleWeek: { id: "seed-week-1", firstDay: week.date, state: "active" },
     tasks: [
-      task(1, "Write the project report", 0, { start: "09:00", end: "11:00" }, 120, "camera", "desk"),
-      task(2, "Read two chapters", 1, { start: "14:00", end: "15:30" }, 90, "checklist_only", "desk"),
+      task(
+        1,
+        "Write the project report",
+        0,
+        { start: "09:00", end: "11:00" },
+        120,
+        "camera",
+        "desk",
+      ),
+      task(
+        2,
+        "Read two chapters",
+        1,
+        { start: "14:00", end: "15:30" },
+        90,
+        "checklist_only",
+        "desk",
+      ),
       task(3, "Morning run", 2, { start: "06:00", end: "06:45" }, 45, "offline_checkin", "offline"),
       task(4, "Pay the course fee", 3, null, 15, "none", "money"),
-      task(5, "Weekly review prep", 6, { start: "19:00", end: "19:30" }, 30, "checklist_only", "desk"),
+      task(
+        5,
+        "Weekly review prep",
+        6,
+        { start: "19:00", end: "19:30" },
+        30,
+        "checklist_only",
+        "desk",
+      ),
     ],
   };
 }

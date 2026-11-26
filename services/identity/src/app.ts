@@ -40,11 +40,16 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
   const store = deps.store ?? createMemoryStore();
   const now = deps.now ?? (() => new Date());
   const setting = (key: SettingKey): number =>
-    (deps.settings?.[key] ?? (SETTINGS[key].default as number));
+    deps.settings?.[key] ?? (SETTINGS[key].default as number);
   const bootstrap = deps.bootstrapAdminEmail?.toLowerCase();
 
   const publicUser = (u: UserRecord) => ({
-    id: u.id, email: u.email, state: u.state, role: u.role, locale: u.locale, lastSeenAt: u.lastSeenAt,
+    id: u.id,
+    email: u.email,
+    state: u.state,
+    role: u.role,
+    locale: u.locale,
+    lastSeenAt: u.lastSeenAt,
   });
 
   async function createUser(email: string, role: "user" | "admin") {
@@ -52,7 +57,12 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       return "identity.user_limit_reached" as const;
     }
     const user: UserRecord = {
-      id: randomUUID(), email, state: "active", role, locale: config.uiLanguage, lastSeenAt: null,
+      id: randomUUID(),
+      email,
+      state: "active",
+      role,
+      locale: config.uiLanguage,
+      lastSeenAt: null,
     };
     await store.saveUser(user);
     return user;
@@ -61,13 +71,16 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
   /** Invitation-only sign-up: an existing user, the bootstrap admin, or an open invitation. */
   async function resolveUser(email: string, consume: boolean) {
     const existing = await store.findUserByEmail(email);
-    if (existing) return existing.state === "active" ? existing : ("identity.account_unavailable" as const);
-    if (bootstrap && email === bootstrap) return consume ? createUser(email, "admin") : ("pending" as const);
+    if (existing)
+      return existing.state === "active" ? existing : ("identity.account_unavailable" as const);
+    if (bootstrap && email === bootstrap)
+      return consume ? createUser(email, "admin") : ("pending" as const);
     const invitation = await store.findOpenInvitationByEmail(email, now());
     if (!invitation) return "identity.not_invited" as const;
     if (!consume) return "pending" as const;
     const user = await createUser(email, "user");
-    if (typeof user !== "string") await store.saveInvitation({ ...invitation, usedAt: now().toISOString() });
+    if (typeof user !== "string")
+      await store.saveInvitation({ ...invitation, usedAt: now().toISOString() });
     return user;
   }
 
@@ -76,7 +89,10 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     return {
       user: publicUser(user),
       expiresAt: exp.toISOString(),
-      sessionToken: signSession({ sub: user.id, exp: Math.floor(exp.getTime() / 1000) }, config.sessionSecret),
+      sessionToken: signSession(
+        { sub: user.id, exp: Math.floor(exp.getTime() / 1000) },
+        config.sessionSecret,
+      ),
     };
   }
 
@@ -87,14 +103,19 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
 
   app.post("/invitations", async (req, reply) => {
     if (req.headers["x-user-role"] !== "admin") return fail(reply, 403, "identity.forbidden");
-    const email = String((req.body as { email?: string } | undefined)?.email ?? "").trim().toLowerCase();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail(reply, 400, "identity.invalid_email");
+    const email = String((req.body as { email?: string } | undefined)?.email ?? "")
+      .trim()
+      .toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+      return fail(reply, 400, "identity.invalid_email");
     const token = newToken();
     const invitation: InvitationRecord = {
       id: randomUUID(),
       email,
       tokenHash: hashToken(token),
-      expiresAt: new Date(now().getTime() + setting("identity.invitation_ttl_days") * DAY).toISOString(),
+      expiresAt: new Date(
+        now().getTime() + setting("identity.invitation_ttl_days") * DAY,
+      ).toISOString(),
       usedAt: null,
       revokedAt: null,
     };
@@ -104,7 +125,11 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       ok: true,
       data: {
         invitation: {
-          id: invitation.id, email, expiresAt: invitation.expiresAt, usedAt: null, revokedAt: null,
+          id: invitation.id,
+          email,
+          expiresAt: invitation.expiresAt,
+          usedAt: null,
+          revokedAt: null,
         },
       },
     });
@@ -113,7 +138,12 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
   app.post("/invitations/accept", async (req, reply) => {
     const token = String((req.body as { token?: string } | undefined)?.token ?? "");
     const invitation = token ? await store.findInvitationByTokenHash(hashToken(token)) : undefined;
-    if (!invitation || invitation.usedAt || invitation.revokedAt || new Date(invitation.expiresAt) <= now()) {
+    if (
+      !invitation ||
+      invitation.usedAt ||
+      invitation.revokedAt ||
+      new Date(invitation.expiresAt) <= now()
+    ) {
       return fail(reply, 400, "identity.invitation_invalid");
     }
     const existing = await store.findUserByEmail(invitation.email);
@@ -137,7 +167,9 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
   app.post("/auth/magic-link", async (req, reply) => {
     const blocked = methodGuard("magic_link", reply);
     if (blocked) return blocked;
-    const email = String((req.body as { email?: string } | undefined)?.email ?? "").trim().toLowerCase();
+    const email = String((req.body as { email?: string } | undefined)?.email ?? "")
+      .trim()
+      .toLowerCase();
     // Same answer whether or not the email is known: no account enumeration.
     const known = email ? await resolveUser(email, false) : "identity.not_invited";
     const eligible = typeof known !== "string" || known === "pending";
@@ -146,7 +178,9 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       await store.saveLoginToken({
         tokenHash: hashToken(token),
         email,
-        expiresAt: new Date(now().getTime() + setting("identity.magic_link_ttl_minutes") * MINUTE).toISOString(),
+        expiresAt: new Date(
+          now().getTime() + setting("identity.magic_link_ttl_minutes") * MINUTE,
+        ).toISOString(),
         usedAt: null,
       });
       await deps.onMagicLink?.(email, token);
@@ -173,8 +207,12 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     const token = String((req.body as { token?: string } | undefined)?.token ?? "");
     const payload = verifySession(token, config.sessionSecret, now());
     const user = payload ? await store.findUserById(payload.sub) : undefined;
-    if (!payload || !user || user.state !== "active") return fail(reply, 401, "identity.invalid_session");
-    return { ok: true, data: { user: publicUser(user), expiresAt: new Date(payload.exp * 1000).toISOString() } };
+    if (!payload || !user || user.state !== "active")
+      return fail(reply, 401, "identity.invalid_session");
+    return {
+      ok: true,
+      data: { user: publicUser(user), expiresAt: new Date(payload.exp * 1000).toISOString() },
+    };
   });
 
   return app;
