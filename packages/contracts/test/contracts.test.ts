@@ -182,9 +182,9 @@ describe("settings registry", () => {
     expect(SETTINGS["notify.quiet_hours"].default).toEqual({ from: "23:00", to: "06:30" });
     expect(SETTINGS["sync.retry_backoff_seconds"].default).toEqual([30, 120, 600, 3600]);
   });
-  it("makes the need-group overspend penalty a setting (Q-0001 stays open)", () => {
+  it("makes the need-group overspend penalty a setting that defaults to penalize (Q-0001)", () => {
     expect(SettingKeySchema.safeParse("penalty.need_overspend_mode").success).toBe(true);
-    expect(SETTINGS["penalty.need_overspend_mode"].default).toBe("warn_only");
+    expect(SETTINGS["penalty.need_overspend_mode"].default).toBe("penalize");
   });
   it("validates values per key", () => {
     expect(validateSettingValue("budget.cycle_weeks", 6).success).toBe(true);

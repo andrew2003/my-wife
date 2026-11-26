@@ -85,10 +85,10 @@ export const SETTINGS = {
   // Rules, penalties and trial
   "penalty.overspend_percent": def(PercentSchema, 100, "rules"),
   /**
-   * Q-0001 is open: whether a `need` overspend is penalized. Modelled as a setting; the
-   * default follows docs/decisions.md (warn only). `penalize` uses penalty.overspend_percent.
+   * Whether a `need` overspend is penalized (owner answer to Q-0001, ADR 0011): default
+   * `penalize`, using penalty.overspend_percent; `warn_only` stays available.
    */
-  "penalty.need_overspend_mode": def(NeedOverspendModeSchema, "warn_only", "rules"),
+  "penalty.need_overspend_mode": def(NeedOverspendModeSchema, "penalize", "rules"),
   "penalty.weekly_cap_vnd": def(vnd, 500000, "rules"),
   "penalty.withdrawal_extra_percent": def(PercentSchema, 20, "rules"),
   /** Ordered category ids; empty means "derive from the user's ordered want list". */
