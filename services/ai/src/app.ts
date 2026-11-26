@@ -6,18 +6,37 @@ import { renderMessage } from "./i18n";
 import { createProvider, type LlmProvider } from "./llm";
 import { InMemoryMemoryStore, loadMemoryLimits, MemoryService, type MemoryStore } from "./memory";
 import { createSettingsReader } from "./settings";
+import {
+  createVisionModel,
+  InMemoryChallengeStore,
+  WakeError,
+  WakeService,
+  type ChallengeStore,
+  type VisionModel,
+} from "./wake";
 
 export const SERVICE_NAME = "ai";
+/** Largest accepted photo request body (base64 text), 10 MiB. */
+const WAKE_PHOTO_BODY_LIMIT = 10 * 1024 * 1024;
 
 export interface AiDeps extends ServiceDeps {
   provider?: LlmProvider;
   publish?: (event: {
-    name: "ai.message_sent" | "memory.created";
+    name: "ai.message_sent" | "memory.created" | "ai.photo_graded";
     payload: unknown;
   }) => Promise<void>;
   memoryStore?: MemoryStore;
   /** Effective user settings (identity `GET /settings`); defaults to an HTTP reader. */
   readSettings?: (userId: string) => Promise<Record<string, unknown>>;
+  challengeStore?: ChallengeStore;
+  /** Vision model for wake photos; the fake one until M4. */
+  visionModel?: VisionModel;
+  /**
+   * Whether the user gave the `wake_photo` consent. No read route exists in identity yet, so the
+   * default allows it (the fake model sends the photo nowhere); see docs/decisions.md.
+   */
+  hasWakePhotoConsent?: (userId: string) => Promise<boolean>;
+  now?: () => Date;
   memoryLimits?: { maxFactLength: number; maxPerTurn: number };
 }
 
@@ -49,6 +68,67 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     memory,
     warn: (fields, message) => app.log.warn(fields, message),
   });
+  const now = deps.now ?? (() => new Date());
+  const userOf = (header: unknown) =>
+    typeof header === "string" && header !== "" ? header : "local";
+  const wake = new WakeService({
+    store: deps.challengeStore ?? new InMemoryChallengeStore(),
+    vision: deps.visionModel ?? createVisionModel(),
+    publish,
+    readSettings,
+    hasConsent: deps.hasWakePhotoConsent ?? (async () => true),
+    warn: (fields, message) => app.log.warn(fields, message),
+  });
+  const WAKE_STATUS = {
+    consent_required: 403,
+    not_found: 404,
+    expired: 410,
+    already_graded: 409,
+    empty_image: 400,
+    grading_failed: 502,
+  } as const;
+  app.post("/wake/challenges", async (req, reply) => {
+    try {
+      const c = await wake.createChallenge(userOf(req.headers["x-user-id"]), now());
+      const ref = { key: c.messageKey, params: c.params };
+      return reply.code(201).send({
+        ok: true,
+        data: {
+          challengeId: c.id,
+          message: ref,
+          text: renderMessage(ref, config.uiLanguage),
+          expiresAt: c.expiresAt.toISOString(),
+        },
+      });
+    } catch (error) {
+      if (error instanceof WakeError)
+        return reply.code(WAKE_STATUS[error.code]).send({ ok: false, error: error.code });
+      throw error;
+    }
+  });
+  // The body holds a photo: it is never logged, stored or echoed.
+  app.post<{ Params: { id: string } }>(
+    "/wake/challenges/:id/photo",
+    { bodyLimit: WAKE_PHOTO_BODY_LIMIT },
+    async (req, reply) => {
+      const body = req.body as { imageBase64?: unknown } | null;
+      if (typeof body?.imageBase64 !== "string")
+        return reply.code(400).send({ ok: false, error: "invalid_request" });
+      try {
+        const grade = await wake.submitPhoto(
+          userOf(req.headers["x-user-id"]),
+          req.params.id,
+          Buffer.from(body.imageBase64, "base64"),
+          now(),
+        );
+        return { ok: true, data: { grade } };
+      } catch (error) {
+        if (error instanceof WakeError)
+          return reply.code(WAKE_STATUS[error.code]).send({ ok: false, error: error.code });
+        throw error;
+      }
+    },
+  );
   app.post("/chat/message", async (req, reply) => {
     const parsed = ChatMessageRequestSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_request" });
