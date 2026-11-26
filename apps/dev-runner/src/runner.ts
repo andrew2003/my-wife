@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { servicePort, type AppConfig } from "@my-wife/config";
-import { SERVICE_NAMES, type ServiceName } from "@my-wife/contracts";
+import { SERVICE_NAMES, type EventEnvelope, type ServiceName } from "@my-wife/contracts";
 import type { CreateApp, ServiceDeps } from "@my-wife/service-kit";
 import { createApp as ai } from "@my-wife/ai";
 import { createApp as budget } from "@my-wife/budget";
@@ -15,6 +15,7 @@ import { createApp as sync } from "@my-wife/sync";
 
 type ScheduleApp = Awaited<ReturnType<typeof schedule>>;
 type MonitorApp = Awaited<ReturnType<typeof monitor>>;
+type BudgetApp = Awaited<ReturnType<typeof budget>>;
 
 const FACTORIES: Record<ServiceName, CreateApp> = {
   gateway,
@@ -64,6 +65,26 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
   let sessionJob: ((now: Date) => Promise<unknown>) | undefined;
   let sleepJob: ((now: Date) => Promise<unknown>) | undefined;
   let gapCheck: ((now: Date) => Promise<unknown>) | undefined;
+  let budgetHandler: ((event: EventEnvelope) => Promise<void>) | undefined;
+  /**
+   * In-process stand-in for the NATS delivery each service main.ts sets up: events identity
+   * publishes reach the consumers directly, with the same envelope the bus would carry.
+   */
+  const deliver = async (event: EventEnvelope): Promise<void> => {
+    if (event.type !== "onboarding.step_completed") return;
+    const results = await Promise.allSettled([
+      fetch(`${urls.schedule}/events/onboarding-step-completed`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(event),
+      }).then((res) => {
+        if (!res.ok) throw new Error(`schedule rejected ${event.type}: ${res.status}`);
+      }),
+      budgetHandler?.(event) ?? Promise.resolve(),
+    ]);
+    const failed = results.find((r) => r.status === "rejected");
+    if (failed) throw (failed as PromiseRejectedResult).reason;
+  };
   try {
     for (const name of SERVICE_NAMES) {
       const extra =
@@ -76,11 +97,25 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
               : name === "monitor"
                 ? opts.monitor
                 : undefined;
-      const deps = extra ? { ...opts.deps, ...extra } : opts.deps;
+      let deps: ServiceDeps | undefined = extra ? { ...opts.deps, ...extra } : opts.deps;
+      if (name === "identity") {
+        const own = opts.identity?.publish;
+        const withPublish: IdentityDeps = {
+          ...deps,
+          publish: async (event: EventEnvelope) => {
+            await own?.(event);
+            await deliver(event);
+          },
+        };
+        deps = withPublish;
+      }
       const app = await FACTORIES[name](config, deps);
       if (name === "rules") trialJob = app.runTrialJob;
       if (name === "schedule") sessionJob = (app as unknown as ScheduleApp).runSessionJob;
       if (name === "schedule") sleepJob = (app as unknown as ScheduleApp).runSleepJob;
+      if (name === "budget") {
+        budgetHandler = (app as unknown as BudgetApp).onOnboardingStepCompleted;
+      }
       if (name === "monitor") gapCheck = (app as unknown as MonitorApp).runGapCheck;
       apps.push(app);
       await app.listen({ host: "127.0.0.1", port: opts.ephemeralPorts ? 0 : servicePort(name) });
