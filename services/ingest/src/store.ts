@@ -25,6 +25,7 @@ export type ReceiptRecord = {
  * both reach `parsed`.
  */
 export interface IngestStore {
+  /** Must match only `parsed` or `duplicate` receipts, never `rejected` ones. */
   findByMessageId(userId: string, messageId: string): Promise<ReceiptRecord | null>;
   findParsedByRef(userId: string, bankTransactionRef: string): Promise<ReceiptRecord | null>;
   save(record: ReceiptRecord): Promise<void>;
@@ -34,7 +35,15 @@ export class MemoryIngestStore implements IngestStore {
   private readonly records: ReceiptRecord[] = [];
 
   async findByMessageId(userId: string, messageId: string) {
-    return this.records.find((r) => r.userId === userId && r.messageId === messageId) ?? null;
+    // Only parsed or duplicate receipts count; a rejected forgery must not block the genuine mail.
+    return (
+      this.records.find(
+        (r) =>
+          r.userId === userId &&
+          r.messageId === messageId &&
+          (r.state === "parsed" || r.state === "duplicate"),
+      ) ?? null
+    );
   }
 
   async findParsedByRef(userId: string, ref: string) {

@@ -123,6 +123,12 @@ describe("processInbound", () => {
     expect(types()).toEqual(["receipt.parsed"]);
   });
 
+  it("lets a genuine mail through after a forged mail copied its Message-ID", async () => {
+    expect(await run(await buildMail({ sign: "none" }))).toMatchObject({ state: "rejected" });
+    expect(await run(await buildMail())).toMatchObject({ state: "parsed" });
+    expect(types()).toEqual(["receipt.rejected", "receipt.parsed"]);
+  });
+
   it("dedupes per user, not globally", async () => {
     deps.users = { resolve: async (t) => ({ userId: `u-${t}`, emailConsent: true }) };
     await run(await buildMail(), "u-aaa@in.example.test");
