@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-type MemorySource = "user_answer" | "tool_call" | "user_edit";
+/**
+ * `model_proposal` is service-local: an unconfirmed LLM proposal. It is never announced and never
+ * placed in a prompt until confirmed (follow-up #240). The other values match the contracts enum.
+ */
+type MemorySource = "user_answer" | "tool_call" | "user_edit" | "model_proposal";
 
 export interface MemoryRecord {
   id: string;

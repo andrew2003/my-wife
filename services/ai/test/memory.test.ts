@@ -38,35 +38,52 @@ const send = (app: Awaited<ReturnType<typeof createApp>>, text: string, user = "
   });
 
 describe("structured memory", () => {
-  it("stores a proposed stable fact and emits memory.created when the turn ends", async () => {
-    const provider = new FakeLlmProvider({
-      reply: () => ({ text: "noted", toolCalls: [], memories: ["Payee Highlands is eating out"] }),
-    });
+  it("stores an explicit remember request, emits memory.created and shows it next turn", async () => {
+    const provider = new FakeLlmProvider();
     const { app, events, memoryStore } = await setup(provider);
-    const body = (await send(app, "Highlands is eating out")).json();
+    const body = (await send(app, "Remember that Highlands is eating out")).json();
+    expect(body.ok).toBe(true);
     const rows = await memoryStore.list("u1");
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ fact: "Payee Highlands is eating out", source: "tool_call" });
-    const created = events.filter((e) => e.name === "memory.created");
-    expect(created).toEqual([{ name: "memory.created", payload: { memoryId: rows[0]?.id } }]);
-    expect(events.map((e) => e.name)).toContain("ai.message_sent");
-    expect(body.ok).toBe(true);
-  });
-
-  it("includes stored memories in the next turn context, per user, as data", async () => {
-    const provider = new FakeLlmProvider({
-      reply: (r) =>
-        r.userText === "remember"
-          ? { text: "ok", toolCalls: [], memories: ["Often late for the afternoon task"] }
-          : { text: "ok", toolCalls: [] },
-    });
-    const { app } = await setup(provider);
-    await send(app, "remember");
+    expect(rows[0]).toMatchObject({ fact: "Highlands is eating out", source: "user_answer" });
+    expect(events.filter((e) => e.name === "memory.created")).toEqual([
+      { name: "memory.created", payload: { memoryId: rows[0]?.id } },
+    ]);
     await send(app, "next");
     await send(app, "other user", "u2");
-    expect(provider.requests[0]?.system).not.toContain("afternoon task");
-    expect(provider.requests[1]?.system).toContain("Often late for the afternoon task");
-    expect(provider.requests[2]?.system).not.toContain("afternoon task");
+    expect(provider.requests[1]?.system).toContain("Highlands is eating out");
+    expect(provider.requests[2]?.system).not.toContain("Highlands");
+  });
+
+  it("recognizes the Vietnamese trigger phrases from the locale file", async () => {
+    const { app, memoryStore } = await setup(new FakeLlmProvider());
+    await send(app, "Nhớ giúp em: anh hay đi làm muộn");
+    expect((await memoryStore.list("u1")).map((m) => m.fact)).toEqual(["anh hay đi làm muộn"]);
+  });
+
+  it("ignores a message that only contains a trigger word or has no fact", async () => {
+    const { app, memoryStore } = await setup(new FakeLlmProvider());
+    await send(app, "remembering the milk");
+    await send(app, "remember");
+    await send(app, "I remember that");
+    expect(await memoryStore.list("u1")).toEqual([]);
+  });
+
+  it("keeps a model proposal pending: not announced and not in the next prompt", async () => {
+    const provider = new FakeLlmProvider({
+      reply: (r) =>
+        r.userText === "chat"
+          ? { text: "noted", toolCalls: [], memories: ["Often late for the afternoon task"] }
+          : { text: "ok", toolCalls: [] },
+    });
+    const { app, events, memoryStore } = await setup(provider);
+    await send(app, "chat");
+    await send(app, "next");
+    const rows = await memoryStore.list("u1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ source: "model_proposal" });
+    expect(events.filter((e) => e.name === "memory.created")).toEqual([]);
+    expect(provider.requests[1]?.system).not.toContain("afternoon task");
   });
 
   it("limits memories in context to ai.memory_retrieval_top_k, newest first", async () => {
@@ -102,7 +119,7 @@ describe("structured memory", () => {
     await send(app, "a");
     await send(app, "b");
     expect((await memoryStore.list("u1")).map((m) => m.fact)).toEqual(["Likes tea"]);
-    expect(events.filter((e) => e.name === "memory.created")).toHaveLength(1);
+    expect(events.filter((e) => e.name === "memory.created")).toHaveLength(0);
   });
 
   it("writes nothing when the provider is unavailable", async () => {
@@ -130,24 +147,24 @@ describe("structured memory", () => {
 
   it("still replies when the memory write fails", async () => {
     const provider = new FakeLlmProvider({
-      reply: () => ({ text: "ok", toolCalls: [], memories: ["Likes tea"] }),
+      reply: () => ({ text: "ok", toolCalls: [] }),
     });
     const { app, events, memoryStore } = await setup(provider);
     memoryStore.add = async () => {
       throw new Error("db down");
     };
-    const body = (await send(app, "a")).json();
+    const body = (await send(app, "remember Likes tea")).json();
     expect(body.data.reply.text).toBe("ok");
     expect(events.map((e) => e.name)).toEqual(["ai.message_sent"]);
   });
 
   it("emits no second memory.created for a fact repeated in a later turn", async () => {
     const provider = new FakeLlmProvider({
-      reply: () => ({ text: "ok", toolCalls: [], memories: ["Likes tea"] }),
+      reply: () => ({ text: "ok", toolCalls: [] }),
     });
     const { app, events, memoryStore } = await setup(provider);
-    await send(app, "a");
-    await send(app, "b");
+    await send(app, "remember Likes tea");
+    await send(app, "remember likes tea");
     expect(await memoryStore.list("u1")).toHaveLength(1);
     expect(events.filter((e) => e.name === "memory.created")).toHaveLength(1);
   });

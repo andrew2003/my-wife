@@ -67,7 +67,12 @@ export class ChatService {
     });
     // The turn has ended: code validates and stores the proposed facts.
     try {
-      await this.deps.memory?.remember(userId, proposals, (this.deps.now ?? (() => new Date()))());
+      await this.deps.memory?.endTurn(
+        userId,
+        text,
+        proposals,
+        (this.deps.now ?? (() => new Date()))(),
+      );
     } catch (error) {
       this.deps.warn?.(
         { errorName: error instanceof Error ? error.name : "unknown" },
