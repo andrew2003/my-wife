@@ -47,6 +47,15 @@ export type SettingAuditRecord = {
   at: string;
 };
 
+/** A finished onboarding step; `eventAt` unset means onboarding.step_completed is still owed. */
+export type OnboardingStepRecord = {
+  userId: string;
+  step: string;
+  skipped: boolean;
+  completedAt: string;
+  eventAt: string | null;
+};
+
 /** Persistence port. The Drizzle implementation (identity schema) replaces the in-memory one. */
 export interface IdentityStore {
   findUserByEmail(email: string): Promise<UserRecord | undefined>;
@@ -74,6 +83,8 @@ export interface IdentityStore {
     audit: SettingAuditRecord,
   ): Promise<void>;
   listSettingAudit(userId: string): Promise<SettingAuditRecord[]>;
+  findOnboardingStep(userId: string, step: string): Promise<OnboardingStepRecord | undefined>;
+  saveOnboardingStep(record: OnboardingStepRecord): Promise<void>;
 }
 
 export function createMemoryStore(): IdentityStore {
@@ -83,7 +94,14 @@ export function createMemoryStore(): IdentityStore {
   const sessions = new Map<string, SessionRecord>();
   const settings = new Map<string, Record<string, unknown>>();
   const audit: SettingAuditRecord[] = [];
+  const steps = new Map<string, OnboardingStepRecord>();
   return {
+    async findOnboardingStep(userId, step) {
+      return steps.get(`${userId}:${step}`);
+    },
+    async saveOnboardingStep(record) {
+      steps.set(`${record.userId}:${record.step}`, record);
+    },
     async getSettingOverrides(userId) {
       return { ...settings.get(userId) };
     },

@@ -7,7 +7,15 @@ import type {
   SettingAuditRecord,
   UserRecord,
 } from "./store";
-import { invitations, loginTokens, sessions, settingAudit, userSettings, users } from "./schema";
+import {
+  invitations,
+  loginTokens,
+  onboardingSteps,
+  sessions,
+  settingAudit,
+  userSettings,
+  users,
+} from "./schema";
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 const date = (s: string | null): Date | null => (s ? new Date(s) : null);
@@ -43,6 +51,23 @@ const toSession = (r: typeof sessions.$inferSelect): SessionRecord => ({
 /** PostgreSQL implementation over the `identity` schema (SQL in `drizzle/`). */
 export function createDrizzleStore(db: NodePgDatabase): IdentityStore {
   return {
+    async findOnboardingStep(userId, step) {
+      const [r] = await db
+        .select()
+        .from(onboardingSteps)
+        .where(and(eq(onboardingSteps.userId, userId), eq(onboardingSteps.step, step)));
+      return r && { ...r, completedAt: r.completedAt.toISOString(), eventAt: iso(r.eventAt) };
+    },
+    async saveOnboardingStep(rec) {
+      const row = { ...rec, completedAt: new Date(rec.completedAt), eventAt: date(rec.eventAt) };
+      await db
+        .insert(onboardingSteps)
+        .values(row)
+        .onConflictDoUpdate({
+          target: [onboardingSteps.userId, onboardingSteps.step],
+          set: { eventAt: row.eventAt },
+        });
+    },
     async getSettingOverrides(userId) {
       const rows = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
       return Object.fromEntries(rows.map((r) => [r.key, r.value]));
