@@ -57,4 +57,54 @@ describe("onboarding.step_completed in the dev runner", () => {
       await gateway.close();
     }
   });
+
+  it("shifts the sample schedule to the wake time answered in onboarding", async () => {
+    const file = join(dir, "cookie.txt");
+    const store = createMemoryStore();
+    const config = loadConfig({ SESSION_SECRET: SECRET, LOG_LEVEL: "silent" });
+    await seedE2eSession({
+      env: { E2E_SEED_SESSION: "1", NODE_ENV: "test", E2E_SESSION_COOKIE_FILE: file },
+      store,
+      secret: config.sessionSecret,
+      now: new Date(),
+    });
+    const cookie = `mw_session=${(await readFile(file, "utf8")).trim()}`;
+    runner = await startAll(config, { ephemeralPorts: true, identity: { store } });
+    const { identity, budget, schedule, rules } = runner.urls;
+    const gateway = await createGateway(
+      config,
+      {},
+      { upstreams: { identity, budget, schedule, rules } },
+    );
+    try {
+      for (const [key, value] of [
+        ["routine.wake.time", "06:30"],
+        ["routine.sleep.start", "22:30"],
+      ]) {
+        const put = await gateway.inject({
+          method: "PUT",
+          url: "/api/settings",
+          headers: { cookie },
+          payload: { key, value },
+        });
+        expect(put.statusCode).toBe(200);
+      }
+      await gateway.inject({
+        method: "POST",
+        url: "/api/onboarding/steps",
+        headers: { cookie },
+        payload: { step: "qa_templates", skipped: false },
+      });
+      const res = await gateway.inject({
+        method: "GET",
+        url: "/api/sample-schedule",
+        headers: { cookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.body).toContain("06:30");
+      expect(res.body).toContain("22:30");
+    } finally {
+      await gateway.close();
+    }
+  });
 });
