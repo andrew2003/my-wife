@@ -5,6 +5,7 @@ import {
   CreateTaskRequestSchema,
   IsoDateSchema,
   parseEvent,
+  SETTINGS,
   StartTaskRequestSchema,
   type EventEnvelope,
 } from "@my-wife/contracts";
@@ -107,13 +108,18 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     const parsed = CreateTaskRequestSchema.safeParse(req.body);
     if (!parsed.success) return fail(reply, 400, "schedule.invalid_request");
     const b = parsed.data;
+    let defaultMinutes: number = SETTINGS["schedule.task_default_minutes"].default;
+    if (b.estimatedMinutes === undefined) {
+      const answer = (await readSettings(userId))["schedule.task_default_minutes"];
+      if (typeof answer === "number" && Number.isInteger(answer) && answer > 0) defaultMinutes = answer;
+    }
     const task: PlanTask = {
       id: randomUUID(),
       userId,
       title: b.title,
       day: b.day,
       window: b.window ?? null,
-      estimatedMinutes: b.estimatedMinutes ?? 30,
+      estimatedMinutes: b.estimatedMinutes ?? defaultMinutes,
       energyLevel: b.energyLevel ?? null,
       definitionOfDone: b.definitionOfDone ?? null,
       monitoringProfile: b.monitoringProfile,

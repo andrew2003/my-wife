@@ -25,7 +25,7 @@ export interface PlanWeek {
   userId: string;
   firstDay: string;
   state: WeekState;
-  /** False until `week.closed` was published, so a failed publish is retried (never doubled). */
+  /** Claimed before `week.closed` is published and released on failure, so it is sent once. */
   closedAnnounced: boolean;
 }
 
@@ -88,30 +88,51 @@ function envelope(deps: PlanDeps, id: string, type: string, userId: string, payl
 
 export type TaskResult = { ok: true; task: PlanTask } | { ok: false; error: "not_in_plan" | "invalid_state" };
 
-/** Start: only a task of this user that is still `planned` can be started. */
+/**
+ * Start: only a task of this user that is still `planned` can be started. The state is claimed
+ * before the publish so concurrent calls emit once; a failed publish rolls the claim back.
+ */
 export async function startTask(deps: PlanDeps, userId: string, taskId: string): Promise<TaskResult> {
   const task = deps.store.getTask(userId, taskId);
   if (!task) return { ok: false, error: "not_in_plan" };
   if (task.state !== "planned") return { ok: false, error: "invalid_state" };
-  const startedAt = deps.now().toISOString();
-  await deps.publish(envelope(deps, `task-started-${task.id}-${task.carriedCount}`, "task.started", userId, { taskId, startedAt }));
   task.state = "in_progress";
+  try {
+    await publishStarted(deps, task);
+  } catch (err) {
+    task.state = "planned";
+    throw err;
+  }
   return { ok: true, task };
+}
+
+async function publishStarted(deps: PlanDeps, task: PlanTask) {
+  const startedAt = deps.now().toISOString();
+  await deps.publish(
+    envelope(deps, `task-started-${task.id}-${task.carriedCount}`, "task.started", task.userId, {
+      taskId: task.id,
+      startedAt,
+    }),
+  );
 }
 
 /** Tick done. A task ticked while still `planned` passes through `in_progress`. No chat message. */
 export async function completeTask(deps: PlanDeps, userId: string, taskId: string): Promise<TaskResult> {
   const task = deps.store.getTask(userId, taskId);
   if (!task) return { ok: false, error: "not_in_plan" };
-  if (task.state === "planned") {
-    const started = await startTask(deps, userId, taskId);
-    if (!started.ok) return started;
-  } else if (task.state !== "in_progress") {
-    return { ok: false, error: "invalid_state" };
-  }
-  const endedAt = deps.now().toISOString();
-  await deps.publish(envelope(deps, `task-ended-${task.id}`, "task.ended", userId, { taskId, endedAt }));
+  const from = task.state;
+  if (from !== "planned" && from !== "in_progress") return { ok: false, error: "invalid_state" };
   task.state = "done";
+  try {
+    if (from === "planned") await publishStarted(deps, task);
+    const endedAt = deps.now().toISOString();
+    await deps.publish(
+      envelope(deps, `task-ended-${task.id}`, "task.ended", userId, { taskId, endedAt }),
+    );
+  } catch (err) {
+    task.state = from;
+    throw err;
+  }
   return { ok: true, task };
 }
 
@@ -127,10 +148,18 @@ export async function approveWeek(deps: PlanDeps, userId: string, weekId: string
   const week = deps.store.getWeek(userId, weekId);
   if (!week) return { ok: false, error: "not_found" };
   if (week.state !== "draft") return { ok: false, error: "not_draft" };
-  await deps.publish(
-    envelope(deps, `week-planned-${week.id}`, "week.planned", userId, { weekId: week.id, firstDay: week.firstDay }),
-  );
   week.state = "planned";
+  try {
+    await deps.publish(
+      envelope(deps, `week-planned-${week.id}`, "week.planned", userId, {
+        weekId: week.id,
+        firstDay: week.firstDay,
+      }),
+    );
+  } catch (err) {
+    week.state = "draft";
+    throw err;
+  }
   return { ok: true, week };
 }
 
@@ -146,6 +175,8 @@ export async function runWeekBoundary(deps: PlanDeps): Promise<{ closed: string[
     if (week.state === "planned" && nowMs >= first) week.state = "active";
     if (week.state === "active" && nowMs >= first + WEEK_DAYS * DAY_MS) week.state = "reviewing";
     if (week.state !== "reviewing" || week.closedAnnounced) continue;
+    // Claim before publishing so an overlapping run skips this week; roll back on failure.
+    week.closedAnnounced = true;
     try {
       await deps.publish(
         envelope(deps, `week-closed-${week.id}`, "week.closed", week.userId, {
@@ -154,9 +185,9 @@ export async function runWeekBoundary(deps: PlanDeps): Promise<{ closed: string[
           weekIndexInCycle: null,
         }),
       );
-      week.closedAnnounced = true;
       result.closed.push(week.id);
     } catch {
+      week.closedAnnounced = false;
       result.failed.push(week.id);
     }
   }

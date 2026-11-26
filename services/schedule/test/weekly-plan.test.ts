@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "@my-wife/config";
-import type { EventEnvelope } from "@my-wife/contracts";
+import { parseEvent, type EventEnvelope } from "@my-wife/contracts";
 import { createApp } from "../src/index";
 
 const config = loadConfig({ SESSION_SECRET: "x".repeat(32), LOG_LEVEL: "silent" });
@@ -41,7 +41,6 @@ describe("task state machine", () => {
     const done = await app.inject({ method: "POST", url: "/tasks/complete", headers: H, payload: { taskId } });
     expect(done.statusCode).toBe(200);
     expect(events.map((e) => e.type)).toEqual(["task.started", "task.ended"]);
-    // Only the two task events leave the service: no ask.* or other chat-bound event.
     const list = await app.inject({ method: "GET", url: "/checklist?date=2026-11-23", headers: H });
     expect(list.json().data.tasks[0].state).toBe("done");
   });
@@ -129,5 +128,110 @@ describe("week boundary job", () => {
     await job(app);
     await job(app);
     expect(events.filter((e) => e.type === "week.closed")).toHaveLength(1);
+  });
+});
+
+describe("review fixes", () => {
+  const job = (app: App) => app.inject({ method: "POST", url: "/jobs/week-boundary" });
+  const slowPublish = (events: EventEnvelope[]) => async (e: EventEnvelope) => {
+    await new Promise((r) => setTimeout(r, 10));
+    events.push(e);
+  };
+  const post = (app: App, url: string, payload: unknown) =>
+    app.inject({ method: "POST", url, headers: H, payload: payload as object });
+
+  it("emits week.closed once when two boundary runs overlap with an async publish", async () => {
+    const events: EventEnvelope[] = [];
+    const app = await createApp(config, {
+      now: () => new Date("2026-12-01T00:00:00Z"),
+      publish: slowPublish(events),
+    });
+    const created = await post(app, "/weeks", { firstDay: "2026-11-23" });
+    await app.inject({ method: "POST", url: `/weeks/${created.json().data.week.id}/approve`, headers: H });
+    await Promise.all([job(app), job(app)]);
+    expect(events.filter((e) => e.type === "week.closed")).toHaveLength(1);
+  });
+
+  it("emits task.started once for concurrent starts", async () => {
+    const events: EventEnvelope[] = [];
+    const app = await createApp(config, {
+      now: () => new Date("2026-11-23T08:00:00Z"),
+      publish: slowPublish(events),
+    });
+    const taskId = await create(app);
+    const start = () => post(app, "/tasks/start", { taskId });
+    const codes = (await Promise.all([start(), start()])).map((r) => r.statusCode).sort();
+    expect(codes).toEqual([200, 409]);
+    expect(events.filter((e) => e.type === "task.started")).toHaveLength(1);
+  });
+
+  it("rolls the task back when the publish fails so it can be retried", async () => {
+    let fail = true;
+    const events: EventEnvelope[] = [];
+    const app = await createApp(config, {
+      now: () => new Date("2026-11-23T08:00:00Z"),
+      publish: (e: EventEnvelope) => {
+        if (fail) throw new Error("bus down");
+        events.push(e);
+      },
+    });
+    const taskId = await create(app);
+    expect((await post(app, "/tasks/start", { taskId })).statusCode).toBe(500);
+    fail = false;
+    expect((await post(app, "/tasks/start", { taskId })).statusCode).toBe(200);
+    expect(events).toHaveLength(1);
+  });
+
+  it("publishes only schema-valid events, and only the task events for a tick", async () => {
+    const { appP, events } = setup();
+    const app = await appP;
+    const taskId = await create(app);
+    await post(app, "/tasks/complete", { taskId });
+    expect(events.map((e) => e.type)).toEqual(["task.started", "task.ended"]);
+    const w = await post(app, "/weeks", { firstDay: "2026-11-23" });
+    await app.inject({ method: "POST", url: `/weeks/${w.json().data.week.id}/approve`, headers: H });
+    expect(events.map((e) => e.type)).toEqual(["task.started", "task.ended", "week.planned"]);
+    for (const e of events) expect(parseEvent(e)).toMatchObject({ success: true });
+  });
+
+  it("validates week.closed against the contract", async () => {
+    const { appP, events, setNow } = setup();
+    const app = await appP;
+    const w = await post(app, "/weeks", { firstDay: "2026-11-23" });
+    await app.inject({ method: "POST", url: `/weeks/${w.json().data.week.id}/approve`, headers: H });
+    setNow("2026-12-01T00:00:00Z");
+    await job(app);
+    const closed = events.find((e) => e.type === "week.closed")!;
+    expect(parseEvent(closed)).toMatchObject({ success: true });
+  });
+
+  it("moves a planned week to active when its first day arrives, without closing it", async () => {
+    const { appP, events, setNow } = setup("2026-11-20T08:00:00Z");
+    const app = await appP;
+    const w = await post(app, "/weeks", { firstDay: "2026-11-23" });
+    await app.inject({ method: "POST", url: `/weeks/${w.json().data.week.id}/approve`, headers: H });
+    await job(app);
+    const state = async () =>
+      (await app.inject({ method: "GET", url: "/weeks/current", headers: H })).json().data.week.state;
+    expect(await state()).toBe("planned");
+    setNow("2026-11-23T00:00:00Z");
+    await job(app);
+    expect(await state()).toBe("active");
+    expect(events.map((e) => e.type)).toEqual(["week.planned"]);
+  });
+
+  it("takes the default estimate from the user setting, falling back to the registry default", async () => {
+    const { estimatedMinutes: _e, ...noEstimate } = task;
+    for (const [answers, expected] of [
+      [{ "schedule.task_default_minutes": 45 }, 45],
+      [{}, 30],
+    ] as const) {
+      const app = await createApp(config, {
+        now: () => new Date("2026-11-23T08:00:00Z"),
+        readSettings: async () => answers,
+      });
+      const res = await post(app, "/tasks", noEstimate);
+      expect(res.json().data.task.estimatedMinutes).toBe(expected);
+    }
   });
 });
