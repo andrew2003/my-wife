@@ -49,9 +49,15 @@ export class MemoryService {
     proposals: readonly string[],
     now: Date,
   ): Promise<void> {
-    const known = new Set((await this.options.store.list(userId)).map((r) => r.fact.toLowerCase()));
+    const rows = await this.options.store.list(userId);
+    const known = new Set(rows.map((r) => r.fact.toLowerCase()));
+    // A pending proposal never blocks the user's own explicit request.
+    const confirmed = new Set(
+      rows.filter((r) => r.source !== "model_proposal").map((r) => r.fact.toLowerCase()),
+    );
     const explicit = extractExplicitFact(userText, rememberTriggers());
-    if (explicit !== null && this.accept(explicit, known)) {
+    if (explicit !== null && this.accept(explicit, confirmed)) {
+      known.add(explicit.toLowerCase());
       const row = await this.options.store.add({
         userId,
         fact: explicit,

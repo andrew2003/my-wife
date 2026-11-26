@@ -177,4 +177,34 @@ describe("structured memory", () => {
     await send(app, "a");
     expect(await memoryStore.list("u1")).toHaveLength(3);
   });
+
+  it("stores an explicit request even when the same fact is pending as a proposal", async () => {
+    const provider = new FakeLlmProvider({
+      reply: (r) =>
+        r.userText === "chat"
+          ? { text: "ok", toolCalls: [], memories: ["Likes tea"] }
+          : { text: "ok", toolCalls: [] },
+    });
+    const { app, events, memoryStore } = await setup(provider);
+    await send(app, "chat");
+    await send(app, "remember likes tea");
+    const rows = await memoryStore.list("u1");
+    expect(rows.map((r) => r.source).sort()).toEqual(["model_proposal", "user_answer"]);
+    expect(events.filter((e) => e.name === "memory.created")).toHaveLength(1);
+    await send(app, "next");
+    expect(provider.requests[2]?.system).toContain("likes tea");
+  });
+
+  it("answers without memories when recall fails", async () => {
+    const provider = new FakeLlmProvider();
+    const { app, events, memoryStore } = await setup(provider);
+    memoryStore.list = async () => {
+      throw new Error("db down");
+    };
+    const body = (await send(app, "hello")).json();
+    expect(body.data.reply.text).toBe("hello");
+    expect(body.data.degraded).toBe(false);
+    expect(provider.requests[0]?.system).not.toContain("- ");
+    expect(events.map((e) => e.name)).toEqual(["ai.message_sent"]);
+  });
 });

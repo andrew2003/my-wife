@@ -32,12 +32,25 @@ export interface ChatResult {
 export class ChatService {
   constructor(private readonly deps: ChatServiceDeps) {}
 
+  /** A memory failure must never cost the user a reply: fall back to no memories. */
+  private async recallSafely(userId: string): Promise<string[]> {
+    try {
+      return (await this.deps.memory?.recall(userId)) ?? [];
+    } catch (error) {
+      this.deps.warn?.(
+        { errorName: error instanceof Error ? error.name : "unknown" },
+        "memory recall failed",
+      );
+      return [];
+    }
+  }
+
   async handleMessage(text: string, locale: Locale, userId: string): Promise<ChatResult> {
     const messageId = (this.deps.newId ?? randomUUID)();
     let replyText: string;
     let proposals: readonly string[];
     try {
-      const memories = (await this.deps.memory?.recall(userId)) ?? [];
+      const memories = await this.recallSafely(userId);
       const response = await this.deps.provider.complete({
         system: buildSystemPrompt(locale, memories),
         userText: text,
