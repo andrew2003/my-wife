@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="2436df2e-83b4-4cdb-bbb2-577510c6e475" name="Changes" comment="" />
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.0000000018110744" />
+      <entry key="MS500" value="1.0298375928602777" />
+      <entry key="S2" value="1.7216076332377472" />
+      <entry key="S5" value="2.537430678692355" />
+      <entry key="S10" value="3.094588293193691" />
+      <entry key="S30" value="3.6443666640911743" />
+      <entry key="S60" value="3.8141714213332545" />
+      <entry key="M2" value="3.9049700106566307" />
+      <entry key="M5" value="3.961465015676301" />
+      <entry key="M10" value="3.9806440401239502" />
+      <entry key="M15" value="3.987076269481104" />
+      <entry key="M30" value="3.993528231539736" />
+      <entry key="H1" value="3.9967616353518514" />
+      <entry key="H2" value="3.9983801969931814" />
+      <entry key="H4" value="3.999189943253561" />
+      <entry key="D1" value="3.9998649689745855" />
+      <entry key="W1" value="3.999980709325244" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="7.918649165312195E-7" />
+      <entry key="MS500" value="0.07603721201328244" />
+      <entry key="S2" value="0.9670959422608145" />
+      <entry key="S5" value="2.012304466338154" />
+      <entry key="S10" value="2.758519223734754" />
+      <entry key="S30" value="3.5091911185481086" />
+      <entry key="S60" value="3.743100963970132" />
+      <entry key="M2" value="3.8685117975411454" />
+      <entry key="M5" value="3.9466531190377623" />
+      <entry key="M10" value="3.973199381129591" />
+      <entry key="M15" value="3.982104515377062" />
+      <entry key="M30" value="3.991038018937485" />
+      <entry key="H1" value="3.995515443001722" />
+      <entry key="H2" value="3.99775682903517" />
+      <entry key="H4" value="3.998878191294949" />
+      <entry key="D1" value="3.9998130008703283" />
+      <entry key="W1" value="3.9999732850790193" />
+    </decayedShown>
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 8,
+  &quot;fromUser&quot;: false
+}</component>
+  <component name="ProjectId" id="3MciQh3Zk4FQih0FmG3odZmE1kf" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.rust.reset.selective.auto.import&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;javascript.preferred.runtime.type.id&quot;: &quot;node&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/andrew/workspace/my-wife&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.jshint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.jshint&quot;: &quot;&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;org.rust.first.attach.projects&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$" />
+    </key>
+  </component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-9f26556bf277-JavaScript-WS-263.8311.23" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="2436df2e-83b4-4cdb-bbb2-577510c6e475" name="Changes" comment="" />
+      <created>1795656242023</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1795656242023</updated>
+      <workItem from="1795676258375" duration="4935000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
+  </component>
+</project>

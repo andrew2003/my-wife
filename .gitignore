@@ -1,0 +1,34 @@
+# Secrets and local factory state - never commit
+factory/INTAKE.env
+factory/state.json
+factory/.runtime.json
+factory/backlog.json
+factory/PROGRESS.md
+factory/STOP
+factory/.selftest/
+factory/.selftest.json
+factory/selftest-report.md
+factory/logs/
+factory/questions/*
+!factory/questions/.gitkeep
+factory/handoff/*
+!factory/handoff/.gitkeep
+factory/fixtures/emails/*
+!factory/fixtures/emails/.gitkeep
+.claude/worktrees/
+# Generated from factory/agents + factory/config.env on every run
+.claude/agents/
+# Owner's local copy of the guide in Vietnamese (not part of the codebase)
+HUONG-DAN.vi.md
+
+# General
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+.next/
+.turbo/
+coverage/
+playwright-report/
+test-results/
