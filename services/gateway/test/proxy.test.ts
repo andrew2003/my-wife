@@ -175,6 +175,33 @@ describe("gateway session proxy", () => {
     expect(JSON.parse(calls[1]!.body!)).toEqual({ cycleId: "c1" });
   });
 
+  it("forwards wake routes to schedule with the user id", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good` };
+    const res = await (await app).inject({ method: "GET", url: "/api/wake/today", headers });
+    expect(res.json()).toEqual({ ok: true, data: { sched: 1 } });
+    expect(calls[1]).toMatchObject({
+      url: "http://schedule/wake/today",
+      headers: { "x-user-id": "u1" },
+    });
+  });
+
+  it("forwards the sample schedule to schedule and the sample cycle to budget", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good` };
+    const sched = await (await app).inject({ method: "GET", url: "/api/sample-schedule", headers });
+    expect(sched.statusCode).toBe(200);
+    expect(calls[1]).toMatchObject({
+      url: "http://schedule/sample-schedule",
+      headers: { "x-user-id": "u1" },
+    });
+    await (await app).inject({ method: "GET", url: "/api/budget/sample-cycle", headers });
+    expect(calls.at(-1)).toMatchObject({
+      url: "http://budget/budget/sample-cycle",
+      headers: { "x-user-id": "u1" },
+    });
+  });
+
   it("keeps invitation accept public", async () => {
     const { app, calls } = setup();
     const payload = AcceptInvitationRequestSchema.parse({ token: "t" });

@@ -111,6 +111,18 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     if (!result.ok) return reply.code(STATUS[result.error.code] ?? 400).send(result);
     return result;
   });
+  // Read route for the onboarding review; the path keeps the gateway's `/budget` prefix.
+  app.get("/budget/sample-cycle", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const record = await store.find(userId);
+    if (!record) {
+      return reply.code(404).send({ ok: false, error: { code: "budget.cycle_not_found" } });
+    }
+    return { ok: true, data: { cycle: record.cycle, categories: record.categories } };
+  });
   return app;
 }
 
