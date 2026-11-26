@@ -7,5 +7,12 @@
   "signin.title": "Sign in",
   "signin.google": "Continue with Google",
   "signin.magic_link": "Email me a sign-in link",
-  "signin.invitation_only": "Sign-up is by invitation only."
+  "signin.invitation_only": "Sign-up is by invitation only.",
+  "nav.label": "Main navigation",
+  "nav.home": "Home",
+  "nav.schedule": "Schedule",
+  "nav.budget": "Budget",
+  "nav.settings": "Settings",
+  "locale.switch_to_en": "English",
+  "locale.switch_to_vi": "Tiếng Việt"
 }

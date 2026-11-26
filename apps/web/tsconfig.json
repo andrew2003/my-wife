@@ -8,5 +8,5 @@
     "allowJs": false,
     "plugins": [{ "name": "next" }]
   },
-  "include": ["next-env.d.ts", "app", "lib", "test", "vitest.config.ts"]
+  "include": ["next-env.d.ts", "app", "components", "lib", "test", "vitest.config.ts"]
 }
