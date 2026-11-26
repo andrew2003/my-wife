@@ -43,7 +43,10 @@ function seq(cycleSequence: number): string {
 }
 
 /** Planned item code `MW-C<seq>W<week>-<category>-<nn>`, unique among `existingCodes`. */
-export function issuePlannedCode(input: PlannedCodeInput, existingCodes: readonly string[]): string {
+export function issuePlannedCode(
+  input: PlannedCodeInput,
+  existingCodes: readonly string[],
+): string {
   if (input.priority === "fund") {
     throw new RangeError("a fund category has only the cycle-level code");
   }
@@ -74,7 +77,10 @@ export function issueFundingCode(input: { cycleSequence: number; accountCode: st
 }
 
 /** Cycle-level code of a `fund` category `MW-C<seq>-<category>`. */
-export function issueCycleCategoryCode(input: { cycleSequence: number; categoryShortCode: string }): string {
+export function issueCycleCategoryCode(input: {
+  cycleSequence: number;
+  categoryShortCode: string;
+}): string {
   const category = cleanCode(input.categoryShortCode, "categoryShortCode", true);
   return `MW-C${seq(input.cycleSequence)}-${category}`;
 }
@@ -100,7 +106,11 @@ export function matchTransferCode(memo: string, issuedCodes: readonly string[]):
   let best: { code: string; length: number } | null = null;
   for (const code of issuedCodes) {
     const normalized = normalizeMemo(code);
-    if (normalized !== "" && normalizedMemo.includes(normalized) && (!best || normalized.length > best.length)) {
+    if (
+      normalized !== "" &&
+      normalizedMemo.includes(normalized) &&
+      (!best || normalized.length > best.length)
+    ) {
       best = { code, length: normalized.length };
     }
   }
