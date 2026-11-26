@@ -30,13 +30,14 @@ describe("DKIM signing helper", () => {
     const raw = await signEmail("From: a@x.test\r\nTo: b@y.test\r\nSubject: s\r\n\r\nbody\r\n", {
       domain: BANK_DKIM_DOMAIN,
       key: bankKey,
+      signTime: NOW,
     });
     expect(raw.startsWith("DKIM-Signature:")).toBe(true);
     expect(await verdict(raw)).toBe("pass");
   });
 
   it("a tampered body fails verification", async () => {
-    const raw = await signEmail("From: a@x.test\r\nSubject: s\r\n\r\nbody\r\n", { domain: BANK_DKIM_DOMAIN, key: bankKey });
+    const raw = await signEmail("From: a@x.test\r\nSubject: s\r\n\r\nbody\r\n", { domain: BANK_DKIM_DOMAIN, key: bankKey, signTime: NOW });
     expect(await verdict(raw.replace("body", "evil"))).not.toBe("pass");
   });
 });

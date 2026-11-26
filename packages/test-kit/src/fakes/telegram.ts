@@ -1,3 +1,4 @@
+import { systemClock, type Clock } from "../clock";
 import { FakeChatServer, sendJson, type RouteContext } from "./base";
 
 interface Update {
@@ -13,8 +14,8 @@ export class TelegramFake extends FakeChatServer {
   private files = new Map<string, Uint8Array>();
   private nextFileId = 1;
 
-  constructor(opts: { token?: string } = {}) {
-    super();
+  constructor(opts: { token?: string; clock?: Clock } = {}) {
+    super(opts.clock ?? systemClock);
     this.token = opts.token ?? "fake-telegram-token";
   }
 
@@ -23,7 +24,7 @@ export class TelegramFake extends FakeChatServer {
     return this.push({
       message: {
         message_id: this.nextUpdateId,
-        date: Math.floor(Date.now() / 1000),
+        date: Math.floor(this.clock.now().getTime() / 1000),
         chat: { id: Number(chatId), type: "private" },
         from: { id: Number(from.id ?? chatId), is_bot: false },
         text,
@@ -50,7 +51,7 @@ export class TelegramFake extends FakeChatServer {
     return this.push({
       message: {
         message_id: this.nextUpdateId,
-        date: Math.floor(Date.now() / 1000),
+        date: Math.floor(this.clock.now().getTime() / 1000),
         chat: { id: Number(chatId), type: "private" },
         from: { id: Number(chatId), is_bot: false },
         photo: [{ file_id: fileId, file_unique_id: fileId, width: 640, height: 480 }],

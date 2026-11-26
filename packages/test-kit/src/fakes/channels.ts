@@ -8,8 +8,6 @@ import type { TelegramFake } from "./telegram";
  * `<questionId>:<value>`. Real adapters (grammY, discord.js) must satisfy the same tests.
  */
 
-const nowIso = () => new Date().toISOString();
-
 function buttonsFor(question: Question) {
   return question.options.map((o) => ({ label: o.labelKey, value: `${question.id}:${o.value}` }));
 }
@@ -45,7 +43,7 @@ export function createFakeTelegramChannel(fake: TelegramFake): ChatChannel {
           : [],
       },
     });
-    return { externalMessageId: String(out.result.message_id), acceptedAt: nowIso() } satisfies SendResult;
+    return { externalMessageId: String(out.result.message_id), acceptedAt: fake.clock.now().toISOString() } satisfies SendResult;
   };
 
   return {
@@ -58,7 +56,7 @@ export function createFakeTelegramChannel(fake: TelegramFake): ChatChannel {
       return sendWith(target, message.message.key, []);
     },
     async parseReply(raw: any): Promise<InboundReply | null> {
-      const sentAt = nowIso();
+      const sentAt = fake.clock.now().toISOString();
       const cb = raw?.callback_query;
       if (cb && typeof cb.data === "string") {
         const b = parseButton(cb.data);
@@ -117,7 +115,7 @@ export function createFakeDiscordChannel(fake: DiscordFake): ChatChannel {
       }),
       "create message",
     );
-    return { externalMessageId: String(out.id), acceptedAt: nowIso() } satisfies SendResult;
+    return { externalMessageId: String(out.id), acceptedAt: fake.clock.now().toISOString() } satisfies SendResult;
   };
 
   return {
@@ -130,7 +128,7 @@ export function createFakeDiscordChannel(fake: DiscordFake): ChatChannel {
       return sendWith(target, message.message.key, []);
     },
     async parseReply(raw: any): Promise<InboundReply | null> {
-      const sentAt = nowIso();
+      const sentAt = fake.clock.now().toISOString();
       if (raw?.t === "INTERACTION_CREATE") {
         const b = parseButton(String(raw.d?.data?.custom_id ?? ""));
         const user = raw.d?.member?.user?.id;

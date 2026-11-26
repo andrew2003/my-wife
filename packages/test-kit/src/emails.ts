@@ -38,11 +38,11 @@ export function dkimDnsResolver(entries: Array<{ domain: string; selector: strin
 }
 
 /** Prepends a relaxed/relaxed rsa-sha256 DKIM-Signature for `domain` (what mailauth verifies). */
-export async function signEmail(raw: string, opts: { domain: string; key: DkimKey; signTime?: Date }): Promise<string> {
+export async function signEmail(raw: string, opts: { domain: string; key: DkimKey; signTime: Date }): Promise<string> {
   const res = await dkimSign(raw, {
     canonicalization: "relaxed/relaxed",
     algorithm: "rsa-sha256",
-    signTime: opts.signTime ?? new Date(),
+    signTime: opts.signTime,
     signatureData: [{ signingDomain: opts.domain, selector: opts.key.selector, privateKey: opts.key.privateKey }],
   });
   if (res.errors.length > 0 || !res.signatures) {
@@ -239,7 +239,7 @@ export async function buildEmailFixtures(opts: FixtureOptions): Promise<EmailFix
   );
   const forged: EmailFixture = {
     name: "forged-dkim",
-    raw: await signEmail(forgedSpec.raw, { domain: BANK_DKIM_DOMAIN, key: opts.attackerKey }),
+    raw: await signEmail(forgedSpec.raw, { domain: BANK_DKIM_DOMAIN, key: opts.attackerKey, signTime: minutesAgo(10) }),
     expect: { dkim: "fail", state: "rejected" },
   };
 

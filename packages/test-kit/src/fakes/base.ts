@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { systemClock, type Clock } from "../clock";
 
 /** A message the bot sent, in a channel-neutral shape that tests can assert on. */
 export interface BotMessage {
@@ -24,6 +25,8 @@ export function sendJson(res: ServerResponse, status: number, payload: unknown):
 
 /** Shared plumbing for the in-process chat fakes: HTTP server, outage switches, message log. */
 export abstract class FakeChatServer {
+  constructor(readonly clock: Clock = systemClock) {}
+
   protected server: Server | null = null;
   protected port = 0;
   private down = false;
@@ -113,7 +116,7 @@ export abstract class FakeChatServer {
   }
 
   protected recordBot(chatId: string, text: string, buttons: BotMessage["buttons"]): BotMessage {
-    const msg: BotMessage = { id: String(this.nextMessageId++), chatId, text, buttons, sentAt: Date.now() };
+    const msg: BotMessage = { id: String(this.nextMessageId++), chatId, text, buttons, sentAt: this.clock.now().getTime() };
     this.bot.push(msg);
     for (const w of [...this.waiters]) {
       if (w.pred(msg)) {

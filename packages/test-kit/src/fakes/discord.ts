@@ -1,5 +1,6 @@
 import type { Server } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
+import { systemClock, type Clock } from "../clock";
 import { FakeChatServer, sendJson, type RouteContext } from "./base";
 
 /** In-process stand-in for the Discord REST API plus a minimal gateway over WebSocket. */
@@ -11,8 +12,8 @@ export class DiscordFake extends FakeChatServer {
   private attachments = new Map<string, Uint8Array>();
   private nextId = 1000;
 
-  constructor(opts: { token?: string } = {}) {
-    super();
+  constructor(opts: { token?: string; clock?: Clock } = {}) {
+    super(opts.clock ?? systemClock);
     this.token = opts.token ?? "fake-discord-token";
   }
 
@@ -28,7 +29,7 @@ export class DiscordFake extends FakeChatServer {
       author: { id: userId, bot: false },
       content,
       attachments: [],
-      timestamp: new Date().toISOString(),
+      timestamp: this.clock.now().toISOString(),
     });
   }
 
@@ -55,7 +56,7 @@ export class DiscordFake extends FakeChatServer {
       author: { id: userId, bot: false },
       content: "",
       attachments: [attachment],
-      timestamp: new Date().toISOString(),
+      timestamp: this.clock.now().toISOString(),
     });
     return attachment;
   }
