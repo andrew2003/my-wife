@@ -1,1 +1,2 @@
-export { createApp, SERVICE_NAME } from "./app";
+export { createApp, SERVICE_NAME, type RulesDeps } from "./app";
+export * from "./trial";
