@@ -99,7 +99,11 @@ export class ChannelService {
     if (!reply) return;
     const link = this.deps.links.findByExternalId(kind, reply.externalId);
     if (!link) return;
-    const context: ChatContext = { channel: kind, externalId: link.externalId, userId: link.userId };
+    const context: ChatContext = {
+      channel: kind,
+      externalId: link.externalId,
+      userId: link.userId,
+    };
 
     if (reply.kind === "photo") {
       const bytes = await channel.receivePhoto(reply);

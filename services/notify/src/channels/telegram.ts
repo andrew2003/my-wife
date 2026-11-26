@@ -93,7 +93,8 @@ export function createTelegramChannel(opts: TelegramChannelOptions): ChatChannel
       return new Uint8Array(await res.arrayBuffer());
     },
     async link(userToken, raw: TelegramJson) {
-      if (raw?.message?.text !== `/start ${userToken}`) throw new Error("link token does not match");
+      if (raw?.message?.text !== `/start ${userToken}`)
+        throw new Error("link token does not match");
       return { externalId: String(raw.message.chat.id) };
     },
     async health() {
