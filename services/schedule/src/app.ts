@@ -3,6 +3,7 @@ import type { AppConfig } from "@my-wife/config";
 import {
   CompleteTaskRequestSchema,
   CreateTaskRequestSchema,
+  IdSchema,
   IsoDateSchema,
   parseEvent,
   SETTINGS,
@@ -21,6 +22,14 @@ import {
   type PlanStore,
   type PlanTask,
 } from "./plan";
+import {
+  createMemorySessionStore,
+  runSessionJob,
+  startSession,
+  stopSession,
+  viewSession,
+  type SessionStore,
+} from "./sessions";
 import { buildSampleDay, type SampleAnswers, type SampleBlock } from "./sample-schedule";
 
 export const SERVICE_NAME = "schedule";
@@ -34,7 +43,26 @@ export type ScheduleDeps = ServiceDeps & {
   publish?: (event: EventEnvelope) => void | Promise<void>;
   /** Plan storage port; in memory until the Drizzle store lands. */
   planStore?: PlanStore;
+  /** Session storage port; in memory until the Drizzle store lands. */
+  sessionStore?: SessionStore;
 };
+
+declare module "fastify" {
+  interface FastifyInstance {
+    /** Ends due sessions and announces `session.ended`; the caller passes `now`. */
+    runSessionJob: (now: Date) => Promise<{ ended: string[]; failed: string[] }>;
+  }
+}
+
+/** Request body of `POST /sessions/start`; any client-supplied start time is ignored. */
+function parseStartSession(body: unknown) {
+  const b = (body ?? {}) as { taskId?: unknown; durationMinutes?: unknown };
+  const taskId = IdSchema.safeParse(b.taskId);
+  const d = b.durationMinutes;
+  const durationOk = d === undefined || (typeof d === "number" && Number.isInteger(d) && d > 0);
+  if (!taskId.success || !durationOk) return undefined;
+  return { taskId: taskId.data, durationMinutes: d as number | undefined };
+}
 
 interface SampleSchedule {
   generatedAt: string;
@@ -195,6 +223,47 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     const { closedAnnounced: _c, userId: _u, ...week } = found;
     return { ok: true, data: { week } };
   });
+
+  const sessionDeps = { plan, sessions: deps.sessionStore ?? createMemorySessionStore() };
+
+  /** The start time is always the server time; the body only carries the task and length. */
+  app.post("/sessions/start", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const parsed = parseStartSession(req.body);
+    if (!parsed) return fail(reply, 400, "schedule.invalid_request");
+    let minutes = parsed.durationMinutes;
+    if (minutes === undefined) {
+      minutes = SETTINGS["schedule.pomodoro_work_minutes"].default;
+      const answer = (await readSettings(userId))["schedule.pomodoro_work_minutes"];
+      if (typeof answer === "number" && Number.isInteger(answer) && answer > 0) minutes = answer;
+    }
+    const res = await startSession(sessionDeps, userId, parsed.taskId, minutes);
+    if (res.ok) return { ok: true, data: { session: viewSession(res.session, now()) } };
+    if (res.error === "not_in_plan") return fail(reply, 404, "schedule.task_not_in_plan");
+    return fail(reply, 409, `schedule.session_${res.error}`);
+  });
+  app.get("/sessions/:id", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const s = sessionDeps.sessions.get(userId, (req.params as { id: string }).id);
+    if (!s) return fail(reply, 404, "schedule.session_not_found");
+    return { ok: true, data: { session: viewSession(s, now()) } };
+  });
+  app.post("/sessions/:id/stop", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const res = await stopSession(sessionDeps, userId, (req.params as { id: string }).id);
+    if (!res.ok) return fail(reply, 404, "schedule.session_not_found");
+    return { ok: true, data: { session: viewSession(res.session, now()) } };
+  });
+
+  /** Entry for the scheduler and the dev-runner clock; `now` is a parameter. */
+  app.decorate("runSessionJob", (at: Date) => runSessionJob(sessionDeps, at));
+  app.post("/jobs/session-end", async () => ({
+    ok: true,
+    data: await runSessionJob(sessionDeps, now()),
+  }));
 
   /** Internal entry for the scheduler (BullMQ in production); safe to run any number of times. */
   app.post("/jobs/week-boundary", async () => ({ ok: true, data: await runWeekBoundary(plan) }));

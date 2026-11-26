@@ -10,8 +10,10 @@ import { createApp as ingest } from "@my-wife/ingest";
 import { createApp as monitor } from "@my-wife/monitor";
 import { createApp as notify } from "@my-wife/notify";
 import { createApp as rules, type RulesDeps } from "@my-wife/rules";
-import { createApp as schedule } from "@my-wife/schedule";
+import { createApp as schedule, type ScheduleDeps } from "@my-wife/schedule";
 import { createApp as sync } from "@my-wife/sync";
+
+type ScheduleApp = Awaited<ReturnType<typeof schedule>>;
 
 const FACTORIES: Record<ServiceName, CreateApp> = {
   gateway,
@@ -30,6 +32,8 @@ export type Runner = {
   urls: Record<ServiceName, string>;
   /** Runs the rules trial job with an injected `now`; business code never reads the clock. */
   runTrialJob(now: Date): Promise<void>;
+  /** Ends due work sessions with an injected `now`. */
+  runSessionJob(now: Date): Promise<void>;
   stop(): Promise<void>;
 };
 
@@ -39,6 +43,8 @@ export type RunnerOptions = {
   deps?: ServiceDeps;
   /** Extra dependencies for the rules service (publisher, stores, settings reader). */
   rules?: RulesDeps;
+  /** Extra dependencies for the schedule service (publisher, clock, settings reader). */
+  schedule?: ScheduleDeps;
 };
 
 /** Mounts the ten services in this one Node process (ADR 0007). */
@@ -46,11 +52,14 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
   const apps: FastifyInstance[] = [];
   const urls = {} as Record<ServiceName, string>;
   let trialJob: ((now: Date) => Promise<void>) | undefined;
+  let sessionJob: ((now: Date) => Promise<unknown>) | undefined;
   try {
     for (const name of SERVICE_NAMES) {
-      const deps = name === "rules" ? { ...opts.deps, ...opts.rules } : opts.deps;
+      const extra = name === "rules" ? opts.rules : name === "schedule" ? opts.schedule : undefined;
+      const deps = extra ? { ...opts.deps, ...extra } : opts.deps;
       const app = await FACTORIES[name](config, deps);
       if (name === "rules") trialJob = app.runTrialJob;
+      if (name === "schedule") sessionJob = (app as unknown as ScheduleApp).runSessionJob;
       apps.push(app);
       await app.listen({ host: "127.0.0.1", port: opts.ephemeralPorts ? 0 : servicePort(name) });
       const address = app.server.address();
@@ -65,6 +74,9 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
     urls,
     runTrialJob: async (now) => {
       await trialJob?.(now);
+    },
+    runSessionJob: async (now) => {
+      await sessionJob?.(now);
     },
     stop: async () => {
       await Promise.all(apps.map((a) => a.close()));
@@ -81,4 +93,9 @@ export interface JobClock {
 /** Runs the trial job on the shared clock; the job receives `now` from the simulator. */
 export function mountTrialJob(runner: Runner, clock: JobClock, intervalMs: number): number {
   return clock.scheduleEvery(intervalMs, () => runner.runTrialJob(clock.now()));
+}
+
+/** Runs the session-end job on the shared clock; the job receives `now` from the simulator. */
+export function mountSessionJob(runner: Runner, clock: JobClock, intervalMs: number): number {
+  return clock.scheduleEvery(intervalMs, () => runner.runSessionJob(clock.now()));
 }
