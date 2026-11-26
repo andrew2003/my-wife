@@ -52,6 +52,7 @@ Conventions: `key` is `<domain>.<name>` in `snake_case`. Money is integer VND. D
 | Key | Default | Scope | Used by |
 | --- | --- | --- | --- |
 | `penalty.overspend_percent` | 100 | user | rules |
+| `penalty.need_overspend_mode` | `penalize` (alternative `warn_only`) | user | rules |
 | `penalty.weekly_cap_vnd` | 500000 | user | rules |
 | `penalty.withdrawal_extra_percent` | 20 | user | rules |
 | `penalty.want_deduction_order` | user's ordered `want` list | user | rules |

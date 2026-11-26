@@ -8,7 +8,7 @@ All take explicit inputs and `now`; none read the clock or the database.
 
 | Function | Input | Output |
 | --- | --- | --- |
-| `computeOverspendPenalty` | category priority, weekly limit, spent, exception used, settings | excess, penalty amount, limit deduction, warning-only flag for `need` |
+| `computeOverspendPenalty` | category priority, weekly limit, spent, exception used, settings | excess, penalty amount, limit deduction, warning-only flag for `need` when `penalty.need_overspend_mode` is `warn_only` |
 | `scoreFault` | fault type, reason (none / honest / quota-exceeded), settings | points |
 | `applyWaivers` | faults in the week, waivers available, system-fault flags | faults waived, points left |
 | `computePenaltyForWeek` | fault points, thresholds, weekly cap, carried debt | penalty amount, capped amount, new carry-over |
@@ -97,7 +97,7 @@ Consumed: `overspend.detected`, `fault.detected`, `reason.given`, `routine.late_
 
 1. Given thresholds `[6 -> 20,000; 12 -> 50,000]`, When a week has 7 points, Then raw penalty is 20,000; with 12 points 50,000.
 2. Given a weekly cap 30,000 and a raw penalty 50,000, Then 30,000 is issued and 20,000 carries to next week.
-3. Given a `need` category overspend, Then a warning is sent and no penalty entry exists.
+3. Given a `need` category overspend and the default `penalty.need_overspend_mode` = `penalize`, Then the penalty is computed like other groups and an `overspend` ledger entry exists. Given the mode is `warn_only`, Then a warning is sent and no penalty entry exists.
 4. Given the user is in trial, When a penalty is computed, Then it is `suspended`, and no payment request is sent.
 5. Given a fault inside an admin-declared incident, Then it becomes `waived_system` and the report shows it.
 6. Given a loosening change on Wednesday, Then the effective date is the next week start; a tightening change is effective immediately.

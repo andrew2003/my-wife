@@ -108,7 +108,7 @@ Per `docs/decisions.md`: unknown spend after `budget.unknown_deadline_hours`, un
 
 - Week close: for each category, `excess = max(0, spent - weekly_limit)`. Spent includes appeal-adjusted amounts.
 - `want`, `should`, `fixed` variable: overspend penalty = `penalty.overspend_percent` of the excess. The limit deduction is applied to the next week's limit of the same category (for the last week of a cycle, the first week of the next cycle's same category, if it exists; otherwise recorded as penalty debt). `budget` emits `overspend.detected`; `rules` creates the penalty ledger entry (see `12-rules.md`).
-- `need`: overspend raises a warning only, with an optional limit-raise proposal. No penalty.
+- `need`: by default (`penalty.need_overspend_mode` = `penalize`) overspend is penalized like other groups, with appeal allowed, and the bot may propose a limit raise. With `warn_only` it raises a warning and an optional limit-raise proposal, and no penalty.
 - Exceptions: up to `budget.exceptions_per_cycle` per cycle, claimed by the user before the week closes; the excess is funded from the contingency fund and is not penalized. The contingency fund balance cannot go below zero.
 - Surplus at cycle end = sum of positive remainders (limit minus spent) of categories with `counts_toward_surplus` on; fixed categories never contribute. Split: `surplus_share_savings_percent` to savings, `surplus_share_future_purchases_percent` to future purchases, remainder to `surplus_remainder_target`. Rounding: the remainder takes the leftover VND so the shares sum exactly.
 - Penalty savings is separate: penalties never count toward fixed savings contribution or the surplus split.
