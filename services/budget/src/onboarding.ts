@@ -8,6 +8,7 @@ import {
   type SettingKey,
 } from "@my-wife/contracts";
 import { t } from "./i18n";
+import { RESERVED_SHORT_CODES } from "./transfer-codes";
 import { buildSampleBudget, type SampleCategoryTemplate } from "./sample-budget";
 
 /**
@@ -19,8 +20,8 @@ export const DEFAULT_SAMPLE_TOTAL_VND = 10_000_000;
 export interface AuditRecord {
   at: string;
   userId: string;
-  action: "sample_budget_generated";
-  detail: { totalVnd: number; sequence: number };
+  action: "sample_budget_generated" | "account_code_changed" | "account_email_confirmed";
+  detail: Record<string, string | number>;
 }
 
 export interface SampleBudgetRecord {
@@ -46,6 +47,23 @@ export interface SampleBudgetStore {
   /** Releases the claim after a failed publish so the next delivery retries. */
   releaseAnnouncementClaim(userId: string): Promise<void>;
   markAnnounced(userId: string): Promise<void>;
+  /** Changes an account code (normalized upper case) with an audit record. */
+  setAccountCode(
+    userId: string,
+    accountId: string,
+    code: string,
+    at: Date,
+  ): Promise<"ok" | "invalid" | "duplicate" | "not_found">;
+  /**
+   * Sets `emailNotificationsConfirmed` once, with an audit record. Returns true only when it
+   * changed, so a repeat is a no-op.
+   */
+  confirmAccountEmail(
+    userId: string,
+    accountId: string,
+    at: Date,
+    receiptId: string,
+  ): Promise<boolean>;
 }
 
 export class MemorySampleBudgetStore implements SampleBudgetStore {
@@ -79,6 +97,40 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     const r = this.records.get(userId);
     if (r) r.announced = true;
     this.claims.delete(userId);
+  }
+
+  async setAccountCode(userId: string, accountId: string, code: string, at: Date) {
+    const r = this.records.get(userId);
+    const account = r?.accounts.find((a) => a.id === accountId);
+    if (!r || !account) return "not_found" as const;
+    const next = code.trim().toUpperCase();
+    if (!/^[A-Z0-9]{1,12}$/.test(next) || RESERVED_SHORT_CODES.includes(next)) {
+      return "invalid" as const;
+    }
+    if (r.accounts.some((a) => a.id !== accountId && a.code === next)) return "duplicate" as const;
+    if (account.code === next) return "ok" as const;
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "account_code_changed",
+      detail: { accountId, from: account.code, to: next },
+    });
+    account.code = next;
+    return "ok" as const;
+  }
+
+  async confirmAccountEmail(userId: string, accountId: string, at: Date, receiptId: string) {
+    const r = this.records.get(userId);
+    const account = r?.accounts.find((a) => a.id === accountId);
+    if (!r || !account || account.emailNotificationsConfirmed) return false;
+    account.emailNotificationsConfirmed = true;
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "account_email_confirmed",
+      detail: { accountId, receiptId },
+    });
+    return true;
   }
 
   /** Sync helpers for tests. */
