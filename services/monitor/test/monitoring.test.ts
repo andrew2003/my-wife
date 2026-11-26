@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "@my-wife/config";
-import { SETTINGS, type EventEnvelope } from "@my-wife/contracts";
+import { SETTINGS, type EventEnvelope, type OutboundMessage } from "@my-wife/contracts";
 import { createApp } from "../src/index";
 import en from "../src/locales/en.json";
 import vi from "../src/locales/vi.json";
@@ -177,5 +177,162 @@ describe("heartbeat gap check", () => {
       sentAt: "2030-01-01T00:00:00.000Z",
     });
     expect((await s.app.runGapCheck(at(10 + DEFAULT_GAP))).tickets).toHaveLength(1);
+  });
+});
+
+describe("urgent escalation and reason ticket (MW-036)", () => {
+  const CHAT = SETTINGS["monitor.urgent_chat_after_seconds"].default;
+  const SILENT = SETTINGS["monitor.urgent_silent_fault_after_seconds"].default;
+  const MIN_GAP = SETTINGS["monitor.urgent_min_gap_minutes"].default;
+
+  async function withTicket(settings: Record<string, unknown> = {}, fail = false) {
+    const sent: OutboundMessage[] = [];
+    let nowMs = T0;
+    const events: EventEnvelope[] = [];
+    const app = await createApp(config, {
+      now: () => new Date(nowMs),
+      publish: (e: EventEnvelope) => void events.push(e),
+      readSettings: async () => settings,
+      sendUrgent: async (m: OutboundMessage) => {
+        if (fail) throw new Error("notify down");
+        sent.push(m);
+      },
+    });
+    const call = (url: string, payload?: unknown, user = "u1") =>
+      app.inject({
+        method: "POST",
+        url,
+        headers: { "x-user-id": user },
+        payload: payload as object,
+      });
+    await call("/sessions/start", { taskId: "t1", profile: "camera", deviceId: "d" });
+    await app.runGapCheck(at(DEFAULT_GAP));
+    const ticket = app.monitorState.tickets.all()[0]!;
+    return {
+      app,
+      events,
+      sent,
+      call,
+      ticket,
+      setNow: (sec: number) => void (nowMs = T0 + sec * 1000),
+    };
+  }
+  const types = (e: EventEnvelope[]) => e.map((x) => x.type);
+  const channels = (e: EventEnvelope[]) =>
+    e.filter((x) => x.type === "urgent.sent").map((x) => (x.payload as { channel: string }).channel);
+
+  it("sends the urgent message through notify and emits urgent.sent", async () => {
+    const s = await withTicket();
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    expect(s.sent).toHaveLength(1);
+    expect(s.sent[0]).toMatchObject({ class: "urgent", sourceService: "monitor", isWakeUp: false });
+    const sentEvt = s.events.filter((e) => e.type === "urgent.sent");
+    expect(sentEvt).toHaveLength(1);
+    expect(sentEvt[0]?.payload).toEqual({ ticketId: s.ticket.id, channel: "web" });
+    expect(s.app.monitorState.urgent.all()[0]?.delivered).toBe(true);
+  });
+
+  it("does not send twice and keeps the message pending when notify fails", async () => {
+    const s = await withTicket();
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    await s.app.runUrgentJob(at(DEFAULT_GAP + 1));
+    expect(s.sent).toHaveLength(1);
+    const f = await withTicket({}, true);
+    const res = await f.app.runUrgentJob(at(DEFAULT_GAP));
+    expect(res.failed).toEqual([f.ticket.id]);
+    expect(types(f.events)).not.toContain("urgent.sent");
+    expect(f.app.monitorState.urgent.all()[0]?.delivered).toBe(false);
+  });
+
+  it("sends at most one urgent message per minimum gap for a user", async () => {
+    const s = await withTicket({ "monitor.urgent_silent_fault_after_seconds": 3600 });
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    s.app.monitorState.tickets.add({ ...s.ticket, id: "second", signalRef: "second-ref" });
+    s.app.monitorState.urgent.add({
+      ...s.app.monitorState.urgent.all()[0]!,
+      id: "m2",
+      ticketId: "second",
+      delivered: false,
+      sentAt: undefined,
+    });
+    await s.app.runUrgentJob(at(DEFAULT_GAP + 60));
+    expect(s.sent.filter((m) => m.id === "m2")).toHaveLength(0);
+    await s.app.runUrgentJob(at(DEFAULT_GAP + MIN_GAP * 60));
+    expect(s.sent.filter((m) => m.id === "m2")).toHaveLength(1);
+  });
+
+  it("answers within the window: ticket answered and reason.given emitted", async () => {
+    const s = await withTicket();
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    s.setNow(DEFAULT_GAP + 20);
+    const res = await s.call("/reasons", { ticketId: s.ticket.id, kind: "restroom" });
+    expect(res.statusCode).toBe(200);
+    expect(s.app.monitorState.tickets.all()[0]).toMatchObject({
+      state: "answered",
+      reasonKind: "restroom",
+    });
+    const given = s.events.find((e) => e.type === "reason.given");
+    expect(given?.payload).toMatchObject({
+      ticketId: s.ticket.id,
+      signalRef: s.ticket.signalRef,
+      kind: "restroom",
+      givenAt: at(DEFAULT_GAP + 20).toISOString(),
+    });
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT + 10));
+    expect(types(s.events)).not.toContain("fault.detected");
+    expect(types(s.events)).not.toContain("reason.expired");
+  });
+
+  it("escalates to chat, then accepts one answer only", async () => {
+    const s = await withTicket();
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    await s.app.runUrgentJob(at(DEFAULT_GAP + CHAT));
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("escalated");
+    expect(channels(s.events)).toEqual(["web", "chat"]);
+    expect(s.sent).toHaveLength(2);
+    const other = await s.call("/reasons", { ticketId: s.ticket.id, kind: "water" }, "u2");
+    expect(other.statusCode).toBe(404);
+    const bad = await s.call("/reasons", { ticketId: s.ticket.id, kind: "bogus" });
+    expect(bad.statusCode).toBe(400);
+    expect((await s.call("/reasons", { ticketId: s.ticket.id, kind: "water" })).statusCode).toBe(200);
+    expect((await s.call("/reasons", { ticketId: s.ticket.id, kind: "water" })).statusCode).toBe(409);
+    expect(s.events.filter((e) => e.type === "reason.given")).toHaveLength(1);
+  });
+
+  it("expires a silent ticket: reason.expired and fault.detected with reason none", async () => {
+    const s = await withTicket();
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT - 1));
+    expect(types(s.events)).not.toContain("fault.detected");
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT));
+    await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT + 30));
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("expired");
+    expect(s.events.filter((e) => e.type === "reason.expired")).toHaveLength(1);
+    const faults = s.events.filter((e) => e.type === "fault.detected");
+    expect(faults).toHaveLength(1);
+    expect(faults[0]?.payload).toEqual({
+      signalRef: s.ticket.signalRef,
+      type: "heartbeat_lost",
+      occurredAt: s.ticket.occurredAt,
+      reason: "none",
+      reasonRef: null,
+      reasonKind: null,
+      overlapsOutage: false,
+    });
+    s.setNow(DEFAULT_GAP + SILENT + 40);
+    const late = await s.call("/reasons", { ticketId: s.ticket.id, kind: "other" });
+    expect(late.statusCode).toBe(409);
+  });
+
+  it("takes every delay from user settings", async () => {
+    const s = await withTicket({
+      "monitor.urgent_chat_after_seconds": 10,
+      "monitor.urgent_silent_fault_after_seconds": 20,
+    });
+    await s.app.runUrgentJob(at(DEFAULT_GAP));
+    await s.app.runUrgentJob(at(DEFAULT_GAP + 10));
+    expect(s.app.monitorState.tickets.all()[0]?.state).toBe("escalated");
+    await s.app.runUrgentJob(at(DEFAULT_GAP + 20));
+    expect(types(s.events)).toContain("fault.detected");
   });
 });

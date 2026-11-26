@@ -5,11 +5,14 @@ import {
   type EventEnvelope,
   type Locale,
   type MessageRef,
+  type OutboundMessage,
+  type ReasonKindSchema,
   type MonitoringProfileSchema,
   type ReasonTicketStateSchema,
 } from "@my-wife/contracts";
 
 type Profile = (typeof MonitoringProfileSchema)["_output"];
+type ReasonKind = (typeof ReasonKindSchema)["_output"];
 type TicketState = (typeof ReasonTicketStateSchema)["_output"];
 
 const SECOND_MS = 1000;
@@ -38,9 +41,17 @@ export interface ReasonTicket {
   /** Server time the gap started (the last sign of life). */
   occurredAt: string;
   createdAt: string;
+  /** Set when the user answers (`reason.given`). */
+  answeredAt?: string;
+  reasonKind?: ReasonKind;
+  reasonText?: string;
+  /** Set when the chat message went out (state `escalated`). */
+  escalatedAt?: string;
+  /** Set when the silence delay passed (state `expired`). */
+  expiredAt?: string;
 }
 
-/** An urgent message record. Delivery (web banner, chat) is a later issue (MW-036). */
+/** An urgent message record. `delivered` is true once notify accepted it. */
 export interface UrgentMessage {
   id: string;
   userId: string;
@@ -52,6 +63,8 @@ export interface UrgentMessage {
   isWakeUp: false;
   createdAt: string;
   delivered: boolean;
+  /** Server time notify accepted the first send; the minimum gap counts from it. */
+  sentAt?: string;
 }
 
 /** Ports: Drizzle stores replace the in-memory ones without touching the logic below. */
@@ -64,6 +77,7 @@ export interface SessionStore {
 export interface TicketStore {
   add(t: ReasonTicket): void;
   hasRef(signalRef: string): boolean;
+  get(userId: string, id: string): ReasonTicket | undefined;
   all(): ReasonTicket[];
 }
 export interface UrgentStore {
@@ -89,6 +103,7 @@ export function createMemoryTicketStore(): TicketStore {
   return {
     add: (t) => void tickets.push(t),
     hasRef: (ref) => tickets.some((t) => t.signalRef === ref),
+    get: (userId, id) => tickets.find((t) => t.id === id && t.userId === userId),
     all: () => [...tickets],
   };
 }
@@ -111,6 +126,8 @@ export interface MonitorDeps {
   /** Reads the user's settings; every answer falls back to its registry default. */
   readSettings: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
   locale: Locale;
+  /** Hands an urgent message to notify (`POST /messages`); throws when it was not accepted. */
+  sendUrgent: (message: OutboundMessage) => Promise<void>;
 }
 
 function envelope(
@@ -196,12 +213,21 @@ export async function endMonitoring(
   return s;
 }
 
-async function gapSeconds(deps: MonitorDeps, userId: string): Promise<number> {
-  const answer = (await deps.readSettings(userId))["monitor.heartbeat_missing_seconds"];
+type PositiveKey =
+  | "monitor.heartbeat_missing_seconds"
+  | "monitor.urgent_chat_after_seconds"
+  | "monitor.urgent_silent_fault_after_seconds"
+  | "monitor.urgent_min_gap_minutes";
+
+/** A positive integer setting, or the registry default when the answer is missing or invalid. */
+async function positiveSetting(deps: MonitorDeps, userId: string, key: PositiveKey): Promise<number> {
+  const answer = (await deps.readSettings(userId))[key];
   return typeof answer === "number" && Number.isInteger(answer) && answer > 0
     ? answer
-    : SETTINGS["monitor.heartbeat_missing_seconds"].default;
+    : SETTINGS[key].default;
 }
+const gapSeconds = (deps: MonitorDeps, userId: string) =>
+  positiveSetting(deps, userId, "monitor.heartbeat_missing_seconds");
 
 /**
  * Idempotent job. For every active session with no heartbeat for the configured gap it opens one
@@ -248,4 +274,131 @@ export async function runGapCheck(
     }
   }
   return result;
+}
+
+export type GiveReasonResult =
+  | { ok: true; ticket: ReasonTicket }
+  | { ok: false; error: "ticket.not_found" | "ticket.not_open" };
+
+/** The user answers a ticket that is still `open` or `escalated`; a repeat or a late answer is refused. */
+export async function giveReason(
+  deps: MonitorDeps,
+  userId: string,
+  input: { ticketId: string; kind: ReasonKind; text?: string },
+  now: Date,
+): Promise<GiveReasonResult> {
+  const t = deps.state.tickets.get(userId, input.ticketId);
+  if (!t) return { ok: false, error: "ticket.not_found" };
+  if (t.state !== "open" && t.state !== "escalated") return { ok: false, error: "ticket.not_open" };
+  t.state = "answered";
+  t.answeredAt = now.toISOString();
+  t.reasonKind = input.kind;
+  if (input.text) t.reasonText = input.text;
+  await deps.publish(
+    envelope(now, `reason-given-${t.id}`, "reason.given", userId, {
+      ticketId: t.id,
+      signalRef: t.signalRef,
+      kind: input.kind,
+      givenAt: t.answeredAt,
+    }),
+  );
+  return { ok: true, ticket: t };
+}
+
+async function sendUrgentOnce(
+  deps: MonitorDeps,
+  msg: UrgentMessage,
+  channel: "web" | "chat",
+  now: Date,
+): Promise<boolean> {
+  try {
+    await deps.sendUrgent({
+      id: msg.id,
+      class: "urgent",
+      message: msg.message,
+      locale: msg.locale,
+      sourceService: "monitor",
+      isWakeUp: false,
+      createdAt: msg.createdAt,
+    });
+  } catch {
+    return false;
+  }
+  msg.delivered = true;
+  await deps.publish(
+    envelope(now, `urgent-sent-${msg.ticketId}-${channel}`, "urgent.sent", msg.userId, {
+      ticketId: msg.ticketId,
+      channel,
+    }),
+  );
+  return true;
+}
+
+/**
+ * Idempotent escalation job: (1) the first urgent message goes through notify (web banner) unless
+ * another one went out within `monitor.urgent_min_gap_minutes`; (2) after the chat delay the same
+ * message is sent as a chat message and the ticket is `escalated`; (3) after the silence delay the
+ * ticket is `expired`, `reason.expired` and `fault.detected` (reason none) are emitted. Delays count
+ * from the ticket creation. `now` is a parameter.
+ */
+export async function runUrgentJob(deps: MonitorDeps, now: Date): Promise<{ failed: string[] }> {
+  const failed: string[] = [];
+  const lastSent = new Map<string, number>();
+  for (const m of deps.state.urgent.all()) {
+    if (m.delivered) {
+      const at = Date.parse(m.sentAt ?? m.createdAt);
+      lastSent.set(m.userId, Math.max(lastSent.get(m.userId) ?? 0, at));
+    }
+  }
+  for (const t of deps.state.tickets.all()) {
+    if (t.state !== "open" && t.state !== "escalated") continue;
+    try {
+      const msg = deps.state.urgent.all().find((m) => m.ticketId === t.id);
+      const age = now.getTime() - Date.parse(t.createdAt);
+      const silent = await positiveSetting(deps, t.userId, "monitor.urgent_silent_fault_after_seconds");
+      if (age >= silent * SECOND_MS) {
+        t.state = "expired";
+        t.expiredAt = now.toISOString();
+        await deps.publish(
+          envelope(now, `reason-expired-${t.id}`, "reason.expired", t.userId, {
+            ticketId: t.id,
+            signalRef: t.signalRef,
+          }),
+        );
+        await deps.publish(
+          envelope(now, `fault-detected-${t.signalRef}`, "fault.detected", t.userId, {
+            signalRef: t.signalRef,
+            type: t.signal,
+            occurredAt: t.occurredAt,
+            reason: "none",
+            reasonRef: null,
+            reasonKind: null,
+            overlapsOutage: false,
+          }),
+        );
+        continue;
+      }
+      if (!msg) continue;
+      if (!msg.delivered) {
+        const minGap = await positiveSetting(deps, t.userId, "monitor.urgent_min_gap_minutes");
+        const prev = lastSent.get(t.userId);
+        if (prev !== undefined && now.getTime() - prev < minGap * 60 * SECOND_MS) continue;
+        if (await sendUrgentOnce(deps, msg, "web", now)) {
+          msg.sentAt = now.toISOString();
+          lastSent.set(t.userId, now.getTime());
+        } else failed.push(t.id);
+        continue;
+      }
+      const chatAfter = await positiveSetting(deps, t.userId, "monitor.urgent_chat_after_seconds");
+      if (t.state === "open" && age >= chatAfter * SECOND_MS) {
+        if (await sendUrgentOnce(deps, msg, "chat", now)) {
+          t.state = "escalated";
+          t.escalatedAt = now.toISOString();
+        } else failed.push(t.id);
+      }
+    } catch {
+      failed.push(t.id);
+    }
+  }
+  return { failed };
 }
