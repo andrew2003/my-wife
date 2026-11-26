@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "@my-wife/config";
-import type { EventEnvelope, SettingKey } from "@my-wife/contracts";
+import { ApprovePlanRequestSchema, type EventEnvelope, type SettingKey } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { createReceiptHandler } from "./accounts";
+import { createContractSignedHandler, createCycleApprover } from "./approval";
 import {
   createOnboardingHandler,
   MemorySampleBudgetStore,
@@ -41,6 +42,33 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
   // Event consumers are wired by main.ts (NATS) and the dev runner.
   app.decorate("onOnboardingStepCompleted", onOnboardingStepCompleted);
   app.decorate("onReceiptParsed", createReceiptHandler({ store, now }));
+  app.decorate("onContractSigned", createContractSignedHandler({ store }));
+
+  const approveCycle = createCycleApprover({
+    store,
+    now,
+    publish: deps.publish ?? (() => undefined),
+  });
+  const STATUS: Record<string, number> = {
+    "budget.cycle_not_found": 404,
+    "budget.cycle_not_draft": 409,
+    "budget.contract_not_signed": 409,
+    "budget.account_unconfirmed": 409,
+  };
+  // The gateway has verified the session and forwards the user id (see decisions.md).
+  app.post("/cycles/approve", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const body = ApprovePlanRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const result = await approveCycle({ userId, ...body.data });
+    if (!result.ok) return reply.code(STATUS[result.error.code] ?? 400).send(result);
+    return result;
+  });
   return app;
 }
 
@@ -50,5 +78,7 @@ declare module "fastify" {
     onOnboardingStepCompleted: (event: EventEnvelope) => Promise<void>;
     /** Consumer of `receipt.parsed`; confirms the account the receipt resolves to. */
     onReceiptParsed: (event: EventEnvelope) => Promise<void>;
+    /** Consumer of `contract.signed`; records the contract the approval guard checks. */
+    onContractSigned: (event: EventEnvelope) => Promise<void>;
   }
 }
