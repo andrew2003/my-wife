@@ -102,6 +102,9 @@ importers:
 
   apps/e2e:
     dependencies:
+      '@my-wife/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@my-wife/test-kit':
         specifier: workspace:*
         version: link:../../packages/test-kit

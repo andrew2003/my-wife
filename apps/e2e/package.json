@@ -9,6 +9,7 @@
     "test": "node scripts/run.mjs"
   },
   "dependencies": {
+    "@my-wife/contracts": "workspace:*",
     "@my-wife/test-kit": "workspace:*"
   },
   "devDependencies": {

@@ -151,5 +151,10 @@
   "budget.penalty.due": "Hạn nộp:",
   "budget.penalty.code": "Mã nội dung:",
   "budget.penalty.account": "Nộp vào:",
-  "budget.penalty.instructions": "Hãy tự chuyển khoản đúng số tiền với mã nội dung chính xác. Chúng tôi chỉ đọc biên lai ngân hàng để xác nhận và không bao giờ chuyển tiền."
+  "budget.penalty.instructions": "Hãy tự chuyển khoản đúng số tiền với mã nội dung chính xác. Chúng tôi chỉ đọc biên lai ngân hàng để xác nhận và không bao giờ chuyển tiền.",
+  "monitor.title": "Giám sát tập trung",
+  "monitor.start": "Bật giám sát bằng camera",
+  "monitor.running": "Đang giám sát. Video chỉ nằm trên thiết bị này.",
+  "monitor.denied": "Chưa được cấp quyền truy cập camera.",
+  "monitor.delegate": "Chế độ phân tích: {delegate}"
 }
