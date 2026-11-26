@@ -11,6 +11,7 @@ import { t } from "./i18n";
 import { RESERVED_SHORT_CODES } from "./transfer-codes";
 import { buildSampleBudget, type SampleCategoryTemplate } from "./sample-budget";
 import type { TransactionRecord } from "./transactions";
+import type { AnomalyRecord } from "./unknown-spend";
 import type { LimitAdjustment, OverspendRecord, PenaltyDebt, WeekCloseOutcome } from "./overspend";
 
 /**
@@ -30,7 +31,9 @@ export interface AuditRecord {
     | "account_funded"
     | "cycle_opened"
     | "transaction_recorded"
-    | "week_closed";
+    | "week_closed"
+    | "anomaly_opened"
+    | "anomaly_resolved";
   detail: Record<string, string | number>;
 }
 
@@ -60,6 +63,8 @@ export interface SampleBudgetRecord {
   limitAdjustments: LimitAdjustment[];
   /** Overspend left from the last week of a cycle, settled later as penalty debt. */
   penaltyDebts: PenaltyDebt[];
+  /** Unknown spend waiting for a category, or resolved by the user's answer (MW-025). */
+  anomalies: AnomalyRecord[];
 }
 
 export interface FundingRecord {
@@ -144,6 +149,28 @@ export interface SampleBudgetStore {
     at: Date,
   ): Promise<"recorded" | "duplicate" | "not_running">;
   markTransactionAnnounced(userId: string, transactionId: string): Promise<void>;
+  /**
+   * Stores an anomaly with an audit record. One anomaly per `receiptId`: a repeat returns the
+   * stored one as `duplicate` and writes nothing; a cycle that is not `running` is `not_running`.
+   */
+  openAnomaly(
+    userId: string,
+    anomaly: AnomalyRecord,
+    at: Date,
+  ): Promise<{ result: "opened" | "duplicate"; anomaly: AnomalyRecord } | "not_running">;
+  markAnomalyOpenedAnnounced(userId: string, anomalyId: string): Promise<void>;
+  /**
+   * Atomically resolves an open anomaly: books `txn` (already carrying the chosen category) and
+   * writes audit records. A resolved anomaly is `already_resolved` and changes nothing.
+   */
+  resolveAnomaly(
+    userId: string,
+    anomalyId: string,
+    categoryId: string,
+    txn: TransactionRecord,
+    at: Date,
+  ): Promise<"resolved" | "already_resolved" | "not_found" | "not_running">;
+  markAnomalyResolvedAnnounced(userId: string, anomalyId: string): Promise<void>;
   /**
    * Atomically records the close of a week with its overspends, deductions, debts and an audit
    * record. A (cycle, week) already closed returns `duplicate` and writes nothing.
@@ -334,6 +361,82 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
   async markTransactionAnnounced(userId: string, transactionId: string) {
     const txn = this.records.get(userId)?.transactions.find((t) => t.id === transactionId);
     if (txn) txn.announced = true;
+  }
+
+  async openAnomaly(userId: string, anomaly: AnomalyRecord, at: Date) {
+    const r = this.records.get(userId);
+    const existing = r?.anomalies.find((a) => a.receiptId === anomaly.receiptId);
+    if (existing) return { result: "duplicate" as const, anomaly: { ...existing } };
+    if (!r || r.cycle.id !== anomaly.cycleId || r.cycle.state !== "running") {
+      return "not_running" as const;
+    }
+    r.anomalies.push({ ...anomaly });
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "anomaly_opened",
+      detail: {
+        anomalyId: anomaly.id,
+        receiptId: anomaly.receiptId,
+        kind: anomaly.kind,
+        amountVnd: anomaly.receipt.amountVnd,
+      },
+    });
+    return { result: "opened" as const, anomaly: { ...anomaly } };
+  }
+
+  async markAnomalyOpenedAnnounced(userId: string, anomalyId: string) {
+    const a = this.records.get(userId)?.anomalies.find((x) => x.id === anomalyId);
+    if (a) a.openedAnnounced = true;
+  }
+
+  // Synchronous check-and-set: no await between the state test and the writes.
+  async resolveAnomaly(
+    userId: string,
+    anomalyId: string,
+    categoryId: string,
+    txn: TransactionRecord,
+    at: Date,
+  ) {
+    const r = this.records.get(userId);
+    const a = r?.anomalies.find((x) => x.id === anomalyId);
+    if (!r || !a) return "not_found" as const;
+    if (a.state === "resolved") return "already_resolved" as const;
+    if (r.cycle.id !== a.cycleId || r.cycle.state !== "running") return "not_running" as const;
+    if (r.transactions.some((t) => t.bankTransactionRef === txn.bankTransactionRef)) {
+      return "already_resolved" as const;
+    }
+    a.state = "resolved";
+    a.resolvedCategoryId = categoryId;
+    a.transactionId = txn.id;
+    r.transactions.push({ ...txn });
+    r.audit.push(
+      {
+        at: at.toISOString(),
+        userId,
+        action: "transaction_recorded",
+        detail: {
+          cycleId: txn.cycleId,
+          transactionId: txn.id,
+          receiptId: txn.receiptId,
+          bankTransactionRef: txn.bankTransactionRef,
+          categoryId,
+          amountVnd: txn.amountVnd,
+        },
+      },
+      {
+        at: at.toISOString(),
+        userId,
+        action: "anomaly_resolved",
+        detail: { anomalyId, categoryId, transactionId: txn.id },
+      },
+    );
+    return "resolved" as const;
+  }
+
+  async markAnomalyResolvedAnnounced(userId: string, anomalyId: string) {
+    const a = this.records.get(userId)?.anomalies.find((x) => x.id === anomalyId);
+    if (a) a.resolvedAnnounced = true;
   }
 
   private readonly overspendClaims = new Set<string>();
@@ -544,6 +647,7 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       overspends: [],
       limitAdjustments: [],
       penaltyDebts: [],
+      anomalies: [],
       transactions: [],
     };
   }

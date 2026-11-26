@@ -3,6 +3,8 @@ import { subject } from "@my-wife/service-kit";
 
 export const ONBOARDING_SUBJECT = "onboarding.step_completed";
 export const RECEIPT_SUBJECT = "receipt.parsed";
+export const RECEIPT_UNKNOWN_SUBJECT = "receipt.unknown";
+export const REPLY_RECEIVED_SUBJECT = "notify.reply_received";
 export const CONTRACT_SIGNED_SUBJECT = "contract.signed";
 export const WEEK_CLOSED_SUBJECT = "week.closed";
 /** Replicas of budget share one queue group so each event is handled once. */

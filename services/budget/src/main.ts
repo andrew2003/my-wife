@@ -6,6 +6,8 @@ import {
   CONTRACT_SIGNED_SUBJECT,
   createSettingsReader,
   RECEIPT_SUBJECT,
+  RECEIPT_UNKNOWN_SUBJECT,
+  REPLY_RECEIVED_SUBJECT,
   runEventConsumer,
   runOnboardingConsumer,
   WEEK_CLOSED_SUBJECT,
@@ -35,6 +37,22 @@ void runEventConsumer({
   prefix,
   type: RECEIPT_SUBJECT,
   handler: app.onReceiptParsed,
+  log: app.log,
+});
+
+void runEventConsumer({
+  nats,
+  prefix,
+  type: RECEIPT_UNKNOWN_SUBJECT,
+  handler: app.onReceiptUnknown,
+  log: app.log,
+});
+
+void runEventConsumer({
+  nats,
+  prefix,
+  type: REPLY_RECEIVED_SUBJECT,
+  handler: app.onReplyReceived,
   log: app.log,
 });
 

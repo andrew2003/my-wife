@@ -15,7 +15,7 @@ export interface TransactionRecord {
   memo: string;
   counterparty: string | null;
   transactionType: TransactionType;
-  reconciliationResult: "unplanned";
+  reconciliationResult: "unplanned" | "unknown";
   categoryId: string;
   /** False until `txn.recorded` was published, so a failed publish is retried. */
   announced: boolean;
