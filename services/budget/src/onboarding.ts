@@ -38,6 +38,13 @@ export interface SampleBudgetStore {
   find(userId: string): Promise<SampleBudgetRecord | undefined>;
   /** Returns false when a draft for the user already exists (nothing is written then). */
   insertIfAbsent(record: SampleBudgetRecord): Promise<boolean>;
+  /**
+   * Atomically claims the owed `cycle.draft_created` of the user's draft. Returns undefined
+   * when none is owed (already announced) or another delivery holds the claim.
+   */
+  claimAnnouncement(userId: string): Promise<SampleBudgetRecord | undefined>;
+  /** Releases the claim after a failed publish so the next delivery retries. */
+  releaseAnnouncementClaim(userId: string): Promise<void>;
   markAnnounced(userId: string): Promise<void>;
 }
 
@@ -54,9 +61,24 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     return true;
   }
 
+  private readonly claims = new Set<string>();
+
+  // Synchronous check-and-set: no await between the test and the write.
+  async claimAnnouncement(userId: string) {
+    const r = this.records.get(userId);
+    if (!r || r.announced || this.claims.has(userId)) return undefined;
+    this.claims.add(userId);
+    return r;
+  }
+
+  async releaseAnnouncementClaim(userId: string) {
+    this.claims.delete(userId);
+  }
+
   async markAnnounced(userId: string) {
     const r = this.records.get(userId);
     if (r) r.announced = true;
+    this.claims.delete(userId);
   }
 
   /** Sync helpers for tests. */
@@ -75,8 +97,8 @@ export interface OnboardingDeps {
   now: () => Date;
   newId: () => string;
   publish: (event: EventEnvelope) => void | Promise<void>;
-  /** The user's settings; missing keys fall back to the registry defaults. */
-  settings?: Partial<Record<SettingKey, number>>;
+  /** Reads the user's settings (identity); missing or invalid keys fall back to registry defaults. */
+  readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
   /** The user's total budget answer per cycle, when one exists. */
   totalVnd?: (userId: string) => number | undefined;
   /** Override of the sample ratios. */
@@ -90,8 +112,24 @@ const ACCOUNT_CODES = { spending: "MAIN", savings: "SAV", penalty_savings: "PEN"
  * sample budget draft once per user. Redelivery is safe; a failed publish is retried.
  */
 export function createOnboardingHandler(deps: OnboardingDeps) {
-  const setting = (key: SettingKey): number =>
-    deps.settings?.[key] ?? (SETTINGS[key].default as number);
+  const pick = <T>(
+    values: Partial<Record<SettingKey, unknown>>,
+    key: SettingKey,
+    ok: (v: unknown) => v is T,
+  ): T => {
+    const v = values[key];
+    return ok(v) ? v : (SETTINGS[key].default as T);
+  };
+  const isPosInt = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
+  const isZone = (v: unknown): v is string => {
+    if (typeof v !== "string" || !v) return false;
+    try {
+      new Intl.DateTimeFormat("en-CA", { timeZone: v });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   return async function onOnboardingStepCompleted(event: EventEnvelope): Promise<void> {
     if (event.type !== "onboarding.step_completed") return;
@@ -101,29 +139,39 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
 
     let record = await deps.store.find(userId);
     if (!record) {
-      record = buildRecord(userId);
+      record = buildRecord(userId, (await deps.readSettings?.(userId)) ?? {});
       const inserted = await deps.store.insertIfAbsent(record);
       if (!inserted) record = await deps.store.find(userId);
     }
-    if (!record || record.announced) return;
+    if (!record) return;
+    const owed = await deps.store.claimAnnouncement(userId);
+    if (!owed) return;
 
-    await deps.publish({
-      id: deps.newId(),
-      type: "cycle.draft_created",
-      occurredAt: deps.now().toISOString(),
-      userId,
-      schemaVersion: event.schemaVersion,
-      payload: { cycleId: record.cycle.id, sequence: record.cycle.sequence },
-    } as EventEnvelope);
+    try {
+      await deps.publish({
+        id: deps.newId(),
+        type: "cycle.draft_created",
+        occurredAt: deps.now().toISOString(),
+        userId,
+        schemaVersion: event.schemaVersion,
+        payload: { cycleId: owed.cycle.id, sequence: owed.cycle.sequence },
+      } as EventEnvelope);
+    } catch (err) {
+      await deps.store.releaseAnnouncementClaim(userId);
+      throw err;
+    }
     await deps.store.markAnnounced(userId);
   };
 
-  function buildRecord(userId: string): SampleBudgetRecord {
+  function buildRecord(
+    userId: string,
+    values: Partial<Record<SettingKey, unknown>>,
+  ): SampleBudgetRecord {
     const total = deps.totalVnd?.(userId) ?? DEFAULT_SAMPLE_TOTAL_VND;
-    const weeks = setting("budget.cycle_weeks");
+    const weeks = pick(values, "budget.cycle_weeks", isPosInt);
     const draft = buildSampleBudget({
       totalVnd: total,
-      roundingVnd: setting("budget.weekly_limit_rounding_vnd"),
+      roundingVnd: pick(values, "budget.weekly_limit_rounding_vnd", isPosInt),
       template: deps.template,
     });
     const now = deps.now();
@@ -141,7 +189,7 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       id: deps.newId(),
       sequence: 1,
       weeks,
-      firstDay: now.toISOString().slice(0, 10),
+      firstDay: localDate(now, pick(values, "calendar.time_zone", isZone)),
       state: "draft",
       openedAt: null,
       closedAt: null,
@@ -173,4 +221,16 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       announced: false,
     };
   }
+}
+
+/** ISO date (YYYY-MM-DD) of `at` in the given IANA time zone. */
+export function localDate(at: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(at);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }

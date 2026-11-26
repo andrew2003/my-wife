@@ -14,7 +14,7 @@ export type BudgetDeps = ServiceDeps & {
   store?: SampleBudgetStore;
   /** Time is a parameter so tests can simulate it. */
   now?: () => Date;
-  settings?: Partial<Record<SettingKey, number>>;
+  readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
   publish?: (event: EventEnvelope) => void | Promise<void>;
   totalVnd?: (userId: string) => number | undefined;
 };
@@ -32,7 +32,7 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     now: deps.now ?? (() => new Date()),
     newId: randomUUID,
     publish: deps.publish ?? (() => undefined),
-    settings: deps.settings,
+    readSettings: deps.readSettings,
     totalVnd: deps.totalVnd,
   });
   // Event consumers are wired by main.ts (NATS) and the dev runner.
