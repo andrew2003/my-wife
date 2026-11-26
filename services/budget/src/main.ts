@@ -1,10 +1,28 @@
 import { loadConfig, servicePort } from "@my-wife/config";
-import { connectNats } from "@my-wife/service-kit";
+import { type EventEnvelope } from "@my-wife/contracts";
+import { connectNats, subject } from "@my-wife/service-kit";
 import { createApp, SERVICE_NAME } from "./app";
+import { createSettingsReader, runOnboardingConsumer } from "./consumer";
 
 const config = loadConfig(process.env);
 const nats = await connectNats(config.natsUrl, SERVICE_NAME);
-const app = await createApp(config, { nats });
+const prefix = config.natsSubjectPrefix;
+const identityUrl = process.env.IDENTITY_URL ?? `http://localhost:${servicePort("identity")}`;
+const app = await createApp(config, {
+  nats,
+  publish: (event: EventEnvelope) => {
+    nats.publish(subject(prefix, event.type), JSON.stringify(event));
+  },
+  readSettings: createSettingsReader({ identityUrl }),
+});
+
+void runOnboardingConsumer({
+  nats,
+  prefix,
+  handler: app.onOnboardingStepCompleted,
+  log: app.log,
+});
+
 await app.listen({ host: "0.0.0.0", port: Number(process.env.PORT ?? servicePort(SERVICE_NAME)) });
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {

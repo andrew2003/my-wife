@@ -1,4 +1,18 @@
-export { createApp, SERVICE_NAME } from "./app";
+export { createApp, SERVICE_NAME, type BudgetDeps } from "./app";
+export {
+  createOnboardingHandler,
+  DEFAULT_SAMPLE_TOTAL_VND,
+  MemorySampleBudgetStore,
+  type SampleBudgetRecord,
+  type SampleBudgetStore,
+} from "./onboarding";
+export {
+  allocateByRatio,
+  buildSampleBudget,
+  DEFAULT_SAMPLE_TEMPLATE,
+  type SampleBudgetDraft,
+  type SampleCategoryTemplate,
+} from "./sample-budget";
 export {
   issueCycleCategoryCode,
   issueFundingCode,

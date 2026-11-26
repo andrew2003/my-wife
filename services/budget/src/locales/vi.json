@@ -1,0 +1,16 @@
+{
+  "budget.sample.category.food": "Ăn uống",
+  "budget.sample.category.fixed_bills": "Hóa đơn cố định",
+  "budget.sample.category.transport": "Đi lại",
+  "budget.sample.category.health_personal": "Sức khỏe và chăm sóc cá nhân",
+  "budget.sample.category.eating_out": "Ăn ngoài và ứng dụng giao đồ ăn",
+  "budget.sample.category.entertainment": "Giải trí",
+  "budget.sample.category.small_shopping": "Mua sắm nhỏ",
+  "budget.sample.category.contingency": "Quỹ dự phòng",
+  "budget.sample.category.savings": "Tiết kiệm",
+  "budget.sample.category.future_purchases": "Mua sắm tương lai",
+  "budget.sample.category.penalties": "Tiền phạt",
+  "budget.sample.account.spending": "Tài khoản chi tiêu",
+  "budget.sample.account.savings": "Tài khoản tiết kiệm",
+  "budget.sample.account.penalty_savings": "Tài khoản tiết kiệm tiền phạt"
+}
