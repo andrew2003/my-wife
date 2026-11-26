@@ -25,11 +25,22 @@ interface OverspendRow {
   excessVnd: number;
 }
 
+interface TxnRow {
+  userId: string;
+  transactionId: string;
+  occurredAt: string;
+  amountVnd: number;
+}
+
 /** Port: copies of the rules and budget ledgers that the review is built from. */
 export interface LedgerStore {
   addFault(row: FaultRow): void;
   waiveFault(userId: string, faultId: string): void;
   addOverspend(row: OverspendRow): void;
+  addTxn(row: TxnRow): void;
+  setCycleFirstDay(userId: string, cycleId: string, firstDay: string): void;
+  cycleFirstDay(userId: string, cycleId: string): string | undefined;
+  txns(userId: string): TxnRow[];
   faults(userId: string): FaultRow[];
   overspends(userId: string): OverspendRow[];
 }
@@ -38,6 +49,8 @@ export function createMemoryLedgerStore(): LedgerStore {
   const faults = new Map<string, FaultRow>();
   const waivedEarly = new Set<string>();
   const spends = new Map<string, OverspendRow>();
+  const txns = new Map<string, TxnRow>();
+  const cycles = new Map<string, string>();
   const key = (userId: string, id: string) => `${userId}:${id}`;
   return {
     addFault: (r) => {
@@ -54,6 +67,14 @@ export function createMemoryLedgerStore(): LedgerStore {
       const k = key(r.userId, r.eventId);
       if (!spends.has(k)) spends.set(k, r);
     },
+    addTxn: (r) => {
+      const k = key(r.userId, r.transactionId);
+      if (!txns.has(k)) txns.set(k, r);
+    },
+    setCycleFirstDay: (userId, cycleId, firstDay) =>
+      void cycles.set(key(userId, cycleId), firstDay),
+    cycleFirstDay: (userId, cycleId) => cycles.get(key(userId, cycleId)),
+    txns: (userId) => [...txns.values()].filter((r) => r.userId === userId),
     faults: (userId) => [...faults.values()].filter((r) => r.userId === userId),
     overspends: (userId) => [...spends.values()].filter((r) => r.userId === userId),
   };
@@ -92,6 +113,23 @@ export function recordLedgerEvent(store: LedgerStore, event: EventEnvelope): boo
       });
       return true;
     }
+    case "cycle.opened": {
+      const p = (event as EventEnvelope<"cycle.opened">).payload;
+      store.setCycleFirstDay(event.userId, p.cycleId, p.firstDay);
+      return true;
+    }
+    case "txn.recorded": {
+      // Only categorised money that left an account counts as spending; adjustments are not applied yet.
+      const p = (event as EventEnvelope<"txn.recorded">).payload;
+      if (p.direction !== "out" || p.categoryId === null) return false;
+      store.addTxn({
+        userId: event.userId,
+        transactionId: p.transactionId,
+        occurredAt: event.occurredAt,
+        amountVnd: p.amountVnd,
+      });
+      return true;
+    }
     default:
       return false;
   }
@@ -110,19 +148,75 @@ function reviewSetting(raw: unknown): { weekday: string; time: string } {
   return { weekday, time };
 }
 
-/** First occurrence of the user's review weekday and time at or after the end of the week (UTC). */
-export function reviewDueAt(week: PlanWeek, raw: unknown): Date {
-  const { weekday, time } = reviewSetting(raw);
-  const [h, m] = time.split(":").map(Number) as [number, number];
-  const end = weekEnd(week);
-  const endDay = new Date(end);
-  for (let i = 0; i <= WEEK_DAYS; i++) {
-    const day = new Date(end + i * DAY_MS);
-    if (WEEKDAYS[day.getUTCDay()] !== weekday) continue;
-    const at = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h, m);
-    if (at >= end) return new Date(at);
+const zoneFormats = new Map<string, Intl.DateTimeFormat>();
+function zoneParts(at: number, zone: string) {
+  let f = zoneFormats.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      weekday: "long",
+    });
+    zoneFormats.set(zone, f);
   }
-  return endDay; // unreachable: every weekday occurs within 8 days
+  const o: Record<string, string> = {};
+  for (const p of f.formatToParts(new Date(at))) o[p.type] = p.value;
+  return {
+    y: Number(o.year),
+    mo: Number(o.month),
+    d: Number(o.day),
+    weekday: String(o.weekday).toLowerCase(),
+  };
+}
+
+/** UTC instant of local wall time `h:m` on a local date of `zone` (fixed-offset search). */
+function zonedInstant(y: number, mo: number, d: number, h: number, m: number, zone: string) {
+  const guess = Date.UTC(y, mo - 1, d, h, m);
+  const p = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+  }).formatToParts(new Date(guess));
+  const o: Record<string, number> = {};
+  for (const x of p) if (x.type !== "literal") o[x.type] = Number(x.value);
+  const asLocal = Date.UTC(o.year!, o.month! - 1, o.day!, o.hour!, o.minute!);
+  return guess - (asLocal - guess);
+}
+
+function zoneSetting(raw: unknown): string {
+  const def = SETTINGS["calendar.time_zone"].default as string;
+  if (typeof raw !== "string") return def;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: raw });
+    return raw;
+  } catch {
+    return def;
+  }
+}
+
+/**
+ * The review is generated when the week closes (spec 20 section 2). When the user's review
+ * weekday is the local day the week closes, it waits for the review time of that day instead,
+ * so a user who reviews on the closing day gets it at their chosen time; otherwise it is due at
+ * the close. Evaluated in the user's time zone.
+ */
+export function reviewDueAt(week: PlanWeek, raw: unknown, zoneRaw?: unknown): Date {
+  const { weekday, time } = reviewSetting(raw);
+  const zone = zoneSetting(zoneRaw);
+  const end = weekEnd(week);
+  const local = zoneParts(end, zone);
+  if (local.weekday !== weekday) return new Date(end);
+  const [h, m] = time.split(":").map(Number) as [number, number];
+  return new Date(Math.max(end, zonedInstant(local.y, local.mo, local.d, h, m, zone)));
 }
 
 /**
@@ -138,7 +232,15 @@ export async function runReviewJob(
   for (const week of deps.store.allWeeks()) {
     if (!week.closedAnnounced || week.reviewAnnounced) continue;
     const settings = await readSettings(week.userId).catch((): Record<string, unknown> => ({}));
-    if (nowMs < reviewDueAt(week, settings["schedule.weekly_review_time"]).getTime()) continue;
+    if (
+      nowMs <
+      reviewDueAt(
+        week,
+        settings["schedule.weekly_review_time"],
+        settings["calendar.time_zone"],
+      ).getTime()
+    )
+      continue;
     if (week.reviewAnnounced) continue; // claimed while the settings were being read
     week.reviewAnnounced = true;
     try {
@@ -160,15 +262,15 @@ export async function runReviewJob(
 }
 
 /**
- * Overspend events carry no week reference, so each belongs to the latest week of the user that
- * had ended before the event was announced (budget emits them right after `week.closed`).
+ * An overspend names its cycle and the week index inside it. The cycle first day comes from
+ * `cycle.opened`, so the week is the one starting `(weekIndex - 1)` weeks after it. Without that
+ * event the overspend is not attributed (and does not show) until the cycle is known.
  */
-function overspendWeekId(store: PlanStore, row: OverspendRow): string | undefined {
-  const at = Date.parse(row.occurredAt);
-  return store
-    .allWeeks()
-    .filter((w) => w.userId === row.userId && weekEnd(w) <= at)
-    .sort((a, b) => b.firstDay.localeCompare(a.firstDay))[0]?.id;
+function overspendFirstDay(ledgers: LedgerStore, row: OverspendRow): string | undefined {
+  const first = ledgers.cycleFirstDay(row.userId, row.cycleId);
+  if (!first) return undefined;
+  const at = Date.parse(`${first}T00:00:00Z`) + (row.weekIndex - 1) * WEEK_DAYS * DAY_MS;
+  return new Date(at).toISOString().slice(0, 10);
 }
 
 /** Every number is computed from the stored plan and ledgers; nothing is an LLM figure. */
@@ -178,16 +280,19 @@ export function buildReview(store: PlanStore, ledgers: LedgerStore, week: PlanWe
       new Date(weekStart(week) + i * DAY_MS).toISOString().slice(0, 10),
     ),
   );
-  const tasks = days.size
-    ? [...days].flatMap((d) => store.tasksOn(week.userId, d)).filter((t) => t.state !== "cancelled")
-    : [];
+  const tasks = [...days]
+    .flatMap((d) => store.tasksOn(week.userId, d))
+    .filter((t) => t.state !== "cancelled");
   const completed = tasks.filter((t) => t.state === "done");
   const faults = ledgers
     .faults(week.userId)
     .filter((f) => !f.waived && days.has(new Date(f.occurredAt).toISOString().slice(0, 10)));
-  const spending = ledgers
+  const overspent = ledgers
     .overspends(week.userId)
-    .filter((o) => overspendWeekId(store, o) === week.id);
+    .filter((o) => overspendFirstDay(ledgers, o) === week.firstDay);
+  const outgoing = ledgers
+    .txns(week.userId)
+    .filter((t) => days.has(new Date(t.occurredAt).toISOString().slice(0, 10)));
   const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
   return {
     weekId: week.id,
@@ -204,9 +309,11 @@ export function buildReview(store: PlanStore, ledgers: LedgerStore, week: PlanWe
       items: faults.map(({ userId: _u, waived: _w, ...f }) => f),
     },
     spending: {
-      spentVnd: sum(spending.map((o) => o.spentVnd)),
-      excessVnd: sum(spending.map((o) => o.excessVnd)),
-      items: spending.map(({ userId: _u, eventId: _e, ...o }) => o),
+      /** All outgoing money recorded in the week, whatever the category. */
+      spentVnd: sum(outgoing.map((t) => t.amountVnd)),
+      /** Only categories that went over their weekly limit. */
+      overspentExcessVnd: sum(overspent.map((o) => o.excessVnd)),
+      overspent: overspent.map(({ userId: _u, eventId: _e, occurredAt: _o, ...o }) => o),
     },
   };
 }
