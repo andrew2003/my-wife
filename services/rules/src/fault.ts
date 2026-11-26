@@ -42,8 +42,14 @@ export function scoreFault(
   input: { type: FaultType; reason: FaultReasonKind },
   settings: FaultSettings,
 ): { weightSnapshot: number; points: number } {
-  const weight = settings.weights[input.type];
-  const percent = input.reason === "honest" ? settings.honestPercent : settings.silentPercent;
+  const defaults = DEFAULT_FAULT_SETTINGS;
+  const valid = (n: number) => Number.isInteger(n) && n >= 0;
+  const weight = valid(settings.weights[input.type])
+    ? settings.weights[input.type]
+    : defaults.weights[input.type];
+  const honest = valid(settings.honestPercent) ? settings.honestPercent : defaults.honestPercent;
+  const silent = valid(settings.silentPercent) ? settings.silentPercent : defaults.silentPercent;
+  const percent = input.reason === "honest" ? honest : silent;
   return { weightSnapshot: weight, points: Math.floor((weight * percent + 50) / 100) };
 }
 
@@ -146,7 +152,10 @@ export function createFaultService(deps: FaultServiceDeps) {
     const row = deps.store.claimOwedEvent(userId, signalRef);
     if (!row) return;
     const e = row.entry;
-    const base = { id: newId(), userId, schemaVersion: EVENT_SCHEMA_VERSION };
+    // Deterministic id per fault: a retry after an ambiguous publish carries the same id,
+    // so the bus can deduplicate it.
+    const eventId = `${row.eventType === "fault.recorded" ? "fault-recorded" : "fault-waived"}-${e.id}`;
+    const base = { id: eventId, userId, schemaVersion: EVENT_SCHEMA_VERSION };
     const event =
       row.eventType === "fault.recorded"
         ? {

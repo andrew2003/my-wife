@@ -65,6 +65,19 @@ describe("scoreFault (defaults table)", () => {
     expect(scoreFault({ type: "camera_off", reason: "honest" }, s).points).toBe(3);
     expect(scoreFault({ type: "camera_off", reason: "none" }, s).points).toBe(10);
   });
+  const d = DEFAULT_FAULT_SETTINGS;
+  const invalid = [
+    { name: "negative weight", s: { ...d, weights: { ...d.weights, no_face: -1 } } },
+    { name: "non-integer weight", s: { ...d, weights: { ...d.weights, no_face: 1.5 } } },
+    { name: "NaN weight", s: { ...d, weights: { ...d.weights, no_face: Number.NaN } } },
+    { name: "negative honest percent", s: { ...d, honestPercent: -10 } },
+    { name: "non-integer honest percent", s: { ...d, honestPercent: 50.5 } },
+    { name: "negative silent percent", s: { ...d, silentPercent: -1 } },
+  ];
+  it.each(invalid)("invalid setting falls back to the default: $name", ({ s }) => {
+    expect(scoreFault({ type: "no_face", reason: "none" }, s).points).toBe(2);
+    expect(scoreFault({ type: "no_face", reason: "honest" }, s).points).toBe(1);
+  });
   it("zero weight scores zero", () => {
     const s = {
       ...DEFAULT_FAULT_SETTINGS,
@@ -232,6 +245,17 @@ describe("onFaultDetected", () => {
     expect(events.map((e) => e.type)).toEqual(["fault.recorded"]);
     await svc.onFaultDetected(env(detected()), T0);
     expect(events).toHaveLength(1);
+  });
+
+  it("uses deterministic event ids so a retry carries the same id", async () => {
+    const { svc, store, events, state } = setup({ failPublish: true });
+    await svc.onFaultDetected(env(detected()), T0);
+    state.fail = false;
+    await svc.onFaultDetected(env(detected()), T0);
+    expect(events[0]!.id).toBe(`fault-recorded-${store.list(USER)[0]!.id}`);
+    const w = setup();
+    await w.svc.onFaultDetected(env(detected({ overlapsOutage: true })), T0);
+    expect(w.events[0]!.id).toBe(`fault-waived-${w.store.list(USER)[0]!.id}`);
   });
 
   it("returned ledger entries are frozen snapshots", async () => {
