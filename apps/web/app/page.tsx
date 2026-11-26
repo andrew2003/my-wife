@@ -1,3 +1,4 @@
+import { WakeCard } from "../components/wake-card";
 import { defaultLocale, translate } from "../lib/i18n";
 
 export default function HomePage() {
@@ -6,6 +7,7 @@ export default function HomePage() {
     <main>
       <h1>{translate(locale, "home.title")}</h1>
       <p>{translate(locale, "home.subtitle")}</p>
+      <WakeCard locale={locale} />
       <p>
         <a href="/onboarding">{translate(locale, "onboarding.open")}</a>
       </p>
