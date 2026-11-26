@@ -156,5 +156,9 @@
   "monitor.start": "Bật giám sát bằng camera",
   "monitor.running": "Đang giám sát. Video chỉ nằm trên thiết bị này.",
   "monitor.denied": "Chưa được cấp quyền truy cập camera.",
-  "monitor.delegate": "Chế độ phân tích: {delegate}"
+  "monitor.delegate": "Chế độ phân tích: {delegate}",
+  "wake.title": "Đã ghi nhận giờ dậy",
+  "wake.recorded": "Giờ dậy của bạn được ghi nhận lúc {time}.",
+  "wake.on_time": "Đúng giờ",
+  "wake.late": "Trễ {minutes} phút"
 }
