@@ -5,6 +5,7 @@ import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { createReceiptHandler } from "./accounts";
 import { createContractSignedHandler, createCycleApprover } from "./approval";
 import { createFundingHandler } from "./funding";
+import { createTransactionHandler } from "./transactions";
 import {
   createOnboardingHandler,
   MemorySampleBudgetStore,
@@ -48,9 +49,16 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     now,
     publish: deps.publish ?? (() => undefined),
   });
+  const recordTransaction = createTransactionHandler({
+    store,
+    now,
+    newId: randomUUID,
+    publish: deps.publish ?? (() => undefined),
+  });
   app.decorate("onReceiptParsed", async (event: EventEnvelope) => {
     await confirmAccount(event);
     await fundAccount(event);
+    await recordTransaction(event);
   });
   app.decorate("onContractSigned", createContractSignedHandler({ store }));
 

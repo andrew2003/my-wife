@@ -10,6 +10,7 @@ import {
 import { t } from "./i18n";
 import { RESERVED_SHORT_CODES } from "./transfer-codes";
 import { buildSampleBudget, type SampleCategoryTemplate } from "./sample-budget";
+import type { TransactionRecord } from "./transactions";
 
 /**
  * Default total of the sample budget when the user gave no answer (decisions.md, MW-013).
@@ -26,7 +27,8 @@ export interface AuditRecord {
     | "account_email_confirmed"
     | "cycle_approved"
     | "account_funded"
-    | "cycle_opened";
+    | "cycle_opened"
+    | "transaction_recorded";
   detail: Record<string, string | number>;
 }
 
@@ -46,6 +48,8 @@ export interface SampleBudgetRecord {
   fundings: FundingRecord[];
   /** False until `cycle.opened` was published, so a failed publish is retried. */
   openedAnnounced: boolean;
+  /** Transactions booked from verified receipts (MW-023); append-only. */
+  transactions: TransactionRecord[];
 }
 
 export interface FundingRecord {
@@ -119,6 +123,17 @@ export interface SampleBudgetStore {
     at: Date,
   ): Promise<"opened" | "not_ready" | "not_awaiting">;
   markOpenedAnnounced(userId: string): Promise<void>;
+  /**
+   * Books a transaction with an audit record. A `bankTransactionRef` already booked for the user
+   * is `duplicate` and changes nothing; a cycle that is not `running` is `not_running`.
+   */
+  recordTransaction(
+    userId: string,
+    cycleId: string,
+    txn: TransactionRecord,
+    at: Date,
+  ): Promise<"recorded" | "duplicate" | "not_running">;
+  markTransactionAnnounced(userId: string, transactionId: string): Promise<void>;
 }
 
 export class MemorySampleBudgetStore implements SampleBudgetStore {
@@ -265,6 +280,36 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     if (r) r.openedAnnounced = true;
   }
 
+  async recordTransaction(userId: string, cycleId: string, txn: TransactionRecord, at: Date) {
+    const r = this.records.get(userId);
+    if (!r || r.cycle.id !== cycleId || r.cycle.state !== "running") {
+      return "not_running" as const;
+    }
+    if (r.transactions.some((t) => t.bankTransactionRef === txn.bankTransactionRef)) {
+      return "duplicate" as const;
+    }
+    r.transactions.push({ ...txn });
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "transaction_recorded",
+      detail: {
+        cycleId,
+        transactionId: txn.id,
+        receiptId: txn.receiptId,
+        bankTransactionRef: txn.bankTransactionRef,
+        categoryId: txn.categoryId,
+        amountVnd: txn.amountVnd,
+      },
+    });
+    return "recorded" as const;
+  }
+
+  async markTransactionAnnounced(userId: string, transactionId: string) {
+    const txn = this.records.get(userId)?.transactions.find((t) => t.id === transactionId);
+    if (txn) txn.announced = true;
+  }
+
   /** Sync helpers for tests. */
   get(userId: string) {
     return this.records.get(userId);
@@ -407,6 +452,7 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       fundsAnnounced: false,
       fundings: [],
       openedAnnounced: false,
+      transactions: [],
     };
   }
 }
