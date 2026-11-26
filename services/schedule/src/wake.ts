@@ -25,6 +25,8 @@ export interface WakeChallenge {
   /** Wake time of that day (UTC ISO); lateness is measured against it. */
   wakeAt: string;
   sentAt: string;
+  /** Message key of the challenge text; ai grades the photo against it. */
+  challengeKey: string;
   windowEndsAt: string;
   state: WakeChallengeState;
   /** Send time of the latest photo accepted inside the window. */
@@ -164,6 +166,7 @@ export async function runWakeForUser(deps: WakeDeps, userId: string, now: Date):
     userId,
     wakeAt: new Date(wakeMs).toISOString(),
     sentAt: now.toISOString(),
+    challengeKey: generated.key,
     windowEndsAt: new Date(windowEndMs).toISOString(),
     state: "sent",
     receivedAt: null,
@@ -201,7 +204,8 @@ export async function runWakeJob(
 }
 
 export type PhotoResult =
-  { ok: true; accepted: boolean } | { ok: false; error: "not_found" | "already_graded" };
+  | { ok: true; accepted: boolean; challengeKey: string }
+  | { ok: false; error: "not_found" | "already_graded" };
 
 /**
  * A photo arrived in chat at `sentAt` (the channel's send time, the hard fact). Inside the window
@@ -220,7 +224,7 @@ export async function receiveWakePhoto(
   const sentMs = sentAt.getTime();
   if (sentMs > Date.parse(c.windowEndsAt) || sentMs < Date.parse(c.sentAt)) {
     await deps.sendReply(userId, { key: "routine.wake_photo_late", params: {} });
-    return { ok: true, accepted: false };
+    return { ok: true, accepted: false, challengeKey: c.challengeKey };
   }
   c.state = "received";
   c.receivedAt = sentAt.toISOString();
@@ -237,7 +241,7 @@ export async function receiveWakePhoto(
       },
     ),
   );
-  return { ok: true, accepted: true };
+  return { ok: true, accepted: true, challengeKey: c.challengeKey };
 }
 
 /**

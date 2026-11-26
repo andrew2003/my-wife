@@ -348,7 +348,8 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     const sentAt = IsoDateTimeSchema.safeParse(b.sentAt);
     if (!id.success || !sentAt.success) return fail(reply, 400, "schedule.invalid_request");
     const res = await receiveWakePhoto(wakeDeps, userId, id.data, new Date(sentAt.data));
-    if (res.ok) return { ok: true, data: { accepted: res.accepted } };
+    if (res.ok)
+      return { ok: true, data: { accepted: res.accepted, challengeKey: res.challengeKey } };
     return res.error === "not_found"
       ? fail(reply, 404, "schedule.challenge_not_found")
       : fail(reply, 409, "schedule.challenge_graded");

@@ -111,6 +111,7 @@ describe("wake photo flow", () => {
     await app.runWakeJob(new Date("2026-11-23T23:00:00.000Z"));
     const res = await photo("2026-11-23T23:09:59.000Z");
     expect(res.data.accepted).toBe(true);
+    expect(res.data.challengeKey).toBe("routine.wake_challenge.sink");
     expect(ofType("routine.wake_photo_received")[0]!.payload).toEqual({
       challengeId: CID,
       receivedAt: "2026-11-23T23:09:59.000Z",

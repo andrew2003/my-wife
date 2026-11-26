@@ -48,6 +48,8 @@ export interface PublishedEvent {
 export interface PhotoHandoff extends ChatContext {
   bytes: Uint8Array;
   challengeId: string | null;
+  /** Channel send time (UTC ISO): the hard fact the wake time is built on. */
+  sentAt: string;
 }
 
 export interface ChannelServiceDeps {
@@ -73,6 +75,10 @@ export class ChannelService {
     const link = this.deps.links.findByUser(userId, kind);
     if (!link) throw new Error(`user is not linked to ${kind}`);
     return link.externalId;
+  }
+
+  isLinked(userId: string, kind: ChannelKind): boolean {
+    return this.deps.links.findByUser(userId, kind) !== undefined;
   }
 
   async deliver(userId: string, kind: ChannelKind, message: OutboundMessage): Promise<void> {
@@ -146,7 +152,12 @@ export class ChannelService {
 
     if (reply.kind === "photo") {
       const bytes = await channel.receivePhoto(reply);
-      await this.deps.onPhoto({ ...context, bytes, challengeId: reply.challengeId });
+      await this.deps.onPhoto({
+        ...context,
+        bytes,
+        challengeId: reply.challengeId,
+        sentAt: reply.sentAt,
+      });
       return;
     }
     const payload =
