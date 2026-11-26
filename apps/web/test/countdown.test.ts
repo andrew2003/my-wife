@@ -50,14 +50,24 @@ describe("createCountdown", () => {
   it("shows the remaining time from the stored end time on the first render", () => {
     const f = fake(END - 600_000);
     const seen: number[] = [];
-    createCountdown({ endsAtMs: END, clock: f.clock, ticker: f.ticker, onTick: (s) => seen.push(s) });
+    createCountdown({
+      endsAtMs: END,
+      clock: f.clock,
+      ticker: f.ticker,
+      onTick: (s) => seen.push(s),
+    });
     expect(seen).toEqual([600]);
   });
 
   it("with a fake clock, advancing N seconds shows remaining minus N", () => {
     const f = fake(END - 600_000);
     const seen: number[] = [];
-    createCountdown({ endsAtMs: END, clock: f.clock, ticker: f.ticker, onTick: (s) => seen.push(s) });
+    createCountdown({
+      endsAtMs: END,
+      clock: f.clock,
+      ticker: f.ticker,
+      onTick: (s) => seen.push(s),
+    });
     f.advance(7);
     expect(seen.at(-1)).toBe(593);
   });
@@ -65,7 +75,12 @@ describe("createCountdown", () => {
   it("is correct after a reload mid-session and after a run of missed ticks", () => {
     const f = fake(END - 120_000);
     const seen: number[] = [];
-    createCountdown({ endsAtMs: END, clock: f.clock, ticker: f.ticker, onTick: (s) => seen.push(s) });
+    createCountdown({
+      endsAtMs: END,
+      clock: f.clock,
+      ticker: f.ticker,
+      onTick: (s) => seen.push(s),
+    });
     expect(seen[0]).toBe(120);
     f.jump(45_000);
     expect(seen.at(-1)).toBe(75);

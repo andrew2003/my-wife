@@ -13,7 +13,11 @@ import { translate, type Locale } from "../lib/i18n";
 
 export function SessionCountdownView({ locale, remaining }: { locale: Locale; remaining: number }) {
   return (
-    <span className="session-countdown" role="timer" aria-label={translate(locale, "countdown.label")}>
+    <span
+      className="session-countdown"
+      role="timer"
+      aria-label={translate(locale, "countdown.label")}
+    >
       {formatRemaining(remaining)}
     </span>
   );
