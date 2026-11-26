@@ -37,3 +37,7 @@ next-env.d.ts
 
 # Local demo state (seed file, test DKIM keys)
 .demo/
+
+# IDE and OS files
+.idea/
+.DS_Store
