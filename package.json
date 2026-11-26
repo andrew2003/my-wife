@@ -2,5 +2,17 @@
   "name": "my-wife",
   "private": true,
   "packageManager": "pnpm@10.0.0",
-  "engines": { "node": ">=22" }
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "generate:service": "node scripts/generate-service.mjs",
+    "dev": "pnpm --filter @my-wife/dev-runner start",
+    "test": "turbo run test --concurrency=2",
+    "typecheck": "turbo run typecheck --concurrency=2",
+    "lint": "turbo run lint --concurrency=2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  }
 }
