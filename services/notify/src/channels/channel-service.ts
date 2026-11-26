@@ -3,7 +3,9 @@ import {
   type ChannelKind,
   type ChatChannel,
   type OutboundMessage,
+  type Question,
 } from "@my-wife/contracts";
+import type { QuestionService } from "../questions/question-service";
 
 export interface ChannelLink {
   userId: string;
@@ -53,6 +55,8 @@ export interface ChannelServiceDeps {
   links: ChannelLinkStore;
   publish: (event: PublishedEvent) => Promise<void>;
   onPhoto: (photo: PhotoHandoff) => Promise<void>;
+  /** When set, button taps go through the first-reply-wins question state machine. */
+  questions?: QuestionService;
 }
 
 /** Channel-agnostic delivery and inbound handling on top of `ChatChannel`. */
@@ -83,6 +87,29 @@ export class ChannelService {
     });
   }
 
+  /** Sends one message with the question buttons over the first channel the user is linked to. */
+  async deliverQuestion(
+    userId: string,
+    message: OutboundMessage,
+    question: Question,
+  ): Promise<void> {
+    for (const channel of this.deps.channels) {
+      const link = this.deps.links.findByUser(userId, channel.kind);
+      if (!link) continue;
+      await channel.sendQuestion(link.externalId, message, question);
+      await this.deps.publish({
+        name: "notify.sent",
+        payload: notifyEvents["notify.sent"].parse({
+          messageId: message.id,
+          class: message.class,
+          channel: channel.kind,
+        }),
+      });
+      return;
+    }
+    throw new Error("user is not linked to any channel");
+  }
+
   async requestPhoto(
     userId: string,
     kind: ChannelKind,
@@ -104,6 +131,18 @@ export class ChannelService {
       externalId: link.externalId,
       userId: link.userId,
     };
+
+    if (reply.kind === "button" && this.deps.questions) {
+      await this.deps.questions.answer(
+        link.userId,
+        reply.questionId,
+        reply.value,
+        "chat",
+        reply.sentAt,
+        context,
+      );
+      return;
+    }
 
     if (reply.kind === "photo") {
       const bytes = await channel.receivePhoto(reply);
