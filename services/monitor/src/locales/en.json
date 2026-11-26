@@ -1,0 +1,3 @@
+{
+  "monitor.urgent.heartbeat_lost": "No sign of your focus window for {seconds} seconds. Tell me what happened."
+}
