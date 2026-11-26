@@ -1,7 +1,13 @@
-import { and, count, eq, gt, isNull } from "drizzle-orm";
+import { and, asc, count, eq, gt, isNull } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import type { IdentityStore, InvitationRecord, SessionRecord, UserRecord } from "./store";
-import { invitations, loginTokens, sessions, users } from "./schema";
+import type {
+  IdentityStore,
+  InvitationRecord,
+  SessionRecord,
+  SettingAuditRecord,
+  UserRecord,
+} from "./store";
+import { invitations, loginTokens, sessions, settingAudit, userSettings, users } from "./schema";
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 const date = (s: string | null): Date | null => (s ? new Date(s) : null);
@@ -37,6 +43,31 @@ const toSession = (r: typeof sessions.$inferSelect): SessionRecord => ({
 /** PostgreSQL implementation over the `identity` schema (SQL in `drizzle/`). */
 export function createDrizzleStore(db: NodePgDatabase): IdentityStore {
   return {
+    async getSettingOverrides(userId) {
+      const rows = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+      return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    },
+    async saveSetting(userId, key, value, entry) {
+      await db.transaction(async (tx) => {
+        const updatedAt = new Date(entry.at);
+        await tx
+          .insert(userSettings)
+          .values({ userId, key, value, updatedAt })
+          .onConflictDoUpdate({
+            target: [userSettings.userId, userSettings.key],
+            set: { value, updatedAt },
+          });
+        await tx.insert(settingAudit).values({ ...entry, at: updatedAt });
+      });
+    },
+    async listSettingAudit(userId) {
+      const rows = await db
+        .select()
+        .from(settingAudit)
+        .where(eq(settingAudit.userId, userId))
+        .orderBy(asc(settingAudit.at));
+      return rows.map((r): SettingAuditRecord => ({ ...r, at: r.at.toISOString() }));
+    },
     async findUserByEmail(email) {
       const [r] = await db.select().from(users).where(eq(users.email, email));
       return r && toUser(r);

@@ -7,6 +7,9 @@ import {
   type EventEnvelope,
   type EventPayload,
   type EventSubject,
+  SETTING_KEYS,
+  UpdateSettingRequestSchema,
+  validateSettingValue,
   type SettingKey,
 } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
@@ -280,6 +283,57 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     if (typeof user === "string") return fail(reply, 403, user);
     await store.saveLoginToken({ ...record, usedAt: now().toISOString() });
     return { ok: true, data: await session(user) };
+  });
+
+  /** The gateway sets the verified user id; services never read the session cookie. */
+  const callerId = (headers: Record<string, unknown>) => {
+    const id = headers["x-user-id"];
+    return typeof id === "string" && id ? id : null;
+  };
+
+  /** Registry default merged with the user's own overrides. */
+  async function readSettings(userId: string) {
+    const overrides = await store.getSettingOverrides(userId);
+    const values: Record<string, unknown> = {};
+    for (const key of SETTING_KEYS) {
+      values[key] = Object.prototype.hasOwnProperty.call(overrides, key)
+        ? overrides[key]
+        : SETTINGS[key].default;
+    }
+    return values;
+  }
+
+  app.get("/settings", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    return { ok: true, data: { values: await readSettings(userId) } };
+  });
+
+  app.put("/settings", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const body = UpdateSettingRequestSchema.safeParse(req.body);
+    if (!body.success) return fail(reply, 400, "identity.invalid_setting");
+    const { key, value: raw } = body.data;
+    const checked = validateSettingValue(key, raw);
+    if (!checked.success) return fail(reply, 400, "identity.invalid_setting");
+    const before = (await readSettings(userId))[key];
+    const at = now().toISOString();
+    if (JSON.stringify(before) !== JSON.stringify(checked.data)) {
+      await store.saveSetting(userId, key, checked.data, {
+        id: randomUUID(),
+        userId,
+        actorId: userId,
+        key,
+        before,
+        after: checked.data,
+        at,
+      });
+      await emit("user.updated", userId, { changedKeys: [key] });
+    }
+    // Tightening or loosening is classified by `rules`; until it is wired every change is
+    // effective now (see docs/decisions.md).
+    return { ok: true, data: { key, direction: "tightening" as const, effectiveFrom: at } };
   });
 
   /** Internal: the gateway verifies every request's session through this. */
