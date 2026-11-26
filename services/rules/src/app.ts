@@ -113,6 +113,16 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     };
   });
 
+  /** Internal entry for the bus bridge: `receipt.parsed` may pay a due penalty. */
+  app.post("/events/receipt-parsed", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (!parsed.success || parsed.data.type !== "receipt.parsed") {
+      return reply.code(400).send({ ok: false, error: { code: "rules.invalid_event" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    return { ok: true, data: await penalties.onReceiptParsed(parsed.data as EventEnvelope, now) };
+  });
+
   /** Internal entry for the bus bridge: `fault.detected` becomes a ledger entry. */
   app.post("/events/fault-detected", async (req, reply) => {
     const parsed = parseEvent(req.body);
