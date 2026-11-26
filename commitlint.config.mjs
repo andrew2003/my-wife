@@ -30,7 +30,8 @@ export default {
   extends: ["@commitlint/config-conventional"],
   rules: {
     "scope-enum": [2, "always", SCOPES],
-    "subject-case": [2, "always", "lower-case"],
+    // First letter lowercase; acronyms such as IDE are allowed.
+    "subject-case": [2, "never", ["sentence-case", "start-case", "pascal-case", "upper-case"]],
     "header-max-length": [2, "always", 72],
     "body-max-line-length": [1, "always", 100],
     "footer-max-line-length": [0],
