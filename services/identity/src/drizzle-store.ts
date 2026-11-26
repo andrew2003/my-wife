@@ -10,6 +10,13 @@ const toUser = (r: typeof users.$inferSelect): UserRecord => ({
   ...r,
   locale: r.locale as UserRecord["locale"],
   lastSeenAt: iso(r.lastSeenAt),
+  activatedEventAt: iso(r.activatedEventAt),
+});
+
+const toUserRow = (u: UserRecord) => ({
+  ...u,
+  lastSeenAt: date(u.lastSeenAt),
+  activatedEventAt: date(u.activatedEventAt),
 });
 
 const toInvitation = (r: typeof invitations.$inferSelect): InvitationRecord => ({
@@ -17,6 +24,7 @@ const toInvitation = (r: typeof invitations.$inferSelect): InvitationRecord => (
   expiresAt: r.expiresAt.toISOString(),
   usedAt: iso(r.usedAt),
   revokedAt: iso(r.revokedAt),
+  invitedEventAt: iso(r.invitedEventAt),
 });
 
 const toSession = (r: typeof sessions.$inferSelect): SessionRecord => ({
@@ -41,8 +49,16 @@ export function createDrizzleStore(db: NodePgDatabase): IdentityStore {
       const [r] = await db.select({ n: count() }).from(users);
       return r?.n ?? 0;
     },
+    async insertUser(user) {
+      const rows = await db
+        .insert(users)
+        .values(toUserRow(user))
+        .onConflictDoNothing()
+        .returning({ id: users.id });
+      return rows.length > 0;
+    },
     async saveUser(user) {
-      const row = { ...user, lastSeenAt: date(user.lastSeenAt) };
+      const row = toUserRow(user);
       await db.insert(users).values(row).onConflictDoUpdate({ target: users.id, set: row });
     },
     async saveInvitation(inv) {
@@ -51,6 +67,7 @@ export function createDrizzleStore(db: NodePgDatabase): IdentityStore {
         expiresAt: new Date(inv.expiresAt),
         usedAt: date(inv.usedAt),
         revokedAt: date(inv.revokedAt),
+        invitedEventAt: date(inv.invitedEventAt),
       };
       await db
         .insert(invitations)

@@ -21,6 +21,7 @@ export const users = identity.table(
     role: userRole("role").notNull(),
     locale: text("locale").notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    activatedEventAt: timestamp("activated_event_at", { withTimezone: true }),
   },
   (t) => [uniqueIndex("users_email_idx").on(t.email)],
 );
@@ -34,6 +35,7 @@ export const invitations = identity.table(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     usedAt: timestamp("used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    invitedEventAt: timestamp("invited_event_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("invitations_token_hash_idx").on(t.tokenHash),

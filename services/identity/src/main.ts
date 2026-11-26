@@ -2,10 +2,13 @@ import { loadConfig, servicePort } from "@my-wife/config";
 import { connectNats, createDb, subject } from "@my-wife/service-kit";
 import { createApp, SERVICE_NAME } from "./app";
 import { createDrizzleStore } from "./drizzle-store";
+import { migrate } from "./migrate";
 
 const config = loadConfig(process.env);
 const nats = await connectNats(config.natsUrl, SERVICE_NAME);
 const { db, close } = createDb(config.databaseUrl);
+// Apply pending SQL migrations (drizzle/*.sql) before serving; each runs once.
+await migrate(db);
 const app = await createApp(config, {
   nats,
   store: createDrizzleStore(db),

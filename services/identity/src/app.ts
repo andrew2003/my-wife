@@ -61,15 +61,38 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     lastSeenAt: u.lastSeenAt,
   });
 
-  async function emit<S extends EventSubject>(type: S, userId: string, payload: EventPayload<S>) {
-    await deps.publish?.({
-      id: randomUUID(),
-      type,
-      userId,
-      occurredAt: now().toISOString(),
-      schemaVersion: EVENT_SCHEMA_VERSION,
-      payload,
-    } as EventEnvelope);
+  /** Publishes an event. A failure is logged (type and message only) and reported, never thrown. */
+  async function emit<S extends EventSubject>(
+    type: S,
+    userId: string,
+    payload: EventPayload<S>,
+  ): Promise<boolean> {
+    try {
+      await deps.publish?.({
+        id: randomUUID(),
+        type,
+        userId,
+        occurredAt: now().toISOString(),
+        schemaVersion: EVENT_SCHEMA_VERSION,
+        payload,
+      } as EventEnvelope);
+      return true;
+    } catch (err) {
+      app.log.error(
+        { eventType: type, err: err instanceof Error ? err.message : "unknown" },
+        "event publish failed; it will be retried",
+      );
+      return false;
+    }
+  }
+
+  /** user.activated is owed until published; every later sign-in retries it. */
+  async function ensureActivated(user: UserRecord): Promise<UserRecord> {
+    if (user.activatedEventAt) return user;
+    if (!(await emit("user.activated", user.id, {}))) return user;
+    const marked = { ...user, activatedEventAt: now().toISOString() };
+    await store.saveUser(marked);
+    return marked;
   }
 
   async function createUser(email: string, role: "user" | "admin") {
@@ -83,17 +106,24 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       role,
       locale: config.uiLanguage,
       lastSeenAt: null,
+      activatedEventAt: null,
     };
-    await store.saveUser(user);
-    await emit("user.activated", user.id, {});
-    return user;
+    if (await store.insertUser(user)) return ensureActivated(user);
+    // A concurrent first sign-in won the unique email; use its row.
+    const winner = await store.findUserByEmail(email);
+    if (!winner) return "identity.account_unavailable" as const;
+    return winner.state === "active"
+      ? ensureActivated(winner)
+      : ("identity.account_unavailable" as const);
   }
 
   /** Invitation-only sign-up: an existing user, the bootstrap admin, or an open invitation. */
   async function resolveUser(email: string, consume: boolean) {
     const existing = await store.findUserByEmail(email);
     if (existing)
-      return existing.state === "active" ? existing : ("identity.account_unavailable" as const);
+      return existing.state === "active"
+        ? ensureActivated(existing)
+        : ("identity.account_unavailable" as const);
     if (bootstrap && email === bootstrap)
       return consume ? createUser(email, "admin") : ("pending" as const);
     const invitation = await store.findOpenInvitationByEmail(email, now());
@@ -130,13 +160,41 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
 
   app.get("/auth/method", async () => ({ ok: true, data: { method: config.loginMethod } }));
 
+  async function announceInvited(invitation: InvitationRecord, adminId: string) {
+    if (invitation.invitedEventAt) return;
+    const sent = await emit("user.invited", adminId, {
+      invitationId: invitation.id,
+      expiresAt: invitation.expiresAt,
+    });
+    if (sent) await store.saveInvitation({ ...invitation, invitedEventAt: now().toISOString() });
+  }
+
   app.post("/invitations", async (req, reply) => {
     if (req.headers["x-user-role"] !== "admin") return fail(reply, 403, "identity.forbidden");
+    const adminId = req.headers["x-user-id"];
+    if (typeof adminId !== "string" || !adminId)
+      return fail(reply, 401, "identity.unauthenticated");
     const email = String((req.body as { email?: string } | undefined)?.email ?? "")
       .trim()
       .toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
       return fail(reply, 400, "identity.invalid_email");
+    const view = (i: InvitationRecord) => ({
+      invitation: {
+        id: i.id,
+        email: i.email,
+        expiresAt: i.expiresAt,
+        usedAt: null,
+        revokedAt: null,
+      },
+    });
+    // Retry-safe: an open invitation is reused (its token was already handed over) and only
+    // its owed user.invited event is re-sent.
+    const open = await store.findOpenInvitationByEmail(email, now());
+    if (open) {
+      await announceInvited(open, adminId);
+      return { ok: true, data: view(open) };
+    }
     const token = newToken();
     const invitation: InvitationRecord = {
       id: randomUUID(),
@@ -147,25 +205,12 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       ).toISOString(),
       usedAt: null,
       revokedAt: null,
+      invitedEventAt: null,
     };
     await store.saveInvitation(invitation);
     await deps.onInvitation?.(email, token);
-    await emit("user.invited", (req.headers["x-user-id"] as string | undefined) ?? invitation.id, {
-      invitationId: invitation.id,
-      expiresAt: invitation.expiresAt,
-    });
-    return reply.code(201).send({
-      ok: true,
-      data: {
-        invitation: {
-          id: invitation.id,
-          email,
-          expiresAt: invitation.expiresAt,
-          usedAt: null,
-          revokedAt: null,
-        },
-      },
-    });
+    await announceInvited(invitation, adminId);
+    return reply.code(201).send({ ok: true, data: view(invitation) });
   });
 
   app.post("/invitations/accept", async (req, reply) => {
@@ -180,7 +225,9 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       return fail(reply, 400, "identity.invitation_invalid");
     }
     const existing = await store.findUserByEmail(invitation.email);
-    const user = existing ?? (await createUser(invitation.email, "user"));
+    const user = existing
+      ? await ensureActivated(existing)
+      : await createUser(invitation.email, "user");
     if (typeof user === "string") return fail(reply, 403, user);
     await store.saveInvitation({ ...invitation, usedAt: now().toISOString() });
     return { ok: true, data: { user: publicUser(user) } };

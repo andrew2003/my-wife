@@ -5,6 +5,8 @@ export type UserRecord = {
   role: "user" | "admin";
   locale: "vi" | "en";
   lastSeenAt: string | null;
+  /** Set once user.activated was published; unset means the event is still owed. */
+  activatedEventAt: string | null;
 };
 
 export type InvitationRecord = {
@@ -14,6 +16,8 @@ export type InvitationRecord = {
   expiresAt: string;
   usedAt: string | null;
   revokedAt: string | null;
+  /** Set once user.invited was published; unset means the event is still owed. */
+  invitedEventAt: string | null;
 };
 
 export type LoginTokenRecord = {
@@ -37,6 +41,8 @@ export interface IdentityStore {
   findUserByEmail(email: string): Promise<UserRecord | undefined>;
   findUserById(id: string): Promise<UserRecord | undefined>;
   countUsers(): Promise<number>;
+  /** Inserts a new user; false when the email is already taken (concurrent first sign-in). */
+  insertUser(user: UserRecord): Promise<boolean>;
   saveUser(user: UserRecord): Promise<void>;
   saveInvitation(invitation: InvitationRecord): Promise<void>;
   findInvitationByTokenHash(hash: string): Promise<InvitationRecord | undefined>;
@@ -63,6 +69,11 @@ export function createMemoryStore(): IdentityStore {
     },
     async countUsers() {
       return users.size;
+    },
+    async insertUser(user) {
+      if ([...users.values()].some((u) => u.email === user.email)) return false;
+      users.set(user.id, user);
+      return true;
     },
     async saveUser(user) {
       users.set(user.id, user);

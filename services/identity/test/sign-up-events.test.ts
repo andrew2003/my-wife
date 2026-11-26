@@ -4,7 +4,7 @@ import { parseEvent, type EventEnvelope } from "@my-wife/contracts";
 import { createApp, createMemoryStore } from "../src/index";
 
 const NOW = new Date("2026-01-01T00:00:00Z");
-const ADMIN = { "x-user-role": "admin" };
+const ADMIN = { "x-user-role": "admin", "x-user-id": "admin-1" };
 
 function setup() {
   const config = loadConfig({

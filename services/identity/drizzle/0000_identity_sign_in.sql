@@ -9,7 +9,8 @@ CREATE TABLE "identity"."users" (
   "state" "identity"."user_state" NOT NULL,
   "role" "identity"."user_role" NOT NULL,
   "locale" text NOT NULL,
-  "last_seen_at" timestamp with time zone
+  "last_seen_at" timestamp with time zone,
+  "activated_event_at" timestamp with time zone
 );
 CREATE UNIQUE INDEX "users_email_idx" ON "identity"."users" ("email");
 
@@ -19,7 +20,8 @@ CREATE TABLE "identity"."invitations" (
   "token_hash" text NOT NULL,
   "expires_at" timestamp with time zone NOT NULL,
   "used_at" timestamp with time zone,
-  "revoked_at" timestamp with time zone
+  "revoked_at" timestamp with time zone,
+  "invited_event_at" timestamp with time zone
 );
 CREATE UNIQUE INDEX "invitations_token_hash_idx" ON "identity"."invitations" ("token_hash");
 CREATE INDEX "invitations_email_idx" ON "identity"."invitations" ("email");
