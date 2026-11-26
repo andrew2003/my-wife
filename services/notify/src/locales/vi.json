@@ -1,3 +1,8 @@
 {
-  "notify.test_message": "Kênh thông báo đã được kết nối."
+  "notify.test_message": "Kênh thông báo đã được kết nối.",
+  "notify.question.budget_category": "Khoản chi này thuộc danh mục nào?",
+  "notify.question.routine_checkin": "Thói quen của bạn hôm nay thế nào?",
+  "notify.question.carry_over": "Bạn muốn xử lý việc chưa xong này ra sao?",
+  "notify.question.supervision_taper": "Bạn có muốn giảm mức giám sát không?",
+  "notify.question.other": "Vui lòng chọn một phương án."
 }

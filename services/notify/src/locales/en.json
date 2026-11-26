@@ -1,3 +1,8 @@
 {
-  "notify.test_message": "Notification channel connected."
+  "notify.test_message": "Notification channel connected.",
+  "notify.question.budget_category": "Which category does this payment belong to?",
+  "notify.question.routine_checkin": "How did your routine go?",
+  "notify.question.carry_over": "What should we do with the unfinished task?",
+  "notify.question.supervision_taper": "Would you like to reduce the supervision level?",
+  "notify.question.other": "Please choose an option."
 }
