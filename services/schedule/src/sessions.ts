@@ -58,6 +58,8 @@ export interface SessionView {
   endedAt: string | null;
   plannedEndAt: string;
   remainingSeconds: number;
+  /** Server time of this response; clients use it to correct their own clock offset. */
+  serverNow: string;
 }
 
 const plannedEndMs = (s: WorkSession) => Date.parse(s.startedAt) + s.durationMinutes * MINUTE_MS;
@@ -71,6 +73,7 @@ export function viewSession(s: WorkSession, now: Date): SessionView {
     durationMinutes: s.durationMinutes,
     endedAt: s.endedAt,
     plannedEndAt: new Date(plannedEndMs(s)).toISOString(),
+    serverNow: now.toISOString(),
     remainingSeconds: s.endedAt
       ? 0
       : Math.max(0, Math.ceil((plannedEndMs(s) - now.getTime()) / 1000)),
