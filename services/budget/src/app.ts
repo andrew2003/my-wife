@@ -7,6 +7,7 @@ import { createContractSignedHandler, createCycleApprover } from "./approval";
 import { createFundingHandler } from "./funding";
 import { createTransactionHandler } from "./transactions";
 import { createWeekClosedHandler } from "./overspend";
+import { createUnknownSpendHandlers, type UnknownSpendDeps } from "./unknown-spend";
 import {
   createOnboardingHandler,
   MemorySampleBudgetStore,
@@ -22,6 +23,8 @@ export type BudgetDeps = ServiceDeps & {
   readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
   publish?: (event: EventEnvelope) => void | Promise<void>;
   totalVnd?: (userId: string) => number | undefined;
+  /** Reads the facts of an unknown receipt from ingest (`receipt.unknown` has no amount). */
+  readReceipt?: UnknownSpendDeps["readReceipt"];
 };
 
 /** Factory used by main.ts, the dev runner and tests; no process-level globals (ADR 0007). */
@@ -61,7 +64,18 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     await fundAccount(event);
     await recordTransaction(event);
   });
-  app.decorate("onContractSigned", createContractSignedHandler({ store }));
+  const unknownSpend = createUnknownSpendHandlers({
+    store,
+    now,
+    newId: randomUUID,
+    publish: deps.publish ?? (() => undefined),
+    // Without an ingest reader the receipt facts are unknown and nothing is opened.
+    readReceipt: deps.readReceipt ?? (async () => undefined),
+    readSettings: deps.readSettings,
+  });
+  app.decorate("onReceiptUnknown", unknownSpend.onReceiptUnknown);
+  app.decorate("onReplyReceived", unknownSpend.onReplyReceived);
+  app.decorate("onContractSigned",createContractSignedHandler({ store }));
   app.decorate(
     "onWeekClosed",
     createWeekClosedHandler({
@@ -106,6 +120,10 @@ declare module "fastify" {
     onOnboardingStepCompleted: (event: EventEnvelope) => Promise<void>;
     /** Consumer of `receipt.parsed`; confirms the account the receipt resolves to. */
     onReceiptParsed: (event: EventEnvelope) => Promise<void>;
+    /** Consumer of `receipt.unknown`; opens an anomaly and asks for a category. */
+    onReceiptUnknown: (event: EventEnvelope) => Promise<void>;
+    /** Consumer of `notify.reply_received`; books the answered anomaly. */
+    onReplyReceived: (event: EventEnvelope) => Promise<void>;
     /** Consumer of `contract.signed`; records the contract the approval guard checks. */
     onContractSigned: (event: EventEnvelope) => Promise<void>;
     /** Consumer of `week.closed`; detects overspending once per week. */
