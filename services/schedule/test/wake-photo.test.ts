@@ -13,6 +13,7 @@ async function setup(settings: Record<string, unknown> = {}) {
   const requests: { userId: string; key: string; challengeId: string }[] = [];
   const replies: { userId: string; key: string; params: Record<string, unknown> }[] = [];
   const app = await createApp(config, {
+    now: () => new Date("2026-11-23T23:05:00.000Z"),
     publish: (e: EventEnvelope) => void events.push(e),
     readSettings: async () => settings,
     generateWakeChallenge: async () => ({
@@ -247,5 +248,27 @@ describe("wake photo flow", () => {
       payload: { challengeId: CID, sentAt: "2026-11-23T23:02:00.000Z" },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("exposes the recorded wake through GET /wake/today", async () => {
+    const { app, photo, graded } = await setup();
+    const get = async (headers: Record<string, string> = H) =>
+      app.inject({ method: "GET", url: "/wake/today", headers });
+    expect((await get({})).statusCode).toBe(401);
+    expect((await get()).json().data.wake).toBeNull();
+    await app.runWakeJob(new Date("2026-11-23T23:00:00.000Z"));
+    await photo("2026-11-23T23:02:00.000Z");
+    await graded("pass");
+    const res = await app.inject({ method: "GET", url: "/wake/today", headers: H });
+    expect(res.json().data.wake).toEqual({
+      challengeId: CID,
+      state: "graded",
+      grade: "pass",
+      wakeAt: "2026-11-23T23:00:00.000Z",
+      wakeTime: "2026-11-23T23:02:00.000Z",
+      minutesLate: 2,
+    });
+    const other = await get({ "x-user-id": "u2" });
+    expect(other.json().data.wake).toBeNull();
   });
 });

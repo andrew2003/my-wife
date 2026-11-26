@@ -318,3 +318,39 @@ function localTime(iso: string, zone: string): string {
     minute: "2-digit",
   }).format(new Date(iso));
 }
+
+export interface WakeView {
+  challengeId: string;
+  state: WakeChallengeState;
+  grade: PhotoGrade | null;
+  wakeAt: string;
+  /** Set only for a passing photo: the send time of the accepted photo. */
+  wakeTime: string | null;
+  minutesLate: number | null;
+}
+
+/** Today's wake challenge of the user (local day), for the web card; null before one was sent. */
+export async function viewWakeToday(
+  deps: WakeDeps,
+  userId: string,
+  now: Date,
+): Promise<WakeView | null> {
+  const s = wakeSettings(await deps.readSettings(userId));
+  const t = zoneParts(now.getTime(), s.zone);
+  const c = deps.store.forDay(userId, `${t.y}-${pad(t.mo)}-${pad(t.d)}`);
+  if (!c) return null;
+  const passed = c.state === "graded" && c.grade === "pass" && c.receivedAt;
+  return {
+    challengeId: c.challengeId,
+    state: c.state,
+    grade: c.grade,
+    wakeAt: c.wakeAt,
+    wakeTime: passed ? c.receivedAt : null,
+    minutesLate: passed
+      ? Math.max(
+          0,
+          Math.floor((Date.parse(c.receivedAt as string) - Date.parse(c.wakeAt)) / MINUTE_MS),
+        )
+      : null,
+  };
+}

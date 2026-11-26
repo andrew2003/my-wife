@@ -45,6 +45,7 @@ import {
   fakeChallengeGenerator,
   receiveWakePhoto,
   runWakeJob,
+  viewWakeToday,
   type MessageRef,
   type WakeDeps,
   type WakeStore,
@@ -339,6 +340,12 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
   };
   app.decorate("runWakeJob", (at: Date) => runWakeJob(wakeDeps, at));
   app.post("/jobs/wake", async () => ({ ok: true, data: await runWakeJob(wakeDeps, now()) }));
+  /** Today's recorded wake for the web card (MW-163). */
+  app.get("/wake/today", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    return { ok: true, data: { wake: await viewWakeToday(wakeDeps, userId, now()) } };
+  });
   /** notify reports a photo (metadata only, never the image) before handing it to ai. */
   app.post("/wake/photos", async (req, reply) => {
     const userId = userOf(req.headers);
