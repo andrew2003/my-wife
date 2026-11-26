@@ -13,6 +13,8 @@ export interface LlmResponse {
   text: string;
   /** Proposals only; code validates and decides. */
   toolCalls: AiToolCall[];
+  /** Stable facts the model proposes to remember; code validates and stores them. */
+  memories?: string[];
 }
 
 /** One interface for every provider. Real providers arrive in M4 (MW-125). */
