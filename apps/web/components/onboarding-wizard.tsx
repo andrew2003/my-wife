@@ -1,6 +1,9 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { signContract } from "../lib/contract";
+import { ContractSigningView } from "./contract-signing-view";
 import type { Locale } from "../lib/i18n";
 import {
   buildAnswers,
@@ -14,7 +17,10 @@ import { OnboardingWizardView, type WizardPhase } from "./onboarding-wizard-view
 
 /** Client state of the onboarding wizard: questions, then the generated templates to review. */
 export function OnboardingWizard({ locale }: { locale: Locale }) {
-  const [phase, setPhase] = useState<WizardPhase>("questions");
+  const router = useRouter();
+  const [phase, setPhase] = useState<WizardPhase | "contract">("questions");
+  const [agreed, setAgreed] = useState(false);
+  const [signing, setSigning] = useState(false);
   const [values, setValues] = useState<FormValues>({});
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const [previews, setPreviews] = useState<Previews | null>(null);
@@ -54,10 +60,39 @@ export function OnboardingWizard({ locale }: { locale: Locale }) {
     }
   };
 
+  const sign = async () => {
+    setErrorKey(null);
+    setSigning(true);
+    const result = await signContract(previews?.budget.cycle.id);
+    if (result.ok) {
+      // Onboarding is complete: open the home screen.
+      router.push("/");
+      return;
+    }
+    setSigning(false);
+    setErrorKey(result.errorKey);
+  };
+
+  if (phase === "contract" && previews) {
+    return (
+      <main className="onboarding">
+        <ContractSigningView
+          locale={locale}
+          budget={previews.budget}
+          agreed={agreed}
+          busy={signing}
+          errorKey={errorKey}
+          onAgreeChange={setAgreed}
+          onSign={() => void sign()}
+        />
+      </main>
+    );
+  }
+
   return (
     <OnboardingWizardView
       locale={locale}
-      phase={phase}
+      phase={phase as WizardPhase}
       values={values}
       busy={phase === "loading"}
       errorKey={errorKey}
@@ -68,6 +103,10 @@ export function OnboardingWizard({ locale }: { locale: Locale }) {
       onContinue={() => void (saved ? retry() : run(false))}
       onSkip={() => void (saved ? retry() : run(true))}
       onRetry={() => void retry()}
+      onToContract={() => {
+        setErrorKey(null);
+        setPhase("contract");
+      }}
     />
   );
 }
