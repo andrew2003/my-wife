@@ -1,0 +1,38 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+}
+.signin {
+  max-width: 24rem;
+  margin: 4rem auto;
+  padding: 0 1rem;
+  display: grid;
+  gap: 1rem;
+}
+.button {
+  display: block;
+  padding: 0.75rem 1rem;
+  text-align: center;
+  background: #111;
+  color: #fff;
+  border-radius: 0.5rem;
+  text-decoration: none;
+}
+.shell header {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #ddd;
+}
+.shell nav ul {
+  display: flex;
+  gap: 1rem;
+  list-style: none;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+.shell .content {
+  padding: 1rem;
+}

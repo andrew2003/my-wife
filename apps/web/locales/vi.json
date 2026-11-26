@@ -7,5 +7,12 @@
   "signin.title": "Đăng nhập",
   "signin.google": "Tiếp tục với Google",
   "signin.magic_link": "Gửi liên kết đăng nhập qua email",
-  "signin.invitation_only": "Chỉ đăng ký được khi có lời mời."
+  "signin.invitation_only": "Chỉ đăng ký được khi có lời mời.",
+  "nav.label": "Điều hướng chính",
+  "nav.home": "Trang chủ",
+  "nav.schedule": "Lịch trình",
+  "nav.budget": "Ngân sách",
+  "nav.settings": "Cài đặt",
+  "locale.switch_to_en": "English",
+  "locale.switch_to_vi": "Tiếng Việt"
 }
