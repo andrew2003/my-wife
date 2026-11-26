@@ -1,0 +1,105 @@
+# One shared stack. Worktrees isolate through their own database name and
+# NATS subject prefix, never by starting a second stack.
+name: my-wife
+
+x-service: &service
+  restart: unless-stopped
+  mem_limit: 256m
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_started }
+    nats: { condition: service_started }
+  environment: &service-env
+    UI_LANGUAGE: ${UI_LANGUAGE:-vi}
+    LOGIN_METHOD: ${LOGIN_METHOD:-google}
+    DATABASE_URL: postgres://${POSTGRES_USER:-mywife}:${POSTGRES_PASSWORD:-mywife}@postgres:5432/${POSTGRES_DB:-mywife}
+    NATS_URL: nats://nats:4222
+    NATS_SUBJECT_PREFIX: ${NATS_SUBJECT_PREFIX:-}
+    SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mywife}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mywife}
+      POSTGRES_DB: ${POSTGRES_DB:-mywife}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mywife}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    mem_limit: 128m
+    command: ["redis-server", "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
+    ports: ["6379:6379"]
+
+  nats:
+    image: nats:2-alpine
+    mem_limit: 128m
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    volumes:
+      - natsdata:/data
+    ports: ["4222:4222"]
+
+  gateway:
+    <<: *service
+    build: { context: .., dockerfile: services/gateway/Dockerfile }
+    environment: { <<: *service-env, PORT: "4000" }
+    ports: ["4000:4000"]
+  identity:
+    <<: *service
+    build: { context: .., dockerfile: services/identity/Dockerfile }
+    environment: { <<: *service-env, PORT: "4001" }
+  budget:
+    <<: *service
+    build: { context: .., dockerfile: services/budget/Dockerfile }
+    environment: { <<: *service-env, PORT: "4002" }
+  ingest:
+    <<: *service
+    build: { context: .., dockerfile: services/ingest/Dockerfile }
+    environment: { <<: *service-env, PORT: "4003" }
+  schedule:
+    <<: *service
+    build: { context: .., dockerfile: services/schedule/Dockerfile }
+    environment: { <<: *service-env, PORT: "4004" }
+  monitor:
+    <<: *service
+    build: { context: .., dockerfile: services/monitor/Dockerfile }
+    environment: { <<: *service-env, PORT: "4005" }
+  rules:
+    <<: *service
+    build: { context: .., dockerfile: services/rules/Dockerfile }
+    environment: { <<: *service-env, PORT: "4006" }
+  ai:
+    <<: *service
+    build: { context: .., dockerfile: services/ai/Dockerfile }
+    environment: { <<: *service-env, PORT: "4007" }
+  notify:
+    <<: *service
+    build: { context: .., dockerfile: services/notify/Dockerfile }
+    environment: { <<: *service-env, PORT: "4008" }
+  sync:
+    <<: *service
+    build: { context: .., dockerfile: services/sync/Dockerfile }
+    environment: { <<: *service-env, PORT: "4009" }
+
+  web:
+    build: { context: .., dockerfile: apps/web/Dockerfile }
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      UI_LANGUAGE: ${UI_LANGUAGE:-vi}
+    depends_on: [gateway]
+    ports: ["3100:3100"]
+
+volumes:
+  pgdata:
+  natsdata:

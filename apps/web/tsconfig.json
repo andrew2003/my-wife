@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.cache/tsbuildinfo",
+    "jsx": "preserve",
+    "resolveJsonModule": true,
+    "lib": ["dom", "dom.iterable", "ES2022"],
+    "allowJs": false,
+    "plugins": [{ "name": "next" }]
+  },
+  "include": ["next-env.d.ts", "app", "lib", "test", "vitest.config.ts"]
+}
