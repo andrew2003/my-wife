@@ -14,5 +14,21 @@
   "nav.budget": "Budget",
   "nav.settings": "Settings",
   "locale.switch_to_en": "English",
-  "locale.switch_to_vi": "Tiếng Việt"
+  "locale.switch_to_vi": "Tiếng Việt",
+  "nav.today": "Today",
+  "checklist.title": "Today's checklist",
+  "checklist.start": "Start",
+  "checklist.done": "Done",
+  "checklist.empty": "No tasks for today.",
+  "checklist.loading": "Loading tasks...",
+  "checklist.error": "Could not load today's tasks.",
+  "checklist.retry": "Try again",
+  "checklist.action_error": "Could not save the change. Please try again.",
+  "checklist.minutes": "{minutes} min",
+  "checklist.state.planned": "Planned",
+  "checklist.state.in_progress": "In progress",
+  "checklist.state.done": "Finished",
+  "checklist.state.skipped": "Skipped",
+  "checklist.state.carried": "Carried over",
+  "checklist.state.cancelled": "Cancelled"
 }

@@ -14,5 +14,21 @@
   "nav.budget": "Ngân sách",
   "nav.settings": "Cài đặt",
   "locale.switch_to_en": "English",
-  "locale.switch_to_vi": "Tiếng Việt"
+  "locale.switch_to_vi": "Tiếng Việt",
+  "nav.today": "Hôm nay",
+  "checklist.title": "Việc hôm nay",
+  "checklist.start": "Bắt đầu",
+  "checklist.done": "Xong",
+  "checklist.empty": "Hôm nay chưa có việc nào.",
+  "checklist.loading": "Đang tải danh sách việc...",
+  "checklist.error": "Không tải được danh sách việc hôm nay.",
+  "checklist.retry": "Thử lại",
+  "checklist.action_error": "Không lưu được thay đổi. Vui lòng thử lại.",
+  "checklist.minutes": "{minutes} phút",
+  "checklist.state.planned": "Đã lên kế hoạch",
+  "checklist.state.in_progress": "Đang làm",
+  "checklist.state.done": "Đã xong",
+  "checklist.state.skipped": "Đã bỏ qua",
+  "checklist.state.carried": "Chuyển sang sau",
+  "checklist.state.cancelled": "Đã hủy"
 }
