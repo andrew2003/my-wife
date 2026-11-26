@@ -38,9 +38,7 @@ export function ProductTour({ locale }: { locale: Locale }) {
       index={index}
       busy={busy}
       errorKey={errorKey}
-      onNext={() =>
-        index >= TOUR_STEPS.length - 1 ? void finish(false) : setIndex((i) => i + 1)
-      }
+      onNext={() => (index >= TOUR_STEPS.length - 1 ? void finish(false) : setIndex((i) => i + 1))}
       onSkip={() => void finish(true)}
     />
   );

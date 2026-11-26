@@ -26,10 +26,7 @@ export async function loadTourState(doFetch: FetchLike = fetch): Promise<TourSta
 }
 
 /** Records the tour as finished (`skipped` false) or skipped; identity emits the event. */
-export async function completeTour(
-  skipped: boolean,
-  doFetch: FetchLike = fetch,
-): Promise<boolean> {
+export async function completeTour(skipped: boolean, doFetch: FetchLike = fetch): Promise<boolean> {
   try {
     const res = await doFetch("/api/onboarding/steps", {
       method: "POST",
