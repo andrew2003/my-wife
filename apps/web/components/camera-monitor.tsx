@@ -19,9 +19,10 @@ export function CameraMonitor(props: {
   locale: Locale;
   sessionId: string;
   forcedDelegate?: string;
-  heartbeatEverySeconds?: number;
+  /** `monitor.heartbeat_interval_seconds`, supplied by the page. */
+  heartbeatEverySeconds: number;
 }) {
-  const { locale, sessionId, forcedDelegate, heartbeatEverySeconds = 10 } = props;
+  const { locale, sessionId, forcedDelegate, heartbeatEverySeconds } = props;
   const video = useRef<HTMLVideoElement>(null);
   const [state, setState] = useState<"idle" | "running" | "denied">("idle");
   const [delegate, setDelegate] = useState<Delegate | null>(null);

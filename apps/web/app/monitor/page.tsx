@@ -1,3 +1,4 @@
+import { SETTINGS } from "@my-wife/contracts";
 import { CameraMonitor } from "../../components/camera-monitor";
 import { translate } from "../../lib/i18n";
 import { getRequestContext } from "../../lib/request-context";
@@ -17,6 +18,8 @@ export default async function MonitorPage({
       <CameraMonitor
         locale={locale}
         sessionId={sessionId ?? ""}
+        // No settings read path exists in the web app yet; use the registry default for now.
+        heartbeatEverySeconds={SETTINGS["monitor.heartbeat_interval_seconds"].default}
         forcedDelegate={process.env.CAMERA_ANALYSIS_DELEGATE}
       />
     </main>
