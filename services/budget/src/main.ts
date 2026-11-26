@@ -3,6 +3,7 @@ import { type EventEnvelope } from "@my-wife/contracts";
 import { connectNats, subject } from "@my-wife/service-kit";
 import { createApp, SERVICE_NAME } from "./app";
 import {
+  CONTRACT_SIGNED_SUBJECT,
   createSettingsReader,
   RECEIPT_SUBJECT,
   runEventConsumer,
@@ -33,6 +34,14 @@ void runEventConsumer({
   prefix,
   type: RECEIPT_SUBJECT,
   handler: app.onReceiptParsed,
+  log: app.log,
+});
+
+void runEventConsumer({
+  nats,
+  prefix,
+  type: CONTRACT_SIGNED_SUBJECT,
+  handler: app.onContractSigned,
   log: app.log,
 });
 

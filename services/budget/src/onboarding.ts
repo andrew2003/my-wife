@@ -20,7 +20,11 @@ export const DEFAULT_SAMPLE_TOTAL_VND = 10_000_000;
 export interface AuditRecord {
   at: string;
   userId: string;
-  action: "sample_budget_generated" | "account_code_changed" | "account_email_confirmed";
+  action:
+    | "sample_budget_generated"
+    | "account_code_changed"
+    | "account_email_confirmed"
+    | "cycle_approved";
   detail: Record<string, string | number>;
 }
 
@@ -32,6 +36,10 @@ export interface SampleBudgetRecord {
   audit: AuditRecord[];
   /** False until `cycle.draft_created` was published, so a failed publish is retried. */
   announced: boolean;
+  /** `contract.signed` events received for the user (rules owns the contract itself). */
+  signedContracts: { contractId: string; cycleId: string }[];
+  /** False until `cycle.funds_requested` was published, so a failed publish is retried. */
+  fundsAnnounced: boolean;
 }
 
 /** Persistence port. A Postgres store must enforce one sample draft per user by unique key. */
@@ -64,6 +72,19 @@ export interface SampleBudgetStore {
     at: Date,
     receiptId: string,
   ): Promise<boolean>;
+  /** Remembers a `contract.signed` event; a repeat is a no-op. */
+  recordSignedContract(userId: string, contractId: string, cycleId: string): Promise<void>;
+  /**
+   * Atomically moves the user's cycle from `draft` to `awaiting_funds`, stores the commitment
+   * and writes an audit record. Anything but `draft` changes nothing.
+   */
+  approveDraft(
+    userId: string,
+    cycleId: string,
+    commitmentId: string,
+    at: Date,
+  ): Promise<"ok" | "not_draft" | "not_found">;
+  markFundsAnnounced(userId: string): Promise<void>;
 }
 
 export class MemorySampleBudgetStore implements SampleBudgetStore {
@@ -131,6 +152,32 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
       detail: { accountId, receiptId },
     });
     return true;
+  }
+
+  async recordSignedContract(userId: string, contractId: string, cycleId: string) {
+    const r = this.records.get(userId);
+    if (!r || r.signedContracts.some((c) => c.contractId === contractId)) return;
+    r.signedContracts.push({ contractId, cycleId });
+  }
+
+  async approveDraft(userId: string, cycleId: string, commitmentId: string, at: Date) {
+    const r = this.records.get(userId);
+    if (!r || r.cycle.id !== cycleId) return "not_found" as const;
+    if (r.cycle.state !== "draft") return "not_draft" as const;
+    r.cycle.state = "awaiting_funds";
+    r.cycle.commitmentId = commitmentId;
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "cycle_approved",
+      detail: { cycleId, commitmentId },
+    });
+    return "ok" as const;
+  }
+
+  async markFundsAnnounced(userId: string) {
+    const r = this.records.get(userId);
+    if (r) r.fundsAnnounced = true;
   }
 
   /** Sync helpers for tests. */
@@ -271,6 +318,8 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
         },
       ],
       announced: false,
+      signedContracts: [],
+      fundsAnnounced: false,
     };
   }
 }

@@ -1,4 +1,12 @@
 export { createReceiptHandler, getAccountStates, type AccountState } from "./accounts";
+export {
+  buildFundRequests,
+  createContractSignedHandler,
+  createCycleApprover,
+  type ApproveErrorCode,
+  type ApproveResult,
+  type TransferRequest,
+} from "./approval";
 export { createApp, SERVICE_NAME, type BudgetDeps } from "./app";
 export {
   createOnboardingHandler,
