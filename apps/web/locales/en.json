@@ -151,5 +151,10 @@
   "budget.penalty.due": "Due:",
   "budget.penalty.code": "Memo code:",
   "budget.penalty.account": "Pay into:",
-  "budget.penalty.instructions": "Transfer the amount yourself with the exact memo code. We only read your bank receipt to confirm; we never move money."
+  "budget.penalty.instructions": "Transfer the amount yourself with the exact memo code. We only read your bank receipt to confirm; we never move money.",
+  "monitor.title": "Focus monitoring",
+  "monitor.start": "Start camera monitoring",
+  "monitor.running": "Monitoring is on. Video stays on this device.",
+  "monitor.denied": "Camera access was not granted.",
+  "monitor.delegate": "Analysis mode: {delegate}"
 }
