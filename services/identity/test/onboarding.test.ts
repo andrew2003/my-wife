@@ -148,3 +148,35 @@ describe("completing an onboarding step", () => {
     expect(events).toHaveLength(1);
   });
 });
+
+describe("onboarding step state", () => {
+  const state = (app: App, step: string, headers: Record<string, string> = USER) =>
+    app.inject({ method: "GET", url: `/onboarding/steps/${step}`, headers });
+
+  it("reports a step as not completed, then as skipped after a skip", async () => {
+    const { app } = setup();
+    expect((await state(app, "tour")).json().data).toEqual({
+      step: "tour",
+      completed: false,
+      skipped: false,
+    });
+    await complete(app, { step: "tour", skipped: true });
+    expect((await state(app, "tour")).json().data).toEqual({
+      step: "tour",
+      completed: true,
+      skipped: true,
+    });
+  });
+
+  it("keeps a step open while its event is still owed", async () => {
+    const { app } = setup(true);
+    await complete(app, { step: "tour", skipped: true });
+    expect((await state(app, "tour")).json().data.completed).toBe(false);
+  });
+
+  it("rejects an unknown step and an anonymous caller", async () => {
+    const { app } = setup();
+    expect((await state(app, "nope")).statusCode).toBe(400);
+    expect((await state(app, "tour", {})).statusCode).toBe(401);
+  });
+});

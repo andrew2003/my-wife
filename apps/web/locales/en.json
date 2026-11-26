@@ -31,5 +31,19 @@
   "checklist.state.skipped": "Skipped",
   "checklist.state.carried": "Carried over",
   "checklist.state.cancelled": "Cancelled",
-  "countdown.label": "Time remaining"
+  "countdown.label": "Time remaining",
+  "tour.label": "Quick tour",
+  "tour.progress": "Step {current} of {total}",
+  "tour.skip": "Skip",
+  "tour.next": "Next",
+  "tour.finish": "Done",
+  "tour.error": "Could not save. Please try again.",
+  "tour.schedule.title": "Schedule",
+  "tour.schedule.body": "See today's tasks, start them and mark them done.",
+  "tour.budget.title": "Budget",
+  "tour.budget.body": "Follow each category limit and the spending in the cycle.",
+  "tour.inbox.title": "Inbox",
+  "tour.inbox.body": "Where the bot asks you questions and reminds you to confirm things.",
+  "tour.settings.title": "Settings",
+  "tour.settings.body": "Every number and rule can be changed here."
 }

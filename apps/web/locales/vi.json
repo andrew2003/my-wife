@@ -31,5 +31,19 @@
   "checklist.state.skipped": "Đã bỏ qua",
   "checklist.state.carried": "Chuyển sang sau",
   "checklist.state.cancelled": "Đã hủy",
-  "countdown.label": "Thời gian còn lại"
+  "countdown.label": "Thời gian còn lại",
+  "tour.label": "Giới thiệu nhanh",
+  "tour.progress": "Bước {current}/{total}",
+  "tour.skip": "Bỏ qua",
+  "tour.next": "Tiếp theo",
+  "tour.finish": "Hoàn tất",
+  "tour.error": "Không lưu được. Vui lòng thử lại.",
+  "tour.schedule.title": "Lịch trình",
+  "tour.schedule.body": "Xem việc hôm nay, bắt đầu và đánh dấu hoàn thành từng việc.",
+  "tour.budget.title": "Ngân sách",
+  "tour.budget.body": "Theo dõi hạn mức từng hạng mục và các khoản chi trong chu kỳ.",
+  "tour.inbox.title": "Hộp thư",
+  "tour.inbox.body": "Nơi bot hỏi bạn và nhắc những việc cần xác nhận.",
+  "tour.settings.title": "Cài đặt",
+  "tour.settings.body": "Mọi con số và quy tắc đều chỉnh được tại đây."
 }
