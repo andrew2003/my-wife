@@ -167,7 +167,9 @@ describe("approve cycle draft", () => {
   ])("does not accept a contract signed by %s", async (_name, contractId, userId, ownCycle) => {
     const s = await seeded();
     await confirmAll(s);
-    await s.signed(contractSigned(contractId, ownCycle ? s.record.cycle.id : "other-cycle", userId));
+    await s.signed(
+      contractSigned(contractId, ownCycle ? s.record.cycle.id : "other-cycle", userId),
+    );
     const res = await s.approver(req(s));
     expect(res).toMatchObject({ ok: false, error: { code: "budget.contract_not_signed" } });
     expect(s.store.get("u1")!.cycle.state).toBe("draft");
