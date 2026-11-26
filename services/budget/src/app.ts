@@ -6,6 +6,7 @@ import { createReceiptHandler } from "./accounts";
 import { createContractSignedHandler, createCycleApprover } from "./approval";
 import { createFundingHandler } from "./funding";
 import { createTransactionHandler } from "./transactions";
+import { createWeekClosedHandler } from "./overspend";
 import {
   createOnboardingHandler,
   MemorySampleBudgetStore,
@@ -61,6 +62,15 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     await recordTransaction(event);
   });
   app.decorate("onContractSigned", createContractSignedHandler({ store }));
+  app.decorate(
+    "onWeekClosed",
+    createWeekClosedHandler({
+      store,
+      now,
+      publish: deps.publish ?? (() => undefined),
+      readSettings: deps.readSettings,
+    }),
+  );
 
   const approveCycle = createCycleApprover({
     store,
@@ -98,5 +108,7 @@ declare module "fastify" {
     onReceiptParsed: (event: EventEnvelope) => Promise<void>;
     /** Consumer of `contract.signed`; records the contract the approval guard checks. */
     onContractSigned: (event: EventEnvelope) => Promise<void>;
+    /** Consumer of `week.closed`; detects overspending once per week. */
+    onWeekClosed: (event: EventEnvelope) => Promise<void>;
   }
 }

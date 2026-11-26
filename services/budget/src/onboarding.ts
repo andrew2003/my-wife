@@ -11,6 +11,7 @@ import { t } from "./i18n";
 import { RESERVED_SHORT_CODES } from "./transfer-codes";
 import { buildSampleBudget, type SampleCategoryTemplate } from "./sample-budget";
 import type { TransactionRecord } from "./transactions";
+import type { LimitAdjustment, OverspendRecord, PenaltyDebt, WeekCloseOutcome } from "./overspend";
 
 /**
  * Default total of the sample budget when the user gave no answer (decisions.md, MW-013).
@@ -28,7 +29,8 @@ export interface AuditRecord {
     | "cycle_approved"
     | "account_funded"
     | "cycle_opened"
-    | "transaction_recorded";
+    | "transaction_recorded"
+    | "week_closed";
   detail: Record<string, string | number>;
 }
 
@@ -50,6 +52,14 @@ export interface SampleBudgetRecord {
   openedAnnounced: boolean;
   /** Transactions booked from verified receipts (MW-023); append-only. */
   transactions: TransactionRecord[];
+  /** Weeks whose close was processed (MW-026): one entry per (cycle, week index). */
+  closedWeeks: { cycleId: string; weekIndex: number }[];
+  /** Overspends found at week close; `announced` flips after `overspend.detected` was published. */
+  overspends: OverspendRecord[];
+  /** Deductions from a later week's limit, caused by an overspend. */
+  limitAdjustments: LimitAdjustment[];
+  /** Overspend left from the last week of a cycle, settled later as penalty debt. */
+  penaltyDebts: PenaltyDebt[];
 }
 
 export interface FundingRecord {
@@ -134,6 +144,22 @@ export interface SampleBudgetStore {
     at: Date,
   ): Promise<"recorded" | "duplicate" | "not_running">;
   markTransactionAnnounced(userId: string, transactionId: string): Promise<void>;
+  /**
+   * Atomically records the close of a week with its overspends, deductions, debts and an audit
+   * record. A (cycle, week) already closed returns `duplicate` and writes nothing.
+   */
+  closeWeek(
+    userId: string,
+    cycleId: string,
+    weekIndex: number,
+    outcome: WeekCloseOutcome,
+    at: Date,
+  ): Promise<"closed" | "duplicate" | "not_running">;
+  /** Claims the overspends of the week still owing `overspend.detected`; a claim is held once. */
+  claimOverspends(userId: string, cycleId: string, weekIndex: number): Promise<OverspendRecord[]>;
+  /** Releases claims after a failed publish so the next delivery retries. */
+  releaseOverspendClaims(userId: string, cycleId: string, weekIndex: number): Promise<void>;
+  markOverspendAnnounced(userId: string, overspendId: string): Promise<void>;
 }
 
 export class MemorySampleBudgetStore implements SampleBudgetStore {
@@ -310,6 +336,68 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     if (txn) txn.announced = true;
   }
 
+  private readonly overspendClaims = new Set<string>();
+
+  async closeWeek(
+    userId: string,
+    cycleId: string,
+    weekIndex: number,
+    outcome: WeekCloseOutcome,
+    at: Date,
+  ) {
+    const r = this.records.get(userId);
+    if (!r || r.cycle.id !== cycleId || r.cycle.state !== "running") {
+      return "not_running" as const;
+    }
+    if (r.closedWeeks.some((w) => w.cycleId === cycleId && w.weekIndex === weekIndex)) {
+      return "duplicate" as const;
+    }
+    r.closedWeeks.push({ cycleId, weekIndex });
+    r.overspends.push(...outcome.overspends.map((o) => ({ ...o })));
+    r.limitAdjustments.push(...outcome.adjustments.map((a) => ({ ...a })));
+    r.penaltyDebts.push(...outcome.debts.map((d) => ({ ...d })));
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "week_closed",
+      detail: {
+        cycleId,
+        weekIndex,
+        overspends: outcome.overspends.length,
+        deductedVnd: outcome.adjustments.reduce((sum, a) => sum + a.deductionVnd, 0),
+        debtVnd: outcome.debts.reduce((sum, d) => sum + d.amountVnd, 0),
+      },
+    });
+    return "closed" as const;
+  }
+
+  // Synchronous check-and-set: no await between the test and the write.
+  async claimOverspends(userId: string, cycleId: string, weekIndex: number) {
+    const r = this.records.get(userId);
+    if (!r) return [];
+    const owed = r.overspends.filter(
+      (o) =>
+        o.cycleId === cycleId &&
+        o.weekIndex === weekIndex &&
+        !o.announced &&
+        !this.overspendClaims.has(o.id),
+    );
+    for (const o of owed) this.overspendClaims.add(o.id);
+    return owed;
+  }
+
+  async releaseOverspendClaims(userId: string, cycleId: string, weekIndex: number) {
+    const r = this.records.get(userId);
+    for (const o of r?.overspends ?? []) {
+      if (o.cycleId === cycleId && o.weekIndex === weekIndex) this.overspendClaims.delete(o.id);
+    }
+  }
+
+  async markOverspendAnnounced(userId: string, overspendId: string) {
+    const o = this.records.get(userId)?.overspends.find((x) => x.id === overspendId);
+    if (o) o.announced = true;
+  }
+
   /** Sync helpers for tests. */
   get(userId: string) {
     return this.records.get(userId);
@@ -452,6 +540,10 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       fundsAnnounced: false,
       fundings: [],
       openedAnnounced: false,
+      closedWeeks: [],
+      overspends: [],
+      limitAdjustments: [],
+      penaltyDebts: [],
       transactions: [],
     };
   }

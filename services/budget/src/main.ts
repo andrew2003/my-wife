@@ -8,6 +8,7 @@ import {
   RECEIPT_SUBJECT,
   runEventConsumer,
   runOnboardingConsumer,
+  WEEK_CLOSED_SUBJECT,
 } from "./consumer";
 
 const config = loadConfig(process.env);
@@ -42,6 +43,14 @@ void runEventConsumer({
   prefix,
   type: CONTRACT_SIGNED_SUBJECT,
   handler: app.onContractSigned,
+  log: app.log,
+});
+
+void runEventConsumer({
+  nats,
+  prefix,
+  type: WEEK_CLOSED_SUBJECT,
+  handler: app.onWeekClosed,
   log: app.log,
 });
 
