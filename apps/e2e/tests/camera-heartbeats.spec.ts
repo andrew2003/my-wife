@@ -1,5 +1,5 @@
 import { HeartbeatRequestSchema } from "@my-wife/contracts";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "../support/signed-in";
 
 const SESSION_ID = "0190a0a0-0000-7000-8000-000000000001";
 

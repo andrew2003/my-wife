@@ -4,6 +4,7 @@ import {
   DATABASE_URL,
   FAKE_VIDEO,
   NATS_SUBJECT_PREFIX,
+  SESSION_COOKIE_FILE,
   WEB_PORT,
   WEB_URL,
 } from "./support/env";
@@ -45,6 +46,8 @@ export default defineConfig({
         DATABASE_URL,
         NATS_SUBJECT_PREFIX,
         LOG_LEVEL: "warn",
+        E2E_SEED_SESSION: "1",
+        E2E_SESSION_COOKIE_FILE: SESSION_COOKIE_FILE,
         SESSION_SECRET: "e2e-only-secret-e2e-only-secret-0000",
       },
     },
