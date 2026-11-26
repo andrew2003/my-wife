@@ -16,6 +16,8 @@ export interface OnboardingWizardViewProps {
   onSkip: () => void;
   /** Retry reading the previews after an error. */
   onRetry: () => void;
+  /** Moves from the review to the contract step. */
+  onToContract?: () => void;
 }
 
 /** Questions step (every question skippable), then a review of the generated templates. */
@@ -117,6 +119,13 @@ export function OnboardingWizardView(props: OnboardingWizardViewProps) {
             )}
           </section>
           <p>{t("onboarding.review.editable")}</p>
+          {props.onToContract ? (
+            <div className="onboarding-actions">
+              <button type="button" className="button" onClick={props.onToContract}>
+                {t("onboarding.to_contract")}
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </main>

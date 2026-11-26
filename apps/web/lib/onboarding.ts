@@ -52,7 +52,7 @@ export interface ScheduleBlockView {
 }
 
 export interface BudgetPreview {
-  cycle: { weeks: number; firstDay: string };
+  cycle: { id?: string; weeks: number; firstDay: string };
   categories: { id: string; name: string; shortCode: string; cycleLimitVnd: number }[];
 }
 
