@@ -1,3 +1,41 @@
+.checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.checklist-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+}
+.checklist-item.state-done .checklist-title {
+  text-decoration: line-through;
+  color: #666;
+}
+.checklist-text {
+  display: grid;
+  gap: 0.25rem;
+}
+.checklist-meta {
+  font-size: 0.85rem;
+  color: #666;
+}
+.checklist-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.checklist-actions button {
+  min-height: 2.75rem;
+  min-width: 4.5rem;
+  padding: 0 1rem;
+}
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
