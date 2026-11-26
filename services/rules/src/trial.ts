@@ -98,6 +98,8 @@ export interface TrialStore {
   open(): TrialRecord[];
   suspended(userId: string): SuspendedEntry[];
   markDue(userId: string, lines: SettlementLine[]): void;
+  /** Adds suspended entries to settle at trial end; an id already present is ignored. */
+  addSuspended(userId: string, entries: SuspendedEntry[]): void;
 }
 
 /** Holds the trial and its suspended entries until the penalty ledger has its own store. */
@@ -132,7 +134,10 @@ export class InMemoryTrialStore implements TrialStore {
   }
   addSuspended(userId: string, entries: SuspendedEntry[]) {
     const list = this.ledger.get(userId) ?? [];
-    for (const e of entries) list.push({ ...e, status: "suspended", installments: [] });
+    for (const e of entries) {
+      if (list.some((x) => x.id === e.id)) continue;
+      list.push({ ...e, status: "suspended", installments: [] });
+    }
     this.ledger.set(userId, list);
   }
   entries(userId: string) {
