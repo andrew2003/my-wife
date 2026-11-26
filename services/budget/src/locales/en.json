@@ -1,0 +1,16 @@
+{
+  "budget.sample.category.food": "Food",
+  "budget.sample.category.fixed_bills": "Fixed bills",
+  "budget.sample.category.transport": "Transport",
+  "budget.sample.category.health_personal": "Health and personal care",
+  "budget.sample.category.eating_out": "Eating out and delivery apps",
+  "budget.sample.category.entertainment": "Entertainment",
+  "budget.sample.category.small_shopping": "Small shopping",
+  "budget.sample.category.contingency": "Contingency fund",
+  "budget.sample.category.savings": "Savings",
+  "budget.sample.category.future_purchases": "Future purchases",
+  "budget.sample.category.penalties": "Penalties",
+  "budget.sample.account.spending": "Spending account",
+  "budget.sample.account.savings": "Savings account",
+  "budget.sample.account.penalty_savings": "Penalty savings account"
+}
