@@ -33,3 +33,10 @@ export {
   RESERVED_SHORT_CODES,
 } from "./transfer-codes";
 export { buildWeeklyLimitPlan, type WeeklyLimitPlanInput } from "./weekly-plan";
+export {
+  classifyCodedTransfer,
+  createTransactionHandler,
+  getCategoryBalances,
+  type CategoryBalance,
+  type TransactionRecord,
+} from "./transactions";
