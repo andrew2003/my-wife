@@ -1,0 +1,11 @@
+{
+  "app.name": "My Wife",
+  "app.description": "Personal budget and schedule assistant",
+  "greeting": "Hello, {name}",
+  "home.title": "Welcome",
+  "home.subtitle": "Your budget and schedule in one place.",
+  "signin.title": "Sign in",
+  "signin.google": "Continue with Google",
+  "signin.magic_link": "Email me a sign-in link",
+  "signin.invitation_only": "Sign-up is by invitation only."
+}

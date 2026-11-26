@@ -1,0 +1,22 @@
+{
+  "name": "@my-wife/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "NODE_OPTIONS=--max-old-space-size=2048 next build",
+    "start": "NODE_OPTIONS=--max-old-space-size=2048 next start",
+    "typecheck": "tsc --noEmit",
+    "test": "NODE_OPTIONS=--max-old-space-size=2048 vitest run"
+  },
+  "dependencies": {
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "vitest": "^3.0.0"
+  }
+}

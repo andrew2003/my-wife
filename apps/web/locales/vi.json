@@ -1,0 +1,11 @@
+{
+  "app.name": "My Wife",
+  "app.description": "Trợ lý quản lý ngân sách và lịch trình cá nhân",
+  "greeting": "Xin chào, {name}",
+  "home.title": "Chào mừng",
+  "home.subtitle": "Ngân sách và lịch trình của bạn ở một nơi.",
+  "signin.title": "Đăng nhập",
+  "signin.google": "Tiếp tục với Google",
+  "signin.magic_link": "Gửi liên kết đăng nhập qua email",
+  "signin.invitation_only": "Chỉ đăng ký được khi có lời mời."
+}
