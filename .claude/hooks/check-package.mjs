@@ -5,7 +5,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { readInput, projectDir } from './lib.mjs';
+import { readInput, projectDir, isTestFile } from './lib.mjs';
 
 const input = readInput();
 const ti = input.tool_input ?? {};
@@ -37,7 +37,10 @@ if (!pkg || !pkg.name || !/^(packages|services|apps)\//.test(path.relative(root,
 
 const timeout = Number(process.env.FACTORY_HOOK_TIMEOUT_MS) || 120_000;
 const failures = [];
-for (const script of ['typecheck', 'test']) {
+// Typecheck runs on every edit. Tests run only when the edited file is not a test file, so that
+// writing a failing test first (test-driven development) is not punished by the hook.
+const scripts = isTestFile(rel.split(path.sep).join('/')) ? ['typecheck'] : ['typecheck', 'test'];
+for (const script of scripts) {
   if (!pkg.scripts?.[script]) continue;
   const r = spawnSync('pnpm', ['--filter', pkg.name, script], {
     cwd: root,
@@ -45,7 +48,10 @@ for (const script of ['typecheck', 'test']) {
     timeout,
     env: { ...process.env, CI: '1', NODE_OPTIONS: '--max-old-space-size=2048' },
   });
-  if (r.error || r.signal) continue; // timeout or pnpm missing: stay non-fatal
+  // A timeout (r.signal is SIGTERM) or a missing pnpm (r.error) is deliberately ignored and reported
+  // as success: a slow or broken toolchain must not block the agent. CI and the builder's own
+  // package-scoped runs remain the real gate.
+  if (r.error || r.signal) continue;
   if (r.status !== 0) {
     const tail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-25).join('\n');
     failures.push(`pnpm --filter ${pkg.name} ${script} failed:\n${tail}`);

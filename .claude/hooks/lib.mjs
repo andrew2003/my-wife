@@ -53,6 +53,15 @@ export const isTestFile = (rel) =>
 
 export const isEnvFile = (rel) => {
   const base = rel.split('/').pop() ?? '';
-  if (base === '.env.example') return false;
+  if (['.env.example', '.env.sample', '.env.template'].includes(base)) return false;
   return base === '.env' || base.startsWith('.env.') || base.endsWith('.env');
 };
+
+/** Remove fd redirects (2>&1, >&2, >/dev/null) and arrow functions so they do not look like file writes. */
+export function stripNoise(cmd) {
+  return cmd
+    .replace(/&>\s*\/dev\/null/g, ' ')
+    .replace(/\d*>>?\s*\/dev\/null/g, ' ')
+    .replace(/\d*>&\d+-?/g, ' ')
+    .replace(/=>/g, ' ');
+}
