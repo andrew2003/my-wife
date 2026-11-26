@@ -151,6 +151,7 @@ export async function runWakeForUser(deps: WakeDeps, userId: string, now: Date):
   const today = zoneParts(nowMs, s.zone);
   const day = `${today.y}-${pad(today.mo)}-${pad(today.d)}`;
   const wakeMs = zonedInstant(today.y, today.mo, today.d, s.hour, s.minute, s.zone);
+  // Last moment to start the challenge; the photo window itself runs from the actual send.
   const windowEndMs = wakeMs + s.windowMinutes * MINUTE_MS;
   if (nowMs < wakeMs || nowMs > windowEndMs) return;
   if (deps.store.forDay(userId, day)) return;
@@ -167,7 +168,7 @@ export async function runWakeForUser(deps: WakeDeps, userId: string, now: Date):
     wakeAt: new Date(wakeMs).toISOString(),
     sentAt: now.toISOString(),
     challengeKey: generated.key,
-    windowEndsAt: new Date(windowEndMs).toISOString(),
+    windowEndsAt: new Date(nowMs + s.windowMinutes * MINUTE_MS).toISOString(),
     state: "sent",
     receivedAt: null,
     grade: null,
@@ -221,6 +222,11 @@ export async function receiveWakePhoto(
   const c = deps.store.get(challengeId);
   if (!c || c.userId !== userId) return { ok: false, error: "not_found" };
   if (c.state === "graded") return { ok: false, error: "already_graded" };
+  if (c.state === "received") {
+    // The first photo is being checked; it stays the proof and its send time is kept.
+    await deps.sendReply(userId, { key: "routine.wake_photo_pending", params: {} });
+    return { ok: true, accepted: false, challengeKey: c.challengeKey };
+  }
   const sentMs = sentAt.getTime();
   if (sentMs > Date.parse(c.windowEndsAt) || sentMs < Date.parse(c.sentAt)) {
     await deps.sendReply(userId, { key: "routine.wake_photo_late", params: {} });

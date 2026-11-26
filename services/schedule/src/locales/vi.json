@@ -14,6 +14,7 @@
   "routine.wake_challenge.sink": "Chào buổi sáng! Hãy gửi ảnh bạn đang đứng ở bồn rửa mặt.",
   "routine.wake_challenge.object": "Chào buổi sáng! Cầm một vật trong phòng và gửi ảnh của bạn.",
   "routine.wake_photo_late": "Ảnh này gửi sau thời gian quy định nên không được tính là bằng chứng thức dậy.",
+  "routine.wake_photo_pending": "Mình đang kiểm tra ảnh đầu tiên của bạn. Vui lòng chờ kết quả.",
   "routine.wake_photo_unclear": "Mình chưa nhìn rõ ảnh này. Bạn gửi thêm một ảnh nữa nhé.",
   "routine.wake_photo_failed": "Ảnh này chưa thể hiện đúng yêu cầu. Bạn có thể khiếu nại kết quả.",
   "routine.wake_recorded": "Đã ghi nhận giờ thức dậy lúc {time}, đúng giờ.",

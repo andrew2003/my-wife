@@ -160,6 +160,32 @@ describe("wake photo flow", () => {
     });
   });
 
+  it("keeps the first photo while it is being checked and ignores a second one", async () => {
+    const { app, replies, ofType, photo, graded } = await setup();
+    await app.runWakeJob(new Date("2026-11-23T23:00:00.000Z"));
+    await photo("2026-11-23T23:02:00.000Z");
+    const second = await photo("2026-11-23T23:05:00.000Z");
+    expect(second.data.accepted).toBe(false);
+    expect(replies.at(-1)!.key).toBe("routine.wake_photo_pending");
+    expect(ofType("routine.wake_photo_received")).toHaveLength(1);
+    await graded("pass");
+    const payload = ofType("routine.wake_graded")[0]!.payload as { wakeTime: string };
+    expect(payload.wakeTime).toBe("2026-11-23T23:02:00.000Z");
+  });
+
+  it("gives the full window from the moment the challenge was sent", async () => {
+    const { app, photo } = await setup();
+    // A retried send at 06:08 local still gets 10 full minutes.
+    await app.runWakeJob(new Date("2026-11-23T23:08:00.000Z"));
+    expect((await photo("2026-11-23T23:18:00.000Z")).data.accepted).toBe(true);
+  });
+
+  it("closes the window after the full length from the late send", async () => {
+    const { app, photo } = await setup();
+    await app.runWakeJob(new Date("2026-11-23T23:08:00.000Z"));
+    expect((await photo("2026-11-23T23:18:01.000Z")).data.accepted).toBe(false);
+  });
+
   it("reports minutes late relative to the wake time", async () => {
     const { app, replies, ofType, photo, graded } = await setup({
       "routine.wake_photo_window_minutes": 30,
