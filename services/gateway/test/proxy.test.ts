@@ -158,6 +158,22 @@ describe("gateway session proxy", () => {
     });
   });
 
+  it("forwards the sample schedule to schedule and the sample cycle to budget", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good` };
+    const sched = await (await app).inject({ method: "GET", url: "/api/sample-schedule", headers });
+    expect(sched.statusCode).toBe(200);
+    expect(calls[1]).toMatchObject({
+      url: "http://schedule/sample-schedule",
+      headers: { "x-user-id": "u1" },
+    });
+    await (await app).inject({ method: "GET", url: "/api/budget/sample-cycle", headers });
+    expect(calls.at(-1)).toMatchObject({
+      url: "http://budget/budget/sample-cycle",
+      headers: { "x-user-id": "u1" },
+    });
+  });
+
   it("keeps invitation accept public", async () => {
     const { app, calls } = setup();
     const payload = AcceptInvitationRequestSchema.parse({ token: "t" });

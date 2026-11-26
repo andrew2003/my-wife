@@ -15,7 +15,7 @@ export type GatewayOptions = {
 const PUBLIC_ROUTES = new Set(["POST /api/invitations/accept"]);
 
 /** Paths owned by the schedule service (daily checklist and task actions). */
-const SCHEDULE_PREFIXES = ["/checklist", "/tasks", "/sessions"];
+const SCHEDULE_PREFIXES = ["/checklist", "/tasks", "/sessions", "/sample-schedule"];
 const BUDGET_PREFIXES = ["/budget"];
 
 function isUnder(path: string, prefixes: readonly string[]): boolean {
