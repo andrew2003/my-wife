@@ -9,6 +9,12 @@ import {
   type FaultStore,
 } from "./fault";
 import {
+  createPenaltyService,
+  InMemoryPenaltyStore,
+  type PenaltySettings,
+  type PenaltyStore,
+} from "./penalty";
+import {
   createTrialService,
   InMemoryTrialStore,
   type TrialSettings,
@@ -22,6 +28,9 @@ export type RulesDeps = ServiceDeps & {
   contractStore?: ContractStore;
   now?: () => Date;
   trialStore?: TrialStore;
+  penaltyStore?: PenaltyStore;
+  /** Reads the user's penalty settings (identity `GET /settings`); registry defaults when absent. */
+  readPenaltySettings?: (userId: string) => Promise<PenaltySettings>;
   faultStore?: FaultStore;
   /** Fault settings in force at the given time (identity `GET /settings`); registry defaults when absent. */
   readFaultSettings?: (userId: string, at: Date) => Promise<FaultSettings>;
@@ -55,8 +64,9 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
       ),
   });
 
+  const trialStore = deps.trialStore ?? new InMemoryTrialStore();
   const trial = createTrialService({
-    store: deps.trialStore ?? new InMemoryTrialStore(),
+    store: trialStore,
     publish: deps.publish,
     readSettings: deps.readTrialSettings,
     onPublishError: (err) =>
@@ -76,6 +86,31 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
         { err: err instanceof Error ? err.message : "unknown" },
         "fault event publish failed; it will be retried",
       ),
+  });
+
+  const penalties = createPenaltyService({
+    store: deps.penaltyStore ?? new InMemoryPenaltyStore(),
+    trialStore,
+    publish: deps.publish,
+    readSettings: deps.readPenaltySettings,
+    onPublishError: (err) =>
+      app.log.error(
+        { err: err instanceof Error ? err.message : "unknown" },
+        "penalty event publish failed; it will be retried",
+      ),
+  });
+
+  /** Internal entry for the bus bridge: `overspend.detected` becomes an overspend penalty. */
+  app.post("/events/overspend-detected", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (!parsed.success || parsed.data.type !== "overspend.detected") {
+      return reply.code(400).send({ ok: false, error: { code: "rules.invalid_event" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    return {
+      ok: true,
+      data: await penalties.onOverspendDetected(parsed.data as EventEnvelope, now),
+    };
   });
 
   /** Internal entry for the bus bridge: `fault.detected` becomes a ledger entry. */
