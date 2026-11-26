@@ -75,7 +75,10 @@ export function createDiscordChannel(opts: DiscordChannelOptions): ChatChannel {
   const attachmentAllowed = (url: string): boolean => {
     try {
       const u = new URL(url);
-      return u.origin === new URL(opts.baseUrl).origin || ATTACHMENT_HOSTS.has(u.hostname);
+      return (
+        u.origin === new URL(opts.baseUrl).origin ||
+        (u.protocol === "https:" && ATTACHMENT_HOSTS.has(u.hostname))
+      );
     } catch {
       return false;
     }
@@ -98,7 +101,7 @@ export function createDiscordChannel(opts: DiscordChannelOptions): ChatChannel {
       const externalId = String(d.channel_id);
       if (raw.t === "INTERACTION_CREATE") {
         const b = parseButton(String(d.data?.custom_id ?? ""));
-        return b && d.member?.user?.id ? { kind: "button", ...b, externalId, sentAt } : null;
+        return b && (d.member?.user?.id ?? d.user?.id) ? { kind: "button", ...b, externalId, sentAt } : null;
       }
       if (raw.t !== "MESSAGE_CREATE" || d.author?.bot) return null;
       const attachment = Array.isArray(d.attachments) ? d.attachments[0] : undefined;
@@ -118,7 +121,7 @@ export function createDiscordChannel(opts: DiscordChannelOptions): ChatChannel {
     async receivePhoto(reply) {
       // The reference comes from an untrusted update: only fetch from known Discord hosts.
       if (!attachmentAllowed(reply.fileRef)) throw new Error("attachment host is not allowed");
-      const res = await fetch(reply.fileRef);
+      const res = await fetch(reply.fileRef, { redirect: "error" });
       if (!res.ok) throw new Error(`discord attachment download failed with HTTP ${res.status}`);
       return new Uint8Array(await res.arrayBuffer());
     },

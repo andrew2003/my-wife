@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ChatChannel, OutboundMessage, Question } from "@my-wife/contracts";
 import { DiscordFake, SimClock, TelegramFake } from "@my-wife/test-kit";
@@ -159,6 +161,57 @@ describe("Discord channel behind the shared interface", () => {
       value: "fun",
       externalId: CHANNEL,
     });
+  });
+
+  it("parses a button tap in a direct message, where the user is not under member", async () => {
+    const reply = await channel.parseReply({
+      t: "INTERACTION_CREATE",
+      d: { channel_id: CHANNEL, user: { id: "d-user" }, data: { custom_id: "q1:fun" } },
+    });
+    expect(reply).toMatchObject({ kind: "button", questionId: "q1", value: "fun" });
+  });
+
+  it("does not follow redirects when downloading an attachment", async () => {
+    const target = createServer((_req, res) => res.end("secret"));
+    await new Promise<void>((r) => target.listen(0, "127.0.0.1", r));
+    const port = (target.address() as AddressInfo).port;
+    const redirector = createServer((_req, res) => {
+      res.writeHead(302, { location: `http://127.0.0.1:${port}/` });
+      res.end();
+    });
+    await new Promise<void>((r) => redirector.listen(0, "127.0.0.1", r));
+    const rport = (redirector.address() as AddressInfo).port;
+    const redirecting = createDiscordChannel({
+      baseUrl: `http://127.0.0.1:${rport}`,
+      token: "t",
+      clock: { now: () => new Date() },
+    });
+    try {
+      await expect(
+        redirecting.receivePhoto({
+          kind: "photo",
+          challengeId: null,
+          fileRef: `http://127.0.0.1:${rport}/a`,
+          externalId: CHANNEL,
+          sentAt: "2026-11-02T00:00:00.000Z",
+        }),
+      ).rejects.toThrow();
+    } finally {
+      redirector.close();
+      target.close();
+    }
+  });
+
+  it("requires https for the Discord CDN hosts", async () => {
+    await expect(
+      channel.receivePhoto({
+        kind: "photo",
+        challengeId: null,
+        fileRef: "http://cdn.discordapp.com/a.jpg",
+        externalId: CHANNEL,
+        sentAt: "2026-11-02T00:00:00.000Z",
+      }),
+    ).rejects.toThrow(/not allowed/);
   });
 
   it("ignores updates from a channel that is not linked", async () => {
