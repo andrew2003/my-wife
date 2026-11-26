@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyReply } from "fastify";
 import type { AppConfig } from "@my-wife/config";
 import {
+  CompleteOnboardingStepRequestSchema,
   EVENT_SCHEMA_VERSION,
   SETTINGS,
   type EventEnvelope,
@@ -17,6 +18,7 @@ import {
   createMemoryStore,
   type IdentityStore,
   type InvitationRecord,
+  type OnboardingStepRecord,
   type UserRecord,
 } from "./store";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
@@ -337,6 +339,81 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     // Tightening or loosening is classified by `rules`; until it is wired every change is
     // effective now (see docs/decisions.md).
     return { ok: true, data: { key, direction: "tightening" as const, effectiveFrom: at } };
+  });
+
+  /** Setup questions that map to a user setting; the answers are stored as those settings. */
+  const SETUP_ANSWER_KEYS: readonly SettingKey[] = [
+    "routine.wake.time",
+    "routine.sleep.start",
+    "budget.cycle_weeks",
+  ];
+
+  app.post("/onboarding/setup-answers", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const raw = (req.body as { answers?: unknown } | undefined)?.answers;
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+      return fail(reply, 400, "identity.invalid_setting");
+    const entries = Object.entries(raw);
+    if (entries.length === 0) return fail(reply, 400, "identity.invalid_setting");
+    const checked: [SettingKey, unknown][] = [];
+    for (const [key, value] of entries) {
+      if (!(SETUP_ANSWER_KEYS as readonly string[]).includes(key))
+        return fail(reply, 400, "identity.invalid_setting");
+      const result = validateSettingValue(key as SettingKey, value);
+      if (!result.success) return fail(reply, 400, "identity.invalid_setting");
+      checked.push([key as SettingKey, result.data]);
+    }
+    // Everything is validated before anything is written: a bad answer stores nothing.
+    const current = await readSettings(userId);
+    const at = now().toISOString();
+    const changes = checked
+      .filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value))
+      .map(([key, value]) => ({
+        key,
+        value,
+        audit: {
+          id: randomUUID(),
+          userId,
+          actorId: userId,
+          key,
+          before: current[key],
+          after: value,
+          at,
+        },
+      }));
+    // One transaction: either every changed answer is saved or none, so the event never
+    // misses a stored change.
+    if (changes.length > 0) await store.saveSettings(userId, changes);
+    const changedKeys = changes.map((c) => c.key);
+    if (changedKeys.length > 0) await emit("user.updated", userId, { changedKeys });
+    return { ok: true, data: { changedKeys } };
+  });
+
+  app.post("/onboarding/steps", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const body = CompleteOnboardingStepRequestSchema.safeParse(req.body);
+    if (!body.success) return fail(reply, 400, "identity.invalid_step");
+    const { step } = body.data;
+    // The first submission wins; later ones only retry an event that is still owed.
+    const record: OnboardingStepRecord = (await store.findOnboardingStep(userId, step)) ?? {
+      userId,
+      step,
+      skipped: body.data.skipped,
+      completedAt: now().toISOString(),
+      eventAt: null,
+    };
+    if (!record.eventAt) {
+      await store.saveOnboardingStep(record);
+      const sent = await emit("onboarding.step_completed", userId, {
+        step,
+        skipped: record.skipped,
+      });
+      if (!sent) return fail(reply, 503, "identity.event_unavailable");
+      await store.saveOnboardingStep({ ...record, eventAt: now().toISOString() });
+    }
+    return { ok: true, data: { step, skipped: record.skipped } };
   });
 
   /** Internal: the gateway verifies every request's session through this. */

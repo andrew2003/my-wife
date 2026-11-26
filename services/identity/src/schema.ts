@@ -1,4 +1,12 @@
-import { index, jsonb, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  jsonb,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
 import { serviceSchema } from "@my-wife/service-kit";
 
 const identity = serviceSchema("identity");
@@ -87,4 +95,16 @@ export const settingAudit = identity.table(
     at: timestamp("at", { withTimezone: true }).notNull(),
   },
   (t) => [index("setting_audit_user_idx").on(t.userId, t.at)],
+);
+
+export const onboardingSteps = identity.table(
+  "onboarding_steps",
+  {
+    userId: text("user_id").notNull(),
+    step: text("step").notNull(),
+    skipped: boolean("skipped").notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
+    eventAt: timestamp("event_at", { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.step] })],
 );

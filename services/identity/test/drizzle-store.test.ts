@@ -84,4 +84,65 @@ describe.skipIf(!url)("drizzle store (PostgreSQL)", () => {
     await store.revokeSession("s1", "2026-01-02T00:00:00.000Z");
     expect((await store.listSessions("u1"))[0]!.revokedAt).toBe("2026-01-02T00:00:00.000Z");
   });
+
+  it("creates the onboarding_steps table with the 0002 migration", async () => {
+    const res = await handle.db.execute<{ name: string }>(
+      sql.raw('SELECT "name" FROM "identity"."schema_migrations" ORDER BY "name"'),
+    );
+    expect(res.rows.map((r) => r.name)).toContain("0002_onboarding_steps.sql");
+  });
+
+  it("round-trips onboarding steps; a re-save only records the event time", async () => {
+    expect(await store.findOnboardingStep("u1", "qa_templates")).toBeUndefined();
+    const rec = {
+      userId: "u1",
+      step: "qa_templates",
+      skipped: true,
+      completedAt: "2026-01-01T00:00:00.000Z",
+      eventAt: null,
+    };
+    await store.saveOnboardingStep(rec);
+    expect(await store.findOnboardingStep("u1", "qa_templates")).toEqual(rec);
+    // First submission wins: a conflicting save keeps skipped and completedAt.
+    await store.saveOnboardingStep({
+      ...rec,
+      skipped: false,
+      completedAt: "2026-02-01T00:00:00.000Z",
+      eventAt: "2026-01-01T00:00:05.000Z",
+    });
+    expect(await store.findOnboardingStep("u1", "qa_templates")).toEqual({
+      ...rec,
+      eventAt: "2026-01-01T00:00:05.000Z",
+    });
+    expect(await store.findOnboardingStep("u2", "qa_templates")).toBeUndefined();
+  });
+
+  it("saves several settings with their audit entries in one transaction", async () => {
+    const at = "2026-01-01T00:00:00.000Z";
+    const entry = (key: string, after: unknown) => ({
+      id: `a-${key}`,
+      userId: "u9",
+      actorId: "u9",
+      key,
+      before: null,
+      after,
+      at,
+    });
+    await store.saveSettings("u9", [
+      { key: "routine.wake.time", value: "06:30", audit: entry("routine.wake.time", "06:30") },
+      { key: "budget.cycle_weeks", value: 6, audit: entry("budget.cycle_weeks", 6) },
+    ]);
+    expect(await store.getSettingOverrides("u9")).toEqual({
+      "routine.wake.time": "06:30",
+      "budget.cycle_weeks": 6,
+    });
+    // A failing audit insert (duplicate id) rolls back every setting of the batch.
+    await expect(
+      store.saveSettings("u8", [
+        { key: "routine.wake.time", value: "07:00", audit: { ...entry("x", 1), userId: "u8" } },
+        { key: "budget.cycle_weeks", value: 5, audit: { ...entry("x", 1), userId: "u8" } },
+      ]),
+    ).rejects.toThrow();
+    expect(await store.getSettingOverrides("u8")).toEqual({});
+  });
 });
