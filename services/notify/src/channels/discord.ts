@@ -101,7 +101,9 @@ export function createDiscordChannel(opts: DiscordChannelOptions): ChatChannel {
       const externalId = String(d.channel_id);
       if (raw.t === "INTERACTION_CREATE") {
         const b = parseButton(String(d.data?.custom_id ?? ""));
-        return b && (d.member?.user?.id ?? d.user?.id) ? { kind: "button", ...b, externalId, sentAt } : null;
+        return b && (d.member?.user?.id ?? d.user?.id)
+          ? { kind: "button", ...b, externalId, sentAt }
+          : null;
       }
       if (raw.t !== "MESSAGE_CREATE" || d.author?.bot) return null;
       const attachment = Array.isArray(d.attachments) ? d.attachments[0] : undefined;
