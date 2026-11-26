@@ -1,0 +1,12 @@
+{
+  "schedule.sample.wake": "Wake up, check-in photo",
+  "schedule.sample.hygiene": "Hygiene, exercise, breakfast",
+  "schedule.sample.top_three": "Pick the top three tasks",
+  "schedule.sample.deep_work": "Deep work in pomodoro sessions",
+  "schedule.sample.lunch": "Lunch and rest",
+  "schedule.sample.work": "Work",
+  "schedule.sample.exercise_dinner": "Exercise, dinner",
+  "schedule.sample.study": "Study or personal project",
+  "schedule.sample.reflection": "Reflection, close the checklist",
+  "schedule.sample.sleep": "Sleep"
+}
