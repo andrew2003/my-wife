@@ -317,6 +317,9 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     const { key, value: raw } = body.data;
     const checked = validateSettingValue(key, raw);
     if (!checked.success) return fail(reply, 400, "identity.invalid_setting");
+    // Admin-scope keys need the admin role set by the gateway; same convention as /invitations.
+    if (SETTINGS[key].scope === "admin" && req.headers["x-user-role"] !== "admin")
+      return fail(reply, 403, "identity.forbidden");
     const before = (await readSettings(userId))[key];
     const at = now().toISOString();
     if (JSON.stringify(before) !== JSON.stringify(checked.data)) {

@@ -84,6 +84,29 @@ describe("user settings", () => {
     expect(events).toHaveLength(0);
   });
 
+  it("refuses admin-scope keys for a non-admin with 403, no write, no event", async () => {
+    const { app, store, events } = setup();
+    expect(SETTINGS["identity.login_method"].scope).toBe("admin");
+    const res = await put(app, "identity.login_method", "magic_link");
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ ok: false, error: { code: "identity.forbidden" } });
+    expect(events).toHaveLength(0);
+    expect(await store.getSettingOverrides("u1")).toEqual({});
+    expect(await store.listSettingAudit("u1")).toEqual([]);
+  });
+
+  it("lets an admin change an admin-scope key", async () => {
+    const { app, events } = setup();
+    const res = await app.inject({
+      method: "PUT",
+      url: "/settings",
+      headers: { ...USER, "x-user-role": "admin" },
+      payload: { key: "identity.login_method", value: "magic_link" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(events).toHaveLength(1);
+  });
+
   it("does not emit when the value is unchanged", async () => {
     const { app, events } = setup();
     await put(app, "budget.cycle_weeks", 4);
