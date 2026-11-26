@@ -6,8 +6,16 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SERVICE_NAMES = [
-  "gateway", "identity", "budget", "ingest", "schedule",
-  "monitor", "rules", "ai", "notify", "sync",
+  "gateway",
+  "identity",
+  "budget",
+  "ingest",
+  "schedule",
+  "monitor",
+  "rules",
+  "ai",
+  "notify",
+  "sync",
 ];
 const BASE_PORT = 4000;
 
@@ -37,7 +45,9 @@ function copy(from, to) {
       copy(src, dst);
       continue;
     }
-    const text = readFileSync(src, "utf8").replaceAll("__NAME__", name).replaceAll("__PORT__", String(port));
+    const text = readFileSync(src, "utf8")
+      .replaceAll("__NAME__", name)
+      .replaceAll("__PORT__", String(port));
     // Never overwrite hand-written source on --force: only create missing files under src/ and test/.
     if (existsSync(dst) && /[/\\](src|test)[/\\]/.test(dst)) continue;
     writeFileSync(dst, text);

@@ -58,7 +58,9 @@ describe("TelegramFake bot API", () => {
     const upd = (await call("getUpdates")).json.result[0];
     const fileId = upd.message.photo.at(-1).file_id;
     const file = (await call("getFile", { file_id: fileId })).json.result;
-    const bytes = await (await fetch(`${tg.url}/file/botTESTTOKEN/${file.file_path}`)).arrayBuffer();
+    const bytes = await (
+      await fetch(`${tg.url}/file/botTESTTOKEN/${file.file_path}`)
+    ).arrayBuffer();
     expect([...new Uint8Array(bytes)]).toEqual([1, 2, 3]);
   });
 

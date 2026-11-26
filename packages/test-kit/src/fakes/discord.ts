@@ -112,7 +112,8 @@ export class DiscordFake extends FakeChatServer {
       return sendJson(res, 401, { message: "401: Unauthorized", code: 0 });
     }
     const path = url.pathname.replace(/^\/api\/v\d+/, "");
-    if (path === "/users/@me") return sendJson(res, 200, { id: "bot", username: "fake-bot", bot: true });
+    if (path === "/users/@me")
+      return sendJson(res, 200, { id: "bot", username: "fake-bot", bot: true });
     if (path === "/gateway" || path === "/gateway/bot") {
       return sendJson(res, 200, { url: this.gatewayUrl });
     }

@@ -32,8 +32,16 @@ describe("loadConfig", () => {
 describe("servicePort", () => {
   it("gives every service a distinct port", () => {
     const names = [
-      "gateway", "identity", "budget", "ingest", "schedule",
-      "monitor", "rules", "ai", "notify", "sync",
+      "gateway",
+      "identity",
+      "budget",
+      "ingest",
+      "schedule",
+      "monitor",
+      "rules",
+      "ai",
+      "notify",
+      "sync",
     ] as const;
     const ports = names.map((n) => servicePort(n));
     expect(new Set(ports).size).toBe(names.length);

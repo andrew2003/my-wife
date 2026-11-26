@@ -1,4 +1,10 @@
-import type { ChatChannel, InboundReply, OutboundMessage, Question, SendResult } from "@my-wife/contracts";
+import type {
+  ChatChannel,
+  InboundReply,
+  OutboundMessage,
+  Question,
+  SendResult,
+} from "@my-wife/contracts";
 import type { DiscordFake } from "./discord";
 import type { TelegramFake } from "./telegram";
 
@@ -33,7 +39,11 @@ export function createFakeTelegramChannel(fake: TelegramFake): ChatChannel {
       }),
       method,
     );
-  const sendWith = async (target: string, text: string, buttons: Array<{ label: string; value: string }>) => {
+  const sendWith = async (
+    target: string,
+    text: string,
+    buttons: Array<{ label: string; value: string }>,
+  ) => {
     const out = await api("sendMessage", {
       chat_id: Number(target),
       text,
@@ -43,7 +53,10 @@ export function createFakeTelegramChannel(fake: TelegramFake): ChatChannel {
           : [],
       },
     });
-    return { externalMessageId: String(out.result.message_id), acceptedAt: fake.clock.now().toISOString() } satisfies SendResult;
+    return {
+      externalMessageId: String(out.result.message_id),
+      acceptedAt: fake.clock.now().toISOString(),
+    } satisfies SendResult;
   };
 
   return {
@@ -84,7 +97,8 @@ export function createFakeTelegramChannel(fake: TelegramFake): ChatChannel {
       return new Uint8Array(await res.arrayBuffer());
     },
     async link(userToken, raw: any) {
-      if (raw?.message?.text !== `/start ${userToken}`) throw new Error("link token does not match");
+      if (raw?.message?.text !== `/start ${userToken}`)
+        throw new Error("link token does not match");
       return { externalId: String(raw.message.chat.id) };
     },
     async health() {
@@ -101,7 +115,11 @@ export function createFakeTelegramChannel(fake: TelegramFake): ChatChannel {
 export function createFakeDiscordChannel(fake: DiscordFake): ChatChannel {
   const challenges = new Map<string, string>();
   const headers = { authorization: `Bot ${fake.token}`, "content-type": "application/json" };
-  const sendWith = async (target: string, content: string, buttons: Array<{ label: string; value: string }>) => {
+  const sendWith = async (
+    target: string,
+    content: string,
+    buttons: Array<{ label: string; value: string }>,
+  ) => {
     const out = await checkedJson(
       await fetch(`${fake.url}/api/v10/channels/${target}/messages`, {
         method: "POST",
@@ -109,13 +127,26 @@ export function createFakeDiscordChannel(fake: DiscordFake): ChatChannel {
         body: JSON.stringify({
           content,
           components: buttons.length
-            ? [{ type: 1, components: buttons.map((b) => ({ type: 2, style: 1, label: b.label, custom_id: b.value })) }]
+            ? [
+                {
+                  type: 1,
+                  components: buttons.map((b) => ({
+                    type: 2,
+                    style: 1,
+                    label: b.label,
+                    custom_id: b.value,
+                  })),
+                },
+              ]
             : [],
         }),
       }),
       "create message",
     );
-    return { externalMessageId: String(out.id), acceptedAt: fake.clock.now().toISOString() } satisfies SendResult;
+    return {
+      externalMessageId: String(out.id),
+      acceptedAt: fake.clock.now().toISOString(),
+    } satisfies SendResult;
   };
 
   return {
@@ -132,7 +163,9 @@ export function createFakeDiscordChannel(fake: DiscordFake): ChatChannel {
       if (raw?.t === "INTERACTION_CREATE") {
         const b = parseButton(String(raw.d?.data?.custom_id ?? ""));
         const user = raw.d?.member?.user?.id;
-        return b && user ? { kind: "button", ...b, externalId: String(raw.d.channel_id), sentAt } : null;
+        return b && user
+          ? { kind: "button", ...b, externalId: String(raw.d.channel_id), sentAt }
+          : null;
       }
       if (raw?.t !== "MESSAGE_CREATE" || raw.d?.author?.bot) return null;
       const externalId = String(raw.d.channel_id);

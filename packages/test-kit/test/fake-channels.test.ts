@@ -43,7 +43,10 @@ function telegramHarness(): Harness {
   const fake = new TelegramFake();
   const channel = createFakeTelegramChannel(fake);
   const take = async () => {
-    const res = await fetch(`${fake.url}/bot${fake.token}/getUpdates`, { method: "POST", body: "{}" });
+    const res = await fetch(`${fake.url}/bot${fake.token}/getUpdates`, {
+      method: "POST",
+      body: "{}",
+    });
     const updates = ((await res.json()) as any).result as any[];
     return updates.at(-1);
   };
@@ -82,14 +85,23 @@ function discordHarness(): Harness {
     lastBot: () => fake.lastBotMessage("c1"),
     // The Discord adapter receives gateway payloads; the harness builds the same payload shapes.
     async userText(text) {
-      return { t: "MESSAGE_CREATE", d: { id: "9", channel_id: "c1", author: { id: "u1" }, content: text, attachments: [] } };
+      return {
+        t: "MESSAGE_CREATE",
+        d: { id: "9", channel_id: "c1", author: { id: "u1" }, content: text, attachments: [] },
+      };
     },
     async userTap(value) {
-      return { t: "INTERACTION_CREATE", d: { channel_id: "c1", member: { user: { id: "u1" } }, data: { custom_id: value } } };
+      return {
+        t: "INTERACTION_CREATE",
+        d: { channel_id: "c1", member: { user: { id: "u1" } }, data: { custom_id: value } },
+      };
     },
     async userPhoto(bytes) {
       const att = fake.injectPhoto("c1", "u1", bytes);
-      return { t: "MESSAGE_CREATE", d: { id: "9", channel_id: "c1", author: { id: "u1" }, content: "", attachments: [att] } };
+      return {
+        t: "MESSAGE_CREATE",
+        d: { id: "9", channel_id: "c1", author: { id: "u1" }, content: "", attachments: [att] },
+      };
     },
     setDown: (d) => fake.setDown(d),
   };

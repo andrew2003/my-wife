@@ -1,0 +1,25 @@
+# Applied to the repository by scripts/sync-labels.sh
+- { name: task, color: "0e8a16", description: "A unit of work with acceptance criteria" }
+- { name: bug, color: "d73a4a", description: "Behavior differs from the spec" }
+- { name: question, color: "d876e3", description: "Needs an owner decision" }
+- { name: blocked, color: "b60205", description: "Waiting on a dependency or an answer" }
+- { name: "risk:high", color: "b60205", description: "Money, penalties or privacy" }
+- { name: "risk:medium", color: "fbca04", description: "" }
+- { name: "risk:low", color: "c2e0c6", description: "" }
+- { name: "milestone:M1", color: "1d76db", description: "" }
+- { name: "milestone:M2", color: "1d76db", description: "" }
+- { name: "milestone:M3", color: "1d76db", description: "" }
+- { name: "milestone:M4", color: "1d76db", description: "" }
+- { name: "service:gateway", color: "5319e7", description: "" }
+- { name: "service:identity", color: "5319e7", description: "" }
+- { name: "service:budget", color: "5319e7", description: "" }
+- { name: "service:ingest", color: "5319e7", description: "" }
+- { name: "service:schedule", color: "5319e7", description: "" }
+- { name: "service:monitor", color: "5319e7", description: "" }
+- { name: "service:rules", color: "5319e7", description: "" }
+- { name: "service:ai", color: "5319e7", description: "" }
+- { name: "service:notify", color: "5319e7", description: "" }
+- { name: "service:sync", color: "5319e7", description: "" }
+- { name: "area:web", color: "5319e7", description: "" }
+- { name: "area:infra", color: "5319e7", description: "" }
+- { name: dependencies, color: "0366d6", description: "Dependency updates" }

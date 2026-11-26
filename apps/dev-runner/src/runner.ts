@@ -14,7 +14,16 @@ import { createApp as schedule } from "@my-wife/schedule";
 import { createApp as sync } from "@my-wife/sync";
 
 const FACTORIES: Record<ServiceName, CreateApp> = {
-  gateway, identity, budget, ingest, schedule, monitor, rules, ai, notify, sync,
+  gateway,
+  identity,
+  budget,
+  ingest,
+  schedule,
+  monitor,
+  rules,
+  ai,
+  notify,
+  sync,
 };
 
 export type Runner = {

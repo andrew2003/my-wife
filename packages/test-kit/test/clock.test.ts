@@ -10,7 +10,11 @@ describe("SimClock time travel", () => {
     ["advanceWeeks 2", (c) => c.advanceWeeks(2), "2026-11-16T00:00:00.000Z"],
     ["advanceCycles 1 (default 4 weeks)", (c) => c.advanceCycles(1), "2026-11-30T00:00:00.000Z"],
     ["advanceCycles 2 of 2-week cycles", (c) => c.advanceCycles(2, 2), "2026-11-30T00:00:00.000Z"],
-    ["advanceTo absolute", (c) => c.advanceTo("2027-01-01T00:00:00.000Z"), "2027-01-01T00:00:00.000Z"],
+    [
+      "advanceTo absolute",
+      (c) => c.advanceTo("2027-01-01T00:00:00.000Z"),
+      "2027-01-01T00:00:00.000Z",
+    ],
   ];
   it.each(cases)("%s", async (_n, act, expected) => {
     const clock = new SimClock(START);
@@ -117,7 +121,10 @@ describe("SimClock timers", () => {
   it("a due-in-the-past timer fires on the next advance without moving time back", async () => {
     const clock = new SimClock(START);
     let at = "";
-    clock.schedule(new Date("2026-10-01T00:00:00.000Z"), () => void (at = clock.now().toISOString()));
+    clock.schedule(
+      new Date("2026-10-01T00:00:00.000Z"),
+      () => void (at = clock.now().toISOString()),
+    );
     await clock.advanceBy(1);
     expect(at).toBe("2026-11-02T00:00:00.000Z");
   });

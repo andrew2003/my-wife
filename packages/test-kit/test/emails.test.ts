@@ -16,10 +16,17 @@ import {
 const attacker = createDkimKey();
 const bankKey = createDkimKey();
 const NOW = new Date("2026-11-02T03:00:00.000Z");
-const resolver = dkimDnsResolver([{ domain: BANK_DKIM_DOMAIN, selector: bankKey.selector, key: bankKey }]);
+const resolver = dkimDnsResolver([
+  { domain: BANK_DKIM_DOMAIN, selector: bankKey.selector, key: bankKey },
+]);
 
 const verdict = async (raw: string) => {
-  const res = await authenticate(raw, { resolver, disableArc: true, disableBimi: true, ip: "127.0.0.1" });
+  const res = await authenticate(raw, {
+    resolver,
+    disableArc: true,
+    disableBimi: true,
+    ip: "127.0.0.1",
+  });
   return res.dkim.results[0]?.status.result ?? "none";
 };
 
@@ -37,13 +44,22 @@ describe("DKIM signing helper", () => {
   });
 
   it("a tampered body fails verification", async () => {
-    const raw = await signEmail("From: a@x.test\r\nSubject: s\r\n\r\nbody\r\n", { domain: BANK_DKIM_DOMAIN, key: bankKey, signTime: NOW });
+    const raw = await signEmail("From: a@x.test\r\nSubject: s\r\n\r\nbody\r\n", {
+      domain: BANK_DKIM_DOMAIN,
+      key: bankKey,
+      signTime: NOW,
+    });
     expect(await verdict(raw.replace("body", "evil"))).not.toBe("pass");
   });
 });
 
 describe("email fixtures (docs/spec/11-ingest.md section 6)", async () => {
-  const fixtures = await buildEmailFixtures({ bankKey, attackerKey: attacker, now: NOW, toAddress: "u-demo@in.example.test" });
+  const fixtures = await buildEmailFixtures({
+    bankKey,
+    attackerKey: attacker,
+    now: NOW,
+    toAddress: "u-demo@in.example.test",
+  });
   const byName = Object.fromEntries(fixtures.map((f) => [f.name, f]));
 
   it("covers every required case", () => {
@@ -89,7 +105,9 @@ describe("email fixtures (docs/spec/11-ingest.md section 6)", async () => {
   });
 
   it("every fixture has a unique Message-ID except the duplicate", () => {
-    const ids = fixtures.filter((f) => f.name !== "duplicate").map((f) => f.raw.match(/^Message-ID: (.+)$/im)![1]);
+    const ids = fixtures
+      .filter((f) => f.name !== "duplicate")
+      .map((f) => f.raw.match(/^Message-ID: (.+)$/im)![1]);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
@@ -123,7 +141,9 @@ describe("injectEmails", () => {
       for await (const c of req) chunks.push(c as Buffer);
       seen.push({ headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString()) });
       res.writeHead(status, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, data: { receiptId: `r${seen.length}`, state: "parsed" } }));
+      res.end(
+        JSON.stringify({ ok: true, data: { receiptId: `r${seen.length}`, state: "parsed" } }),
+      );
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     close = () => new Promise((r) => void server.close(() => r()));
@@ -132,7 +152,12 @@ describe("injectEmails", () => {
 
   it("posts each fixture as a valid webhook request with the shared secret", async () => {
     const hook = await webhook();
-    const fixtures = await buildEmailFixtures({ bankKey, attackerKey: attacker, now: NOW, toAddress: "u-demo@in.example.test" });
+    const fixtures = await buildEmailFixtures({
+      bankKey,
+      attackerKey: attacker,
+      now: NOW,
+      toAddress: "u-demo@in.example.test",
+    });
     const results = await injectEmails(fixtures, { url: hook.url, secret: "s3cret" });
     expect(results).toHaveLength(fixtures.length);
     expect(hook.seen).toHaveLength(fixtures.length);
@@ -147,13 +172,31 @@ describe("injectEmails", () => {
 
   it("can inject a subset by name and reports the response", async () => {
     const hook = await webhook();
-    const fixtures = await buildEmailFixtures({ bankKey, attackerKey: attacker, now: NOW, toAddress: "u-demo@in.example.test" });
+    const fixtures = await buildEmailFixtures({
+      bankKey,
+      attackerKey: attacker,
+      now: NOW,
+      toAddress: "u-demo@in.example.test",
+    });
     const results = await injectEmails(fixtures, { url: hook.url, secret: "x", only: ["debit"] });
-    expect(results).toEqual([{ name: "debit", status: 200, body: { ok: true, data: { receiptId: "r1", state: "parsed" } } }]);
+    expect(results).toEqual([
+      {
+        name: "debit",
+        status: 200,
+        body: { ok: true, data: { receiptId: "r1", state: "parsed" } },
+      },
+    ]);
   });
 
   it("rejects an unknown fixture name", async () => {
-    const fixtures = await buildEmailFixtures({ bankKey, attackerKey: attacker, now: NOW, toAddress: "u@in.example.test" });
-    await expect(injectEmails(fixtures, { url: "http://127.0.0.1:1", secret: "x", only: ["nope"] })).rejects.toThrow(/unknown fixture/);
+    const fixtures = await buildEmailFixtures({
+      bankKey,
+      attackerKey: attacker,
+      now: NOW,
+      toAddress: "u@in.example.test",
+    });
+    await expect(
+      injectEmails(fixtures, { url: "http://127.0.0.1:1", secret: "x", only: ["nope"] }),
+    ).rejects.toThrow(/unknown fixture/);
   });
 });
