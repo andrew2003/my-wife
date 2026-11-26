@@ -116,13 +116,14 @@ export function BudgetOverviewView({
             {overview.transactions.map((tx) => (
               <li key={tx.id} className="budget-transaction">
                 <p>
-                  <strong>{tx.counterparty ?? tx.memo}</strong>{" "}
-                  {tx.direction === "in" ? "+" : "-"}
+                  <strong>{tx.counterparty ?? tx.memo}</strong> {tx.direction === "in" ? "+" : "-"}
                   {money(tx.amountVnd)}
                 </p>
                 <p>
                   {when(tx.occurredAt)}
-                  {tx.categoryId && names.get(tx.categoryId) ? ` · ${names.get(tx.categoryId)}` : ""}
+                  {tx.categoryId && names.get(tx.categoryId)
+                    ? ` · ${names.get(tx.categoryId)}`
+                    : ""}
                   {" · "}
                   {t(`budget.reconciliation.${tx.reconciliationResult}`)}
                 </p>

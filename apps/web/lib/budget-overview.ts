@@ -64,9 +64,7 @@ export async function loadOverview(doFetch: FetchLike = fetch): Promise<Overview
 }
 
 export type PenaltiesResult =
-  | { status: "loading" }
-  | { status: "ready"; due: PenaltyLedgerEntry[] }
-  | { status: "error" };
+  { status: "loading" } | { status: "ready"; due: PenaltyLedgerEntry[] } | { status: "error" };
 
 /** Reads the penalty ledger and keeps the entries that are due. */
 export async function loadPenalties(doFetch: FetchLike = fetch): Promise<PenaltiesResult> {

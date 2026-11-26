@@ -22,7 +22,13 @@ const overview: Overview = {
   },
   weekIndex: 2,
   bankAccounts: [
-    { id: "a1", name: "Daily bank", code: "VCB", kind: "spending", emailNotificationsConfirmed: true },
+    {
+      id: "a1",
+      name: "Daily bank",
+      code: "VCB",
+      kind: "spending",
+      emailNotificationsConfirmed: true,
+    },
     {
       id: "a2",
       name: "Penalty bank",
@@ -102,7 +108,10 @@ describe("loadOverview", () => {
     expect(await run(async () => json(200, { ok: true, data: {} }))).toBe("error");
     expect(
       await run(async () =>
-        json(200, { ok: true, data: { ...overview, cycle: { ...overview.cycle, state: "draft" } } }),
+        json(200, {
+          ok: true,
+          data: { ...overview, cycle: { ...overview.cycle, state: "draft" } },
+        }),
       ),
     ).toBe("empty");
     expect(
