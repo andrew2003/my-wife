@@ -3,6 +3,7 @@ import { NAV_ITEMS } from "../lib/nav";
 import { translate, type Locale } from "../lib/i18n";
 import type { CurrentUser } from "../lib/session";
 import { LocaleSwitch } from "./locale-switch";
+import { ProductTour } from "./product-tour";
 
 export function AppShell({
   locale,
@@ -30,6 +31,7 @@ export function AppShell({
         </ul>
       </nav>
       <div className="content">{children}</div>
+      <ProductTour locale={locale} />
     </div>
   );
 }

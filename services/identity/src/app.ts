@@ -4,6 +4,7 @@ import type { AppConfig } from "@my-wife/config";
 import {
   CompleteOnboardingStepRequestSchema,
   EVENT_SCHEMA_VERSION,
+  OnboardingStepSchema,
   SETTINGS,
   type EventEnvelope,
   type EventPayload,
@@ -414,6 +415,23 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       await store.saveOnboardingStep({ ...record, eventAt: now().toISOString() });
     }
     return { ok: true, data: { step, skipped: record.skipped } };
+  });
+
+  /** Whether a step is finished (event delivered) and whether it was skipped. */
+  app.get("/onboarding/steps/:step", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const step = OnboardingStepSchema.safeParse((req.params as { step: string }).step);
+    if (!step.success) return fail(reply, 400, "identity.invalid_step");
+    const record = await store.findOnboardingStep(userId, step.data);
+    return {
+      ok: true,
+      data: {
+        step: step.data,
+        completed: Boolean(record?.eventAt),
+        skipped: record?.skipped ?? false,
+      },
+    };
   });
 
   /** Internal: the gateway verifies every request's session through this. */
