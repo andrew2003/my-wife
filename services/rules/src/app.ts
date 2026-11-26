@@ -3,6 +3,12 @@ import { parseEvent, SignContractRequestSchema, type EventEnvelope } from "@my-w
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { createContractService, InMemoryContractStore, type ContractStore } from "./contract";
 import {
+  createFaultService,
+  InMemoryFaultStore,
+  type FaultSettings,
+  type FaultStore,
+} from "./fault";
+import {
   createTrialService,
   InMemoryTrialStore,
   type TrialSettings,
@@ -16,6 +22,9 @@ export type RulesDeps = ServiceDeps & {
   contractStore?: ContractStore;
   now?: () => Date;
   trialStore?: TrialStore;
+  faultStore?: FaultStore;
+  /** Fault settings in force at the given time (identity `GET /settings`); registry defaults when absent. */
+  readFaultSettings?: (userId: string, at: Date) => Promise<FaultSettings>;
   /** Reads the user's trial settings (identity `GET /settings`); registry defaults when absent. */
   readTrialSettings?: (userId: string) => Promise<TrialSettings>;
 };
@@ -57,6 +66,27 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
       ),
   });
   app.decorate("runTrialJob", (now: Date) => trial.runJob(now));
+
+  const faults = createFaultService({
+    store: deps.faultStore ?? new InMemoryFaultStore(),
+    publish: deps.publish,
+    readSettings: deps.readFaultSettings,
+    onPublishError: (err) =>
+      app.log.error(
+        { err: err instanceof Error ? err.message : "unknown" },
+        "fault event publish failed; it will be retried",
+      ),
+  });
+
+  /** Internal entry for the bus bridge: `fault.detected` becomes a ledger entry. */
+  app.post("/events/fault-detected", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (!parsed.success || parsed.data.type !== "fault.detected") {
+      return reply.code(400).send({ ok: false, error: { code: "rules.invalid_event" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    return { ok: true, data: await faults.onFaultDetected(parsed.data as EventEnvelope, now) };
+  });
 
   /** Internal entry for the bus bridge: `contract.signed` starts the user's trial. */
   app.post("/events/contract-signed", async (req, reply) => {
