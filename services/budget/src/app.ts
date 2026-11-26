@@ -4,6 +4,7 @@ import { ApprovePlanRequestSchema, type EventEnvelope, type SettingKey } from "@
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { createReceiptHandler } from "./accounts";
 import { createContractSignedHandler, createCycleApprover } from "./approval";
+import { createFundingHandler } from "./funding";
 import {
   createOnboardingHandler,
   MemorySampleBudgetStore,
@@ -41,7 +42,16 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
   });
   // Event consumers are wired by main.ts (NATS) and the dev runner.
   app.decorate("onOnboardingStepCompleted", onOnboardingStepCompleted);
-  app.decorate("onReceiptParsed", createReceiptHandler({ store, now }));
+  const confirmAccount = createReceiptHandler({ store, now });
+  const fundAccount = createFundingHandler({
+    store,
+    now,
+    publish: deps.publish ?? (() => undefined),
+  });
+  app.decorate("onReceiptParsed", async (event: EventEnvelope) => {
+    await confirmAccount(event);
+    await fundAccount(event);
+  });
   app.decorate("onContractSigned", createContractSignedHandler({ store }));
 
   const approveCycle = createCycleApprover({

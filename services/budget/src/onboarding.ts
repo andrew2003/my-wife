@@ -24,7 +24,9 @@ export interface AuditRecord {
     | "sample_budget_generated"
     | "account_code_changed"
     | "account_email_confirmed"
-    | "cycle_approved";
+    | "cycle_approved"
+    | "account_funded"
+    | "cycle_opened";
   detail: Record<string, string | number>;
 }
 
@@ -40,6 +42,17 @@ export interface SampleBudgetRecord {
   signedContracts: { contractId: string; cycleId: string }[];
   /** False until `cycle.funds_requested` was published, so a failed publish is retried. */
   fundsAnnounced: boolean;
+  /** Verified incoming receipts that count as funding of an account (MW-021). */
+  fundings: FundingRecord[];
+  /** False until `cycle.opened` was published, so a failed publish is retried. */
+  openedAnnounced: boolean;
+}
+
+export interface FundingRecord {
+  bankAccountId: string;
+  bankTransactionRef: string;
+  receiptId: string;
+  amountVnd: number;
 }
 
 /** Persistence port. A Postgres store must enforce one sample draft per user by unique key. */
@@ -85,6 +98,27 @@ export interface SampleBudgetStore {
     at: Date,
   ): Promise<"ok" | "not_draft" | "not_found">;
   markFundsAnnounced(userId: string): Promise<void>;
+  /**
+   * Records a funding receipt with an audit record. A `bankTransactionRef` already recorded for
+   * the user is `duplicate` and changes nothing; a cycle not `awaiting_funds` is `not_awaiting`.
+   */
+  recordFunding(
+    userId: string,
+    cycleId: string,
+    funding: FundingRecord,
+    at: Date,
+  ): Promise<"recorded" | "duplicate" | "not_awaiting">;
+  /**
+   * Atomically moves `awaiting_funds` to `running` (sets `openedAt`, audit record) when every
+   * account in `required` has a funding of at least its `requiredVnd` (zero needs none).
+   */
+  openIfFunded(
+    userId: string,
+    cycleId: string,
+    required: readonly { bankAccountId: string; requiredVnd: number }[],
+    at: Date,
+  ): Promise<"opened" | "not_ready" | "not_awaiting">;
+  markOpenedAnnounced(userId: string): Promise<void>;
 }
 
 export class MemorySampleBudgetStore implements SampleBudgetStore {
@@ -178,6 +212,57 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
   async markFundsAnnounced(userId: string) {
     const r = this.records.get(userId);
     if (r) r.fundsAnnounced = true;
+  }
+
+  async recordFunding(userId: string, cycleId: string, funding: FundingRecord, at: Date) {
+    const r = this.records.get(userId);
+    if (!r || r.cycle.id !== cycleId || r.cycle.state !== "awaiting_funds") {
+      return "not_awaiting" as const;
+    }
+    if (r.fundings.some((f) => f.bankTransactionRef === funding.bankTransactionRef)) {
+      return "duplicate" as const;
+    }
+    r.fundings.push({ ...funding });
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "account_funded",
+      detail: {
+        cycleId,
+        accountId: funding.bankAccountId,
+        receiptId: funding.receiptId,
+        bankTransactionRef: funding.bankTransactionRef,
+        amountVnd: funding.amountVnd,
+      },
+    });
+    return "recorded" as const;
+  }
+
+  async openIfFunded(
+    userId: string,
+    cycleId: string,
+    required: readonly { bankAccountId: string; requiredVnd: number }[],
+    at: Date,
+  ) {
+    const r = this.records.get(userId);
+    if (!r || r.cycle.id !== cycleId || r.cycle.state !== "awaiting_funds") {
+      return "not_awaiting" as const;
+    }
+    const funded = required.every(
+      (q) =>
+        q.requiredVnd === 0 ||
+        r.fundings.some((f) => f.bankAccountId === q.bankAccountId && f.amountVnd >= q.requiredVnd),
+    );
+    if (!funded) return "not_ready" as const;
+    r.cycle.state = "running";
+    r.cycle.openedAt = at.toISOString();
+    r.audit.push({ at: at.toISOString(), userId, action: "cycle_opened", detail: { cycleId } });
+    return "opened" as const;
+  }
+
+  async markOpenedAnnounced(userId: string) {
+    const r = this.records.get(userId);
+    if (r) r.openedAnnounced = true;
   }
 
   /** Sync helpers for tests. */
@@ -320,6 +405,8 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       announced: false,
       signedContracts: [],
       fundsAnnounced: false,
+      fundings: [],
+      openedAnnounced: false,
     };
   }
 }
