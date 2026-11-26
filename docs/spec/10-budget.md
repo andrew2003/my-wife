@@ -49,7 +49,7 @@ Rules:
 - At the start of each budget week the bot sends each category's weekly limit, the day-by-day menu and the shopping list.
 - The user enters dishes and raw ingredients. The service spreads the menu over days, builds the week's shopping list and estimates cost (`plan.menu_estimate_enabled`). The LLM may propose the split and the estimate; the user approves; the planned items are stored by code.
 - Every planned item has a transfer code `MW-C<sequence>W<week>-<categoryShortCode>-<nn>`, for example `MW-C07W2-AN-02` (cycle sequence 7, week 2, category `AN`, item 02). This replaces the ISO-week example in `01-budget-details.md`.
-- Other codes: category short code (unplanned spend), `MW-DC-<fromAccount>-<toAccount>` (internal transfer), `MW-PH-C<sequence>W<week>-<categoryShortCode>` (penalty payment). User short codes must be unique and must not equal `DC`, `PH` or `MW`.
+- Other codes: category short code (unplanned spend), `MW-DC-<fromAccount>-<toAccount>` (internal transfer), `MW-PH-C<sequence>W<week>-<categoryShortCode>` (penalty payment), `MW-F-C<sequence>-<accountCode>` (cycle funding per bank account; a `fund` category has the cycle-level code `MW-C<sequence>-<categoryShortCode>`). User short codes must be unique and must not equal `DC`, `PH`, `MW` or `F`.
 - Matching normalizes the memo (uppercase, strip diacritics and non-alphanumerics) and looks it up against the normalized set of issued codes. It never parses free text with the LLM.
 
 ## 5. Transaction classification

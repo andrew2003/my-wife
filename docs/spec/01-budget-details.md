@@ -19,12 +19,14 @@ These details were agreed in the brainstorm spreadsheet and are not fully covere
 
 ## Transfer codes
 
+> Superseded: the code formats in this table are replaced by `10-budget.md` section 5 and the decision log in `docs/decisions.md` (cycle sequence plus week index instead of ISO week, `MW-PH-C<seq>W<week>-<category>`, funding code `MW-F-C<seq>-<account>`). Only the meaning of each kind of code and the matching order remain valid here.
+
 | Code | Meaning |
 | --- | --- |
-| `MW-<week>-<category>-<number>`, for example `MW-W48-AN-02` | A planned expense of the weekly plan: item 02 of the category with short code `AN` |
+| `MW-C<seq>W<week>-<category>-<nn>`, for example `MW-C07W2-AN-02` (was `MW-W48-AN-02`) | A planned expense of the weekly plan: item 02 of the category with short code `AN` |
 | A category short code, for example `GT`, `MS` | An unplanned expense assigned directly to that category |
 | `MW-DC-<from>-<to>`, for example `MW-DC-NH1-NH3` | An internal transfer between two of the user's own accounts |
-| `MW-PH-<week>-<category>`, for example `MW-PH-W48-AN` | A penalty payment for that week and category |
+| `MW-PH-C<seq>W<week>-<category>`, for example `MW-PH-C07W2-AN` (was `MW-PH-W48-AN`) | A penalty payment for that week and category |
 
 Category short codes and account codes are user-defined data, so they stay as the user typed them.
 
