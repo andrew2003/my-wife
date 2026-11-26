@@ -257,6 +257,15 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (res.error === "not_in_plan") return fail(reply, 404, "schedule.task_not_in_plan");
     return fail(reply, 409, `schedule.session_${res.error}`);
   });
+  /** Reload path: the running session of a task, so the countdown resumes from the stored end. */
+  app.get("/sessions/active", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const taskId = (req.query as { taskId?: string }).taskId;
+    const s = taskId ? sessionDeps.sessions.activeForTask(userId, taskId) : undefined;
+    if (!s) return fail(reply, 404, "schedule.session_not_found");
+    return { ok: true, data: { session: viewSession(s, now()) } };
+  });
   app.get("/sessions/:id", async (req, reply) => {
     const userId = userOf(req.headers);
     if (!userId) return fail(reply, 401, "schedule.unauthenticated");

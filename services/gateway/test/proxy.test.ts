@@ -148,6 +148,16 @@ describe("gateway session proxy", () => {
     expect(calls.at(-1)).toMatchObject({ url: "http://schedule/tasks/complete", method: "POST" });
   });
 
+  it("forwards session routes to schedule with the user id", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good` };
+    await (await app).inject({ method: "GET", url: "/api/sessions/active?taskId=t1", headers });
+    expect(calls[1]).toMatchObject({
+      url: "http://schedule/sessions/active?taskId=t1",
+      headers: { "x-user-id": "u1" },
+    });
+  });
+
   it("keeps invitation accept public", async () => {
     const { app, calls } = setup();
     const payload = AcceptInvitationRequestSchema.parse({ token: "t" });
