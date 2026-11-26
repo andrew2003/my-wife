@@ -32,6 +32,13 @@ export {
   normalizeMemo,
   RESERVED_SHORT_CODES,
 } from "./transfer-codes";
+export {
+  createWeekClosedHandler,
+  detectOverspends,
+  effectiveWeeklyLimit,
+  type OverspendFinding,
+  type OverspendRecord,
+} from "./overspend";
 export { buildWeeklyLimitPlan, type WeeklyLimitPlanInput } from "./weekly-plan";
 export {
   classifyCodedTransfer,
