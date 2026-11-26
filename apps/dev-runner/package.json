@@ -1,0 +1,31 @@
+{
+  "name": "@my-wife/dev-runner",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "NODE_OPTIONS=--max-old-space-size=2048 tsx src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "NODE_OPTIONS=--max-old-space-size=2048 vitest run"
+  },
+  "dependencies": {
+    "@my-wife/ai": "workspace:*",
+    "@my-wife/budget": "workspace:*",
+    "@my-wife/config": "workspace:*",
+    "@my-wife/contracts": "workspace:*",
+    "@my-wife/gateway": "workspace:*",
+    "@my-wife/identity": "workspace:*",
+    "@my-wife/ingest": "workspace:*",
+    "@my-wife/monitor": "workspace:*",
+    "@my-wife/notify": "workspace:*",
+    "@my-wife/rules": "workspace:*",
+    "@my-wife/schedule": "workspace:*",
+    "@my-wife/service-kit": "workspace:*",
+    "@my-wife/sync": "workspace:*",
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "vitest": "^3.0.0"
+  }
+}
