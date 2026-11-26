@@ -93,5 +93,19 @@
   "schedule.sample.exercise_dinner": "Tập thể dục, ăn tối",
   "schedule.sample.study": "Học tập hoặc dự án cá nhân",
   "schedule.sample.reflection": "Nhìn lại trong ngày",
-  "schedule.sample.sleep": "Ngủ"
+  "schedule.sample.sleep": "Ngủ",
+  "funding.title": "Nạp tiền cho chu kỳ ngân sách",
+  "funding.intro": "Chuyển từng khoản dưới đây với đúng mã làm nội dung chuyển khoản. Chúng tôi chỉ đọc biên lai ngân hàng để xác nhận và không bao giờ chuyển tiền.",
+  "funding.loading": "Đang tải các khoản chuyển...",
+  "funding.empty": "Không có chu kỳ ngân sách nào đang chờ nạp tiền.",
+  "funding.error": "Không tải được các khoản chuyển.",
+  "funding.retry": "Thử lại",
+  "funding.refresh": "Làm mới",
+  "funding.amount": "Số tiền:",
+  "funding.currency": "VND",
+  "funding.code": "Mã nội dung:",
+  "funding.status.waiting": "Đang chờ bạn chuyển khoản",
+  "funding.status.funded": "Đã nạp đủ",
+  "funding.all_funded": "Tất cả tài khoản đã đủ tiền. Chu kỳ của bạn sắp bắt đầu.",
+  "funding.qr_alt": "Mã QR chuyển khoản cho {name}"
 }
