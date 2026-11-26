@@ -10,7 +10,14 @@ export type PipelineDeps = {
   store: IngestStore;
   verifyDkim: DkimVerifier;
   /** Resolves the token of `u-<token>@in.<domain>`; null when no such address exists. */
-  users: { resolve(token: string): Promise<{ userId: string; emailConsent: boolean } | null> };
+  users: {
+    resolve(token: string): Promise<{
+      userId: string;
+      emailConsent: boolean;
+      /** The user's `ingest.hold_match_window_hours`; the service default applies when absent. */
+      holdMatchWindowHours?: number;
+    } | null>;
+  };
   senderMap: SenderMapEntry[];
   templates: RegisteredTemplate[];
   publish: (event: EventEnvelope) => Promise<void>;
@@ -148,7 +155,7 @@ export async function processInbound(
 
   // 6. Foreign card: an authorization is held, never booked; the debit carries the final VND.
   const foreign = result.foreign;
-  const windowHours = deps.settings.holdMatchWindowHours;
+  const windowHours = user.holdMatchWindowHours ?? deps.settings.holdMatchWindowHours;
   const common = { ...authed, fingerprint, templateId: template.id, bankTransactionRef: ref };
   let held: ReceiptRecord | null = null;
   if (foreign) {
@@ -170,8 +177,16 @@ export async function processInbound(
         pairKey: foreign.pairKey,
       });
     }
+    // The purchase is already booked from an earlier debit: never count it twice.
+    if (inWindow(parsedPeer)) {
+      return finish({ ...common, state: "duplicate", pairKey: foreign.pairKey });
+    }
     held = inWindow(heldAuth) ? heldAuth : null;
   }
+
+  // Consume the authorization first: if we crash before the debit is saved, a redelivered
+  // debit stands alone and is still booked once, and the authorization can never re-pair.
+  if (held) await deps.store.save({ ...held, state: "duplicate", pairedReceiptId: receiptId });
 
   const outcome = await finish({
     ...common,
@@ -180,8 +195,6 @@ export async function processInbound(
     fields: result.fields,
     ...(foreign ? { pairKey: foreign.pairKey } : {}),
   });
-  // The authorization is consumed by its debit; the purchase is booked once, from the debit.
-  if (held) await deps.store.save({ ...held, state: "duplicate", pairedReceiptId: receiptId });
   await emit("receipt.parsed", {
     receiptId,
     ...result.fields,

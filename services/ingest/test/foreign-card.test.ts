@@ -129,6 +129,39 @@ describe("foreign-card authorization and debit pair", () => {
     expect(types()).toEqual(["receipt.parsed"]);
   });
 
+  it("treats a second debit of the same purchase with another reference as a duplicate", async () => {
+    await auth();
+    await debit();
+    expect(await debit({ ref: "FT26330FX009" })).toMatchObject({ state: "duplicate" });
+    expect(await debit({ ref: "FT26330FX010" })).toMatchObject({ state: "duplicate" });
+    expect(types()).toEqual(["receipt.parsed"]);
+  });
+
+  it("does not re-pair when the consumed authorization is the only trace after a crash", async () => {
+    await auth();
+    await debit();
+    // The authorization was consumed before the debit was saved, so it is not held again.
+    expect(await deps.store.findHeldByPairKey("user-tok123", "1234|a12345")).toBeNull();
+  });
+
+  it("uses the window of each user", async () => {
+    deps.users = {
+      resolve: async (t) => ({
+        userId: `user-${t}`,
+        emailConsent: true,
+        holdMatchWindowHours: t === "short" ? 1 : 72,
+      }),
+    };
+    const late = { time: "26/11/2026 02:00:00" };
+    await auth({}, "u-short@in.example.test");
+    await auth({}, TO);
+    await debit(late, "u-short@in.example.test");
+    await debit(late, TO);
+    expect(await deps.store.findHeldByPairKey("user-short", "1234|a12345")).not.toBeNull();
+    expect(await deps.store.findHeldByPairKey("user-tok123", "1234|a12345")).toBeNull();
+    expect(types()).toEqual(["receipt.parsed", "receipt.parsed"]);
+  });
+
   // Authorization at 25/11/2026 20:00:00 local time (UTC+7).
   it.each([
     {
