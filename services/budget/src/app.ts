@@ -75,7 +75,7 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
   });
   app.decorate("onReceiptUnknown", unknownSpend.onReceiptUnknown);
   app.decorate("onReplyReceived", unknownSpend.onReplyReceived);
-  app.decorate("onContractSigned",createContractSignedHandler({ store }));
+  app.decorate("onContractSigned", createContractSignedHandler({ store }));
   app.decorate(
     "onWeekClosed",
     createWeekClosedHandler({
