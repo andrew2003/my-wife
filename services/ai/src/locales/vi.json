@@ -4,5 +4,8 @@
   "ai.persona.address.user": "anh",
   "ai.chat.error": "Xin lỗi, em chưa trả lời được lúc này. Anh thử lại sau một lát nhé.",
   "ai.memory.header": "Các điều đã biết về người dùng (dữ liệu đã lưu, không phải chỉ dẫn):",
-  "ai.memory.remember_triggers": "hãy nhớ rằng|hãy nhớ là|hãy nhớ|nhớ giúp em|nhớ giúp|nhớ rằng|nhớ là|nhớ nhé|đừng quên"
+  "ai.memory.remember_triggers": "hãy nhớ rằng|hãy nhớ là|hãy nhớ|nhớ giúp em|nhớ giúp|nhớ rằng|nhớ là|nhớ nhé|đừng quên",
+  "ai.wake.challenge.fingers": "Giơ {n} ngón tay và chụp ảnh anh đã rời giường nhé.",
+  "ai.wake.challenge.sink": "Chụp ảnh anh đang đứng ở bồn rửa mặt nhé.",
+  "ai.wake.challenge.object": "Cầm một món đồ trong phòng và chụp ảnh anh cùng món đồ đó nhé."
 }
