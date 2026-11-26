@@ -5,6 +5,8 @@ export type UserRecord = {
   role: "user" | "admin";
   locale: "vi" | "en";
   lastSeenAt: string | null;
+  /** Set once user.activated was published; unset means the event is still owed. */
+  activatedEventAt: string | null;
 };
 
 export type InvitationRecord = {
@@ -14,6 +16,8 @@ export type InvitationRecord = {
   expiresAt: string;
   usedAt: string | null;
   revokedAt: string | null;
+  /** Set once user.invited was published; unset means the event is still owed. */
+  invitedEventAt: string | null;
 };
 
 export type LoginTokenRecord = {
@@ -23,23 +27,39 @@ export type LoginTokenRecord = {
   usedAt: string | null;
 };
 
+/** A persisted sign-in. The raw token is never stored; it carries only this id. */
+export type SessionRecord = {
+  id: string;
+  userId: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+};
+
 /** Persistence port. The Drizzle implementation (identity schema) replaces the in-memory one. */
 export interface IdentityStore {
   findUserByEmail(email: string): Promise<UserRecord | undefined>;
   findUserById(id: string): Promise<UserRecord | undefined>;
   countUsers(): Promise<number>;
+  /** Inserts a new user; false when the email is already taken (concurrent first sign-in). */
+  insertUser(user: UserRecord): Promise<boolean>;
   saveUser(user: UserRecord): Promise<void>;
   saveInvitation(invitation: InvitationRecord): Promise<void>;
   findInvitationByTokenHash(hash: string): Promise<InvitationRecord | undefined>;
   findOpenInvitationByEmail(email: string, now: Date): Promise<InvitationRecord | undefined>;
   saveLoginToken(token: LoginTokenRecord): Promise<void>;
   findLoginToken(hash: string): Promise<LoginTokenRecord | undefined>;
+  saveSession(session: SessionRecord): Promise<void>;
+  findSession(id: string): Promise<SessionRecord | undefined>;
+  listSessions(userId: string): Promise<SessionRecord[]>;
+  revokeSession(id: string, at: string): Promise<void>;
 }
 
 export function createMemoryStore(): IdentityStore {
   const users = new Map<string, UserRecord>();
   const invitations = new Map<string, InvitationRecord>();
   const loginTokens = new Map<string, LoginTokenRecord>();
+  const sessions = new Map<string, SessionRecord>();
   return {
     async findUserByEmail(email) {
       return [...users.values()].find((u) => u.email === email);
@@ -49,6 +69,11 @@ export function createMemoryStore(): IdentityStore {
     },
     async countUsers() {
       return users.size;
+    },
+    async insertUser(user) {
+      if ([...users.values()].some((u) => u.email === user.email)) return false;
+      users.set(user.id, user);
+      return true;
     },
     async saveUser(user) {
       users.set(user.id, user);
@@ -69,6 +94,19 @@ export function createMemoryStore(): IdentityStore {
     },
     async findLoginToken(hash) {
       return loginTokens.get(hash);
+    },
+    async saveSession(session) {
+      sessions.set(session.id, session);
+    },
+    async findSession(id) {
+      return sessions.get(id);
+    },
+    async listSessions(userId) {
+      return [...sessions.values()].filter((s) => s.userId === userId);
+    },
+    async revokeSession(id, at) {
+      const s = sessions.get(id);
+      if (s) sessions.set(id, { ...s, revokedAt: at });
     },
   };
 }
