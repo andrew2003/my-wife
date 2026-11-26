@@ -9,7 +9,7 @@ export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-export type SessionPayload = { sub: string; exp: number };
+export type SessionPayload = { sub: string; sid: string; exp: number };
 
 export function signSession(payload: SessionPayload, secret: string): string {
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");

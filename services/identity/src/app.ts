@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyReply } from "fastify";
 import type { AppConfig } from "@my-wife/config";
-import { SETTINGS, type SettingKey } from "@my-wife/contracts";
+import {
+  EVENT_SCHEMA_VERSION,
+  SETTINGS,
+  type EventEnvelope,
+  type EventPayload,
+  type EventSubject,
+  type SettingKey,
+} from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
   createMemoryStore,
@@ -24,6 +31,8 @@ export type IdentityDeps = ServiceDeps & {
   onMagicLink?: (email: string, token: string) => void | Promise<void>;
   /** Verifies a Google ID token and returns the verified email, or null. */
   googleVerifier?: (idToken: string) => Promise<{ email: string } | null>;
+  /** Announces events (NATS in production); a failure must not undo the sign-up. */
+  publish?: (event: EventEnvelope) => void | Promise<void>;
   /** The first admin signs in without an invitation. */
   bootstrapAdminEmail?: string;
 };
@@ -52,6 +61,17 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     lastSeenAt: u.lastSeenAt,
   });
 
+  async function emit<S extends EventSubject>(type: S, userId: string, payload: EventPayload<S>) {
+    await deps.publish?.({
+      id: randomUUID(),
+      type,
+      userId,
+      occurredAt: now().toISOString(),
+      schemaVersion: EVENT_SCHEMA_VERSION,
+      payload,
+    } as EventEnvelope);
+  }
+
   async function createUser(email: string, role: "user" | "admin") {
     if (role === "user" && (await store.countUsers()) >= setting("identity.max_users")) {
       return "identity.user_limit_reached" as const;
@@ -65,6 +85,7 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       lastSeenAt: null,
     };
     await store.saveUser(user);
+    await emit("user.activated", user.id, {});
     return user;
   }
 
@@ -84,13 +105,21 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     return user;
   }
 
-  function session(user: UserRecord) {
+  async function session(user: UserRecord) {
     const exp = new Date(now().getTime() + setting("identity.session_ttl_days") * DAY);
+    const id = randomUUID();
+    await store.saveSession({
+      id,
+      userId: user.id,
+      createdAt: now().toISOString(),
+      expiresAt: exp.toISOString(),
+      revokedAt: null,
+    });
     return {
       user: publicUser(user),
       expiresAt: exp.toISOString(),
       sessionToken: signSession(
-        { sub: user.id, exp: Math.floor(exp.getTime() / 1000) },
+        { sub: user.id, sid: id, exp: Math.floor(exp.getTime() / 1000) },
         config.sessionSecret,
       ),
     };
@@ -121,6 +150,10 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     };
     await store.saveInvitation(invitation);
     await deps.onInvitation?.(email, token);
+    await emit("user.invited", (req.headers["x-user-id"] as string | undefined) ?? invitation.id, {
+      invitationId: invitation.id,
+      expiresAt: invitation.expiresAt,
+    });
     return reply.code(201).send({
       ok: true,
       data: {
@@ -161,7 +194,7 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     if (!verified) return fail(reply, 401, "identity.invalid_credentials");
     const user = await resolveUser(verified.email.toLowerCase(), true);
     if (typeof user === "string") return fail(reply, 403, user);
-    return { ok: true, data: session(user) };
+    return { ok: true, data: await session(user) };
   });
 
   app.post("/auth/magic-link", async (req, reply) => {
@@ -199,7 +232,7 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     const user = await resolveUser(record.email, true);
     if (typeof user === "string") return fail(reply, 403, user);
     await store.saveLoginToken({ ...record, usedAt: now().toISOString() });
-    return { ok: true, data: session(user) };
+    return { ok: true, data: await session(user) };
   });
 
   /** Internal: the gateway verifies every request's session through this. */
@@ -207,7 +240,15 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     const token = String((req.body as { token?: string } | undefined)?.token ?? "");
     const payload = verifySession(token, config.sessionSecret, now());
     const user = payload ? await store.findUserById(payload.sub) : undefined;
-    if (!payload || !user || user.state !== "active")
+    const stored = payload ? await store.findSession(payload.sid) : undefined;
+    if (
+      !payload ||
+      !user ||
+      user.state !== "active" ||
+      !stored ||
+      stored.userId !== user.id ||
+      stored.revokedAt
+    )
       return fail(reply, 401, "identity.invalid_session");
     return {
       ok: true,
