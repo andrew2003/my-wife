@@ -1,5 +1,5 @@
 # Build context is the repository root: docker build -f services/__NAME__/Dockerfile .
-FROM node:22-alpine
+FROM node:26-alpine
 RUN corepack enable
 WORKDIR /app
 COPY . .
