@@ -9,5 +9,13 @@
   "schedule.sample.study": "Học tập hoặc dự án cá nhân",
   "schedule.sample.reflection": "Nhìn lại ngày, đóng danh sách việc",
   "schedule.sample.sleep": "Đi ngủ",
-  "routine.bedtime_reminder": "Còn {minutes} phút nữa là đến giờ đi ngủ ({bedtime}). Hãy chuẩn bị kết thúc."
+  "routine.bedtime_reminder": "Còn {minutes} phút nữa là đến giờ đi ngủ ({bedtime}). Hãy chuẩn bị kết thúc.",
+  "routine.wake_challenge.fingers": "Chào buổi sáng! Giơ {n} ngón tay và gửi ảnh bạn đã ra khỏi giường.",
+  "routine.wake_challenge.sink": "Chào buổi sáng! Hãy gửi ảnh bạn đang đứng ở bồn rửa mặt.",
+  "routine.wake_challenge.object": "Chào buổi sáng! Cầm một vật trong phòng và gửi ảnh của bạn.",
+  "routine.wake_photo_late": "Ảnh này gửi sau thời gian quy định nên không được tính là bằng chứng thức dậy.",
+  "routine.wake_photo_unclear": "Mình chưa nhìn rõ ảnh này. Bạn gửi thêm một ảnh nữa nhé.",
+  "routine.wake_photo_failed": "Ảnh này chưa thể hiện đúng yêu cầu. Bạn có thể khiếu nại kết quả.",
+  "routine.wake_recorded": "Đã ghi nhận giờ thức dậy lúc {time}, đúng giờ.",
+  "routine.wake_recorded_late": "Đã ghi nhận giờ thức dậy lúc {time}, trễ {minutes} phút."
 }

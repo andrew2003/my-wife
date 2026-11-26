@@ -9,5 +9,13 @@
   "schedule.sample.study": "Study or personal project",
   "schedule.sample.reflection": "Reflection, close the checklist",
   "schedule.sample.sleep": "Sleep",
-  "routine.bedtime_reminder": "Bedtime in {minutes} minutes (at {bedtime}). Time to wrap up."
+  "routine.bedtime_reminder": "Bedtime in {minutes} minutes (at {bedtime}). Time to wrap up.",
+  "routine.wake_challenge.fingers": "Good morning! Hold up {n} fingers and send a photo of yourself, out of bed.",
+  "routine.wake_challenge.sink": "Good morning! Send a photo of yourself at the sink.",
+  "routine.wake_challenge.object": "Good morning! Hold up an object you can see in the room and send a photo of yourself.",
+  "routine.wake_photo_late": "That photo came after the time window, so it does not count as your wake-up proof.",
+  "routine.wake_photo_unclear": "I could not tell from that photo. Please send another one.",
+  "routine.wake_photo_failed": "That photo did not show the check-in. The result can be appealed.",
+  "routine.wake_recorded": "Recorded wake at {time}, on time.",
+  "routine.wake_recorded_late": "Recorded wake at {time}, {minutes} minutes late."
 }
