@@ -82,6 +82,22 @@ describe("setup questions", () => {
   });
 });
 
+describe("setup answers atomicity", () => {
+  it("stores nothing and emits nothing when the batch cannot be saved", async () => {
+    const config = loadConfig({ SESSION_SECRET: "s".repeat(32), LOG_LEVEL: "silent" });
+    const events: EventEnvelope[] = [];
+    const store = createMemoryStore();
+    store.saveSettings = async () => {
+      throw new Error("db down");
+    };
+    const app = createApp(config, { store, now: () => NOW, publish: (e) => void events.push(e) });
+    const res = await answer(app, { "routine.wake.time": "06:30", "budget.cycle_weeks": 6 });
+    expect(res.statusCode).toBe(500);
+    expect(events).toHaveLength(0);
+    expect((await values(app))["routine.wake.time"]).toBe("06:00");
+  });
+});
+
 describe("completing an onboarding step", () => {
   it("emits onboarding.step_completed with skipped false after answers", async () => {
     const { app, events } = setup();

@@ -47,6 +47,8 @@ export type SettingAuditRecord = {
   at: string;
 };
 
+export type SettingChange = { key: string; value: unknown; audit: SettingAuditRecord };
+
 /** A finished onboarding step; `eventAt` unset means onboarding.step_completed is still owed. */
 export type OnboardingStepRecord = {
   userId: string;
@@ -82,6 +84,8 @@ export interface IdentityStore {
     value: unknown,
     audit: SettingAuditRecord,
   ): Promise<void>;
+  /** Saves several settings with their audit entries all together or not at all. */
+  saveSettings(userId: string, changes: SettingChange[]): Promise<void>;
   listSettingAudit(userId: string): Promise<SettingAuditRecord[]>;
   findOnboardingStep(userId: string, step: string): Promise<OnboardingStepRecord | undefined>;
   saveOnboardingStep(record: OnboardingStepRecord): Promise<void>;
@@ -108,6 +112,13 @@ export function createMemoryStore(): IdentityStore {
     async saveSetting(userId, key, value, entry) {
       settings.set(userId, { ...settings.get(userId), [key]: value });
       audit.push(entry);
+    },
+    async saveSettings(userId, changes) {
+      settings.set(userId, {
+        ...settings.get(userId),
+        ...Object.fromEntries(changes.map((c) => [c.key, c.value])),
+      });
+      audit.push(...changes.map((c) => c.audit));
     },
     async listSettingAudit(userId) {
       return audit.filter((a) => a.userId === userId);

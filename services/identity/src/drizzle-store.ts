@@ -73,16 +73,21 @@ export function createDrizzleStore(db: NodePgDatabase): IdentityStore {
       return Object.fromEntries(rows.map((r) => [r.key, r.value]));
     },
     async saveSetting(userId, key, value, entry) {
+      await this.saveSettings(userId, [{ key, value, audit: entry }]);
+    },
+    async saveSettings(userId, changes) {
       await db.transaction(async (tx) => {
-        const updatedAt = new Date(entry.at);
-        await tx
-          .insert(userSettings)
-          .values({ userId, key, value, updatedAt })
-          .onConflictDoUpdate({
-            target: [userSettings.userId, userSettings.key],
-            set: { value, updatedAt },
-          });
-        await tx.insert(settingAudit).values({ ...entry, at: updatedAt });
+        for (const { key, value, audit } of changes) {
+          const updatedAt = new Date(audit.at);
+          await tx
+            .insert(userSettings)
+            .values({ userId, key, value, updatedAt })
+            .onConflictDoUpdate({
+              target: [userSettings.userId, userSettings.key],
+              set: { value, updatedAt },
+            });
+          await tx.insert(settingAudit).values({ ...audit, at: updatedAt });
+        }
       });
     },
     async listSettingAudit(userId) {

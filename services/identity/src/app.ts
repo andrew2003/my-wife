@@ -367,21 +367,25 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     // Everything is validated before anything is written: a bad answer stores nothing.
     const current = await readSettings(userId);
     const at = now().toISOString();
-    const changedKeys: string[] = [];
-    for (const [key, value] of checked) {
-      const before = current[key];
-      if (JSON.stringify(before) === JSON.stringify(value)) continue;
-      await store.saveSetting(userId, key, value, {
-        id: randomUUID(),
-        userId,
-        actorId: userId,
+    const changes = checked
+      .filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value))
+      .map(([key, value]) => ({
         key,
-        before,
-        after: value,
-        at,
-      });
-      changedKeys.push(key);
-    }
+        value,
+        audit: {
+          id: randomUUID(),
+          userId,
+          actorId: userId,
+          key,
+          before: current[key],
+          after: value,
+          at,
+        },
+      }));
+    // One transaction: either every changed answer is saved or none, so the event never
+    // misses a stored change.
+    if (changes.length > 0) await store.saveSettings(userId, changes);
+    const changedKeys = changes.map((c) => c.key);
     if (changedKeys.length > 0) await emit("user.updated", userId, { changedKeys });
     return { ok: true, data: { changedKeys } };
   });
