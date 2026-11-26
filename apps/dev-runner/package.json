@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "NODE_OPTIONS=--max-old-space-size=2048 tsx src/main.ts",
+    "demo:reset": "NODE_OPTIONS=--max-old-space-size=2048 tsx src/demo-reset.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "NODE_OPTIONS=--max-old-space-size=2048 vitest run"
