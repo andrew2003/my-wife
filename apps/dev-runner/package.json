@@ -26,6 +26,7 @@
     "fastify": "^5.2.0"
   },
   "devDependencies": {
+    "@my-wife/test-kit": "workspace:*",
     "tsx": "^4.19.0",
     "vitest": "^3.0.0"
   }
