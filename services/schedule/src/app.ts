@@ -30,6 +30,13 @@ import {
   viewSession,
   type SessionStore,
 } from "./sessions";
+import {
+  buildReview,
+  createMemoryLedgerStore,
+  recordLedgerEvent,
+  runReviewJob,
+  type LedgerStore,
+} from "./review";
 import { buildSampleDay, type SampleAnswers, type SampleBlock } from "./sample-schedule";
 
 export const SERVICE_NAME = "schedule";
@@ -45,6 +52,8 @@ export type ScheduleDeps = ServiceDeps & {
   planStore?: PlanStore;
   /** Session storage port; in memory until the Drizzle store lands. */
   sessionStore?: SessionStore;
+  /** Fault and overspend ledger copies for the weekly review; in memory for now. */
+  ledgerStore?: LedgerStore;
 };
 
 declare module "fastify" {
@@ -200,7 +209,12 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (!userId) return fail(reply, 401, "schedule.unauthenticated");
     const day = IsoDateSchema.safeParse((req.body as { firstDay?: string } | null)?.firstDay);
     if (!day.success) return fail(reply, 400, "schedule.invalid_request");
-    const { closedAnnounced: _c, userId: _u, ...week } = createWeek(plan, userId, day.data);
+    const {
+      closedAnnounced: _c,
+      reviewAnnounced: _r,
+      userId: _u,
+      ...week
+    } = createWeek(plan, userId, day.data);
     return { ok: true, data: { week } };
   });
   app.post("/weeks/:id/approve", async (req, reply) => {
@@ -212,7 +226,7 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
         ? fail(reply, 404, "schedule.week_not_found")
         : fail(reply, 409, "schedule.week_not_draft");
     }
-    const { closedAnnounced: _c, userId: _u, ...week } = res.week;
+    const { closedAnnounced: _c, reviewAnnounced: _r, userId: _u, ...week } = res.week;
     return { ok: true, data: { week } };
   });
   app.get("/weeks/current", async (req, reply) => {
@@ -220,7 +234,7 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (!userId) return fail(reply, 401, "schedule.unauthenticated");
     const found = plan.store.latestWeek(userId);
     if (!found) return fail(reply, 404, "schedule.week_not_found");
-    const { closedAnnounced: _c, userId: _u, ...week } = found;
+    const { closedAnnounced: _c, reviewAnnounced: _r, userId: _u, ...week } = found;
     return { ok: true, data: { week } };
   });
 
@@ -266,6 +280,28 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
   }));
 
   /** Internal entry for the scheduler (BullMQ in production); safe to run any number of times. */
-  app.post("/jobs/week-boundary", async () => ({ ok: true, data: await runWeekBoundary(plan) }));
+  const ledgers = deps.ledgerStore ?? createMemoryLedgerStore();
+  app.post("/jobs/week-boundary", async () => {
+    // week.closed first; the review only follows weeks whose week.closed was announced.
+    const boundary = await runWeekBoundary(plan);
+    const review = await runReviewJob(plan, readSettings);
+    return { ok: true, data: { ...boundary, reviewed: review.ready, reviewFailed: review.failed } };
+  });
+
+  /** Internal entry for the bus bridge: `fault.recorded`, `fault.waived`, `overspend.detected`. */
+  app.post("/events/ledger", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (!parsed.success) return fail(reply, 400, "schedule.invalid_event");
+    return { ok: true, data: { recorded: recordLedgerEvent(ledgers, parsed.data) } };
+  });
+
+  app.get("/weeks/:id/review", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const week = plan.store.getWeek(userId, (req.params as { id: string }).id);
+    if (!week) return fail(reply, 404, "schedule.week_not_found");
+    if (!week.closedAnnounced) return fail(reply, 409, "schedule.review_not_ready");
+    return { ok: true, data: { review: buildReview(plan.store, ledgers, week) } };
+  });
   return app;
 }

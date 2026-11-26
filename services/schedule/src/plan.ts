@@ -27,6 +27,8 @@ export interface PlanWeek {
   state: WeekState;
   /** Claimed before `week.closed` is published and released on failure, so it is sent once. */
   closedAnnounced: boolean;
+  /** Claimed before `review.ready` is published and released on failure. */
+  reviewAnnounced: boolean;
 }
 
 /** Port: the Drizzle store replaces the in-memory one without touching the logic below. */
@@ -153,6 +155,7 @@ export function createWeek(deps: PlanDeps, userId: string, firstDay: string): Pl
     firstDay,
     state: "draft",
     closedAnnounced: false,
+    reviewAnnounced: false,
   };
   deps.store.addWeek(week);
   return week;
