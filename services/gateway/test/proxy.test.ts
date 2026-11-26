@@ -158,6 +158,17 @@ describe("gateway session proxy", () => {
     });
   });
 
+  it("forwards wake routes to schedule with the user id", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good` };
+    const res = await (await app).inject({ method: "GET", url: "/api/wake/today", headers });
+    expect(res.json()).toEqual({ ok: true, data: { sched: 1 } });
+    expect(calls[1]).toMatchObject({
+      url: "http://schedule/wake/today",
+      headers: { "x-user-id": "u1" },
+    });
+  });
+
   it("keeps invitation accept public", async () => {
     const { app, calls } = setup();
     const payload = AcceptInvitationRequestSchema.parse({ token: "t" });
