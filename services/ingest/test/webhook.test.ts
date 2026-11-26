@@ -41,7 +41,7 @@ async function setup() {
       publish: async (e) => {
         published.push(e.type);
       },
-      settings: { maxEmailBytes: 1048576 },
+      settings: { maxEmailBytes: 1048576, holdMatchWindowHours: 72 },
       now: () => new Date("2026-11-26T04:00:00.000Z"),
     },
   });

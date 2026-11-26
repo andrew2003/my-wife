@@ -60,3 +60,29 @@ export async function buildMail(opts: MailOptions = {}): Promise<Buffer> {
   });
   return Buffer.from(signatures + message);
 }
+
+/** Foreign-card pair: the authorization carries no VND amount, the debit carries the final one. */
+export const authorizationBody = (o: { time?: string; code?: string; ref?: string } = {}) =>
+  [
+    "Card authorization",
+    "Account: ****1234",
+    "Authorization: 9.99 USD",
+    "Merchant: GOOGLE*YouTube",
+    `Auth code: ${o.code ?? "A12345"}`,
+    `Time: ${o.time ?? "25/11/2026 20:00:00"}`,
+    `Ref: ${o.ref ?? "AU26329XYZ01"}`,
+  ].join("\r\n");
+
+export const foreignDebitBody = (
+  o: { time?: string; code?: string; ref?: string; vnd?: string } = {},
+) =>
+  [
+    "Card debit",
+    "Account: ****1234",
+    `Debit: ${o.vnd ?? "250,000"} VND`,
+    "Foreign amount: 9.99 USD",
+    "Merchant: GOOGLE*YouTube",
+    `Auth code: ${o.code ?? "A12345"}`,
+    `Time: ${o.time ?? "26/11/2026 02:00:00"}`,
+    `Ref: ${o.ref ?? "FT26330FX001"}`,
+  ].join("\r\n");

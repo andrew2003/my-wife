@@ -10,13 +10,20 @@ export type PipelineDeps = {
   store: IngestStore;
   verifyDkim: DkimVerifier;
   /** Resolves the token of `u-<token>@in.<domain>`; null when no such address exists. */
-  users: { resolve(token: string): Promise<{ userId: string; emailConsent: boolean } | null> };
+  users: {
+    resolve(token: string): Promise<{
+      userId: string;
+      emailConsent: boolean;
+      /** The user's `ingest.hold_match_window_hours`; the service default applies when absent. */
+      holdMatchWindowHours?: number;
+    } | null>;
+  };
   senderMap: SenderMapEntry[];
   templates: RegisteredTemplate[];
   publish: (event: EventEnvelope) => Promise<void>;
   newId: () => string;
-  /** `ingest.max_email_bytes` (admin setting). */
-  settings: { maxEmailBytes: number };
+  /** `ingest.max_email_bytes` (admin) and `ingest.hold_match_window_hours` (user). */
+  settings: { maxEmailBytes: number; holdMatchWindowHours: number };
 };
 
 export type InboundMail = { toAddress: string; raw: Buffer };
@@ -28,6 +35,10 @@ function tokenOf(address: string): string | null {
   const m = /^u-([A-Za-z0-9_-]+)@/.exec(address.trim());
   return m?.[1] ?? null;
 }
+
+const HOUR_MS = 3_600_000;
+const withinWindow = (a: string, b: string, hours: number) =>
+  Math.abs(Date.parse(a) - Date.parse(b)) <= hours * HOUR_MS;
 
 const stripTags = (html: string) => html.replace(/<[^>]*>/g, "\n");
 
@@ -142,18 +153,58 @@ export async function processInbound(
     return finish({ ...authed, state: "duplicate", fingerprint, bankTransactionRef: ref });
   }
 
+  // 6. Foreign card: an authorization is held, never booked; the debit carries the final VND.
+  const foreign = result.foreign;
+  const windowHours = user.holdMatchWindowHours ?? deps.settings.holdMatchWindowHours;
+  const common = { ...authed, fingerprint, templateId: template.id, bankTransactionRef: ref };
+  let held: ReceiptRecord | null = null;
+  if (foreign) {
+    const at = result.fields.occurredAt;
+    const heldAuth = await deps.store.findHeldByPairKey(user.userId, foreign.pairKey);
+    const parsedPeer = await deps.store.findParsedByPairKey(user.userId, foreign.pairKey);
+    const inWindow = (r: ReceiptRecord | null) =>
+      r?.fields !== undefined && withinWindow(r.fields.occurredAt, at, windowHours);
+    if (foreign.stage === "authorization") {
+      // Already held, or its debit was booked first: counting it again would double the expense.
+      if (inWindow(heldAuth) || inWindow(parsedPeer)) {
+        return finish({ ...common, state: "duplicate", pairKey: foreign.pairKey });
+      }
+      return finish({
+        ...common,
+        state: "parsing",
+        templateVersion: template.version,
+        fields: result.fields,
+        pairKey: foreign.pairKey,
+      });
+    }
+    // The purchase is already booked from an earlier debit: never count it twice.
+    if (inWindow(parsedPeer)) {
+      return finish({ ...common, state: "duplicate", pairKey: foreign.pairKey });
+    }
+    held = inWindow(heldAuth) ? heldAuth : null;
+  }
+
+  // Consume the authorization first: if we crash before the debit is saved, a redelivered
+  // debit stands alone and is still booked once, and the authorization can never re-pair.
+  if (held) await deps.store.save({ ...held, state: "duplicate", pairedReceiptId: receiptId });
+
   const outcome = await finish({
-    ...authed,
+    ...common,
     state: "parsed",
-    fingerprint,
-    templateId: template.id,
     templateVersion: template.version,
-    bankTransactionRef: ref,
     fields: result.fields,
+    ...(foreign ? { pairKey: foreign.pairKey } : {}),
   });
   await emit("receipt.parsed", {
     receiptId,
     ...result.fields,
+    ...(foreign
+      ? {
+          currency: foreign.currency,
+          foreignAmountMinor: foreign.foreignAmountMinor,
+          merchant: foreign.merchant,
+        }
+      : {}),
     source: "parser",
     templateId: template.id,
     templateVersion: template.version,
