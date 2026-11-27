@@ -24,6 +24,8 @@ const SCHEDULE_PREFIXES = [
   "/weeks",
   "/templates",
 ];
+/** Admin API (spec 50): owned by identity, needs role admin. */
+const ADMIN_PREFIXES = ["/admin"];
 const BUDGET_PREFIXES = ["/budget"];
 /** Paths owned by the rules service (contracts, penalties, faults and appeals). */
 const RULES_PREFIXES = ["/contracts", "/penalties", "/faults", "/appeals"];
@@ -41,6 +43,7 @@ function readCookie(header: string | undefined, name: string): string | undefine
 }
 
 const unauthorized = { ok: false, error: { code: "gateway.unauthorized" } } as const;
+const forbidden = { ok: false, error: { code: "gateway.forbidden" } } as const;
 const unavailable = { ok: false, error: { code: "gateway.upstream_unavailable" } } as const;
 
 /** Factory used by main.ts, the dev runner and tests; no process-level globals (ADR 0007). */
@@ -103,7 +106,13 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
           body: JSON.stringify({ token }),
         });
         if (!verified.ok) return reply.code(401).send(unauthorized);
-        const session = (await verified.json()) as { data: { user: { id: string } } };
+        const session = (await verified.json()) as {
+          data: { user: { id: string; role?: string } };
+        };
+
+        if (isUnder(path, ADMIN_PREFIXES) && session.data.user.role !== "admin") {
+          return reply.code(403).send(forbidden);
+        }
 
         if (path === "/me") return reply.code(200).send(session);
 
