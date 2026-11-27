@@ -193,6 +193,23 @@ describe("week.closed reward", () => {
     expect(r.unlocked).toBe(true);
   });
 
+  it.each([
+    ["recorded", false],
+    ["appealed", false],
+    ["upheld", false],
+    ["pending_reason", false],
+    ["waived_system", true],
+    ["waived_card", true],
+    ["overturned", true],
+    ["expired", true],
+  ] as const)("a fault with status %s makes the week clean: %s", async (status, clean) => {
+    const t = setup();
+    t.addFaults([fault(1, "2026-12-01T10:00:00.000Z", 3, status)]);
+    const r = await t.svc.onWeekClosed(weekClosed(1, "2026-11-30"), NOW);
+    expect(r.clean).toBe(clean);
+    expect(r.unlocked).toBe(clean);
+  });
+
   it("a redelivery does not emit twice, and a failed publish is retried", async () => {
     const t = setup();
     t.failNext(true);

@@ -27,7 +27,7 @@ export const DEFAULT_REWARD_SETTINGS: RewardSettings = {
 };
 
 /**
- * Pure rule. A clean week extends the streak by one week; a week with recorded points resets
+ * Pure rule. A clean week extends the streak by one week; a week with counting fault points resets
  * it. The reward unlocks once the streak covers `cleanStreakDays`, and the streak then starts
  * again so the same weeks never pay twice.
  */
@@ -44,6 +44,14 @@ export function evaluateReward(input: {
   return { unlock: false, cleanWeeks: weeks };
 }
 
+/** Statuses that carry no points against the week; every other status keeps it dirty. */
+const NON_COUNTING_STATUSES: ReadonlySet<string> = new Set([
+  "waived_system",
+  "waived_card",
+  "overturned",
+  "expired",
+]);
+
 export type RewardWeekRecord = {
   weekId: string;
   firstDay: string;
@@ -51,6 +59,9 @@ export type RewardWeekRecord = {
   unlocked: boolean;
   /** Clean weeks in the running streak after this week. */
   cleanWeeks: number;
+  /** Audit trail: the settings in force and the ids of the faults that made the week dirty. */
+  settingsSnapshot: RewardSettings;
+  faultIdsConsidered: string[];
   /** The reward event as it goes out; null when nothing was unlocked. */
   event: EventEnvelope | null;
   published: boolean;
@@ -122,7 +133,7 @@ export function createRewardService(deps: RewardServiceDeps) {
 
   return {
     /**
-     * Consumes `week.closed`: a week with no recorded fault points is clean. Once the clean
+     * Consumes `week.closed`: a week with no counting fault points (any status except waived, overturned or expired) is clean. Once the clean
      * streak covers `reward.clean_streak_days` it emits `reward.unlocked` with
      * `reward.unlock_amount_vnd`. Once per (user, week); a redelivery only retries a
      * publish that failed. The reward only unlocks money: the bot never moves it.
@@ -142,10 +153,19 @@ export function createRewardService(deps: RewardServiceDeps) {
       }
       const settings = await readSettings(userId, now);
       const { from, to } = weekWindow(p.firstDay);
-      const clean = !deps.faultStore.list(userId).some((f) => {
-        const t = Date.parse(f.occurredAt);
-        return f.status === "recorded" && f.points > 0 && t >= from.getTime() && t < to.getTime();
-      });
+      const faultIdsConsidered = deps.faultStore
+        .list(userId)
+        .filter((f) => {
+          const t = Date.parse(f.occurredAt);
+          return (
+            !NON_COUNTING_STATUSES.has(f.status) &&
+            f.points > 0 &&
+            t >= from.getTime() &&
+            t < to.getTime()
+          );
+        })
+        .map((f) => f.id);
+      const clean = faultIdsConsidered.length === 0;
       const prev = deps.store.previous(userId, p.firstDay);
       // Only the directly preceding week continues a streak; a skipped week breaks it.
       const contiguous =
@@ -175,6 +195,8 @@ export function createRewardService(deps: RewardServiceDeps) {
         clean,
         unlocked: unlock,
         cleanWeeks,
+        settingsSnapshot: { ...settings },
+        faultIdsConsidered,
         event: rewardEvent,
         published: false,
       };
