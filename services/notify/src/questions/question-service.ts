@@ -23,6 +23,8 @@ export interface QuestionStore {
   get(questionId: string): StoredQuestion | undefined;
   /** Atomic compare and set; returns false when the state was not `from`. */
   transition(questionId: string, from: QuestionState[], to: QuestionState): boolean;
+  /** Questions currently in one of the given states. */
+  listByState(states: QuestionState[]): StoredQuestion[];
 }
 
 export class InMemoryQuestionStore implements QuestionStore {
@@ -34,6 +36,9 @@ export class InMemoryQuestionStore implements QuestionStore {
   }
   get(questionId: string) {
     return this.records.get(questionId);
+  }
+  listByState(states: QuestionState[]): StoredQuestion[] {
+    return [...this.records.values()].filter((r) => states.includes(r.question.state));
   }
   transition(questionId: string, from: QuestionState[], to: QuestionState): boolean {
     const record = this.records.get(questionId);
@@ -97,6 +102,35 @@ export class QuestionService {
       // Chat delivery failed: the question stays usable from the web inbox.
       this.deps.store.transition(question.id, ["created"], "delivered_inbox_only");
     }
+  }
+
+  /**
+   * Expires every open question whose `expiresAt` has passed and emits
+   * `notify.question_expired` once per question; the owning service applies its
+   * deadline rule. Time comes from the injected clock, so it can be simulated.
+   */
+  async expireDue(): Promise<number> {
+    const now = this.deps.clock.now().getTime();
+    let count = 0;
+    for (const { question } of this.deps.store.listByState(OPEN_STATES)) {
+      if (now < Date.parse(question.expiresAt)) continue;
+      if (!this.deps.store.transition(question.id, OPEN_STATES, "expired")) continue;
+      try {
+        await this.deps.publish({
+          name: "notify.question_expired",
+          payload: notifyEvents["notify.question_expired"].parse({
+            questionId: question.id,
+            sourceService: question.sourceService,
+            kind: question.kind,
+          }),
+        });
+        count += 1;
+      } catch {
+        // Release the claim so the next sweep retries the publish.
+        this.deps.store.transition(question.id, ["expired"], question.state);
+      }
+    }
+    return count;
   }
 
   /** Records a reply. Returns true only for the reply that answered the question. */
