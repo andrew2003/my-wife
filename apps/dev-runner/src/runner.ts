@@ -1,12 +1,18 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { servicePort, type AppConfig } from "@my-wife/config";
-import { SERVICE_NAMES, type EventEnvelope, type ServiceName } from "@my-wife/contracts";
+import { SERVICE_NAMES, SETTINGS, type EventEnvelope, type ServiceName } from "@my-wife/contracts";
 import type { CreateApp, ServiceDeps } from "@my-wife/service-kit";
 import { createApp as ai } from "@my-wife/ai";
-import { createApp as budget } from "@my-wife/budget";
+import { createApp as budget, type BudgetDeps } from "@my-wife/budget";
 import { createApp as gateway } from "@my-wife/gateway";
 import { createApp as identity, type IdentityDeps } from "@my-wife/identity";
-import { createApp as ingest } from "@my-wife/ingest";
+import {
+  createApp as ingest,
+  createMailauthVerifier,
+  MemoryIngestStore,
+  type IngestDeps,
+} from "@my-wife/ingest";
 import { createApp as monitor, type MonitorServiceDeps } from "@my-wife/monitor";
 import { createApp as notify } from "@my-wife/notify";
 import { createApp as rules, type RulesDeps } from "@my-wife/rules";
@@ -32,6 +38,8 @@ const FACTORIES: Record<ServiceName, CreateApp> = {
 
 export type Runner = {
   urls: Record<ServiceName, string>;
+  /** Routes an event to its in-process consumers, as the bus would (also used by tests). */
+  publish(event: EventEnvelope): Promise<void>;
   /** Runs the rules trial job with an injected `now`; business code never reads the clock. */
   runTrialJob(now: Date): Promise<void>;
   /** Ends due work sessions with an injected `now`. */
@@ -55,6 +63,18 @@ export type RunnerOptions = {
   schedule?: ScheduleDeps;
   /** Extra dependencies for the monitor service (publisher, clock, settings reader, stores). */
   monitor?: MonitorServiceDeps;
+  /** Extra dependencies for the budget service (store, settings reader, receipt reader). */
+  budget?: BudgetDeps;
+  /**
+   * The ingest webhook is always mounted. Everything is in memory unless given here: an empty
+   * sender map and template list, a user resolver that knows nobody, the real DKIM verifier and
+   * a random webhook secret (or `INGEST_WEBHOOK_SECRET`).
+   */
+  ingest?: Partial<IngestDeps>;
+  /** Called with every event routed in process, before delivery (tests, tracing). */
+  onEvent?: (event: EventEnvelope) => void;
+  /** Called after a consumer service has handled an event. */
+  onDelivered?: (service: "budget" | "rules" | "schedule", event: EventEnvelope) => void;
 };
 
 /** Mounts the ten services in this one Node process (ADR 0007). */
@@ -65,26 +85,72 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
   let sessionJob: ((now: Date) => Promise<unknown>) | undefined;
   let sleepJob: ((now: Date) => Promise<unknown>) | undefined;
   let gapCheck: ((now: Date) => Promise<unknown>) | undefined;
-  let budgetHandler: ((event: EventEnvelope) => Promise<void>) | undefined;
+  let budgetApp: BudgetApp | undefined;
+  const post = async (url: string, event: EventEnvelope, service: string) => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(event),
+    });
+    if (!res.ok) throw new Error(`${service} rejected ${event.type}: ${res.status}`);
+  };
   /**
-   * In-process stand-in for the NATS delivery each service main.ts sets up: events identity
+   * In-process stand-in for the NATS delivery each service main.ts sets up: events a service
    * publishes reach the consumers directly, with the same envelope the bus would carry.
    */
   const deliver = async (event: EventEnvelope): Promise<void> => {
-    if (event.type !== "onboarding.step_completed") return;
-    const results = await Promise.allSettled([
-      fetch(`${urls.schedule}/events/onboarding-step-completed`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(event),
-      }).then((res) => {
-        if (!res.ok) throw new Error(`schedule rejected ${event.type}: ${res.status}`);
-      }),
-      budgetHandler?.(event) ?? Promise.resolve(),
-    ]);
+    opts.onEvent?.(event);
+    const to = (service: "budget" | "rules" | "schedule", run: () => Promise<void> | undefined) =>
+      Promise.resolve(run()).then(() => opts.onDelivered?.(service, event));
+    const jobs: Array<Promise<void>> = [];
+    switch (event.type) {
+      case "onboarding.step_completed":
+        jobs.push(
+          to("schedule", () =>
+            post(`${urls.schedule}/events/onboarding-step-completed`, event, "schedule"),
+          ),
+          to("budget", () => budgetApp?.onOnboardingStepCompleted(event)),
+        );
+        break;
+      case "receipt.parsed":
+        jobs.push(
+          to("budget", () => budgetApp?.onReceiptParsed(event)),
+          to("rules", () => post(`${urls.rules}/events/receipt-parsed`, event, "rules")),
+        );
+        break;
+      case "receipt.unknown":
+        jobs.push(to("budget", () => budgetApp?.onReceiptUnknown(event)));
+        break;
+      case "notify.reply_received":
+        jobs.push(to("budget", () => budgetApp?.onReplyReceived(event)));
+        break;
+      case "contract.signed":
+        jobs.push(
+          to("budget", () => budgetApp?.onContractSigned(event)),
+          to("rules", () => post(`${urls.rules}/events/contract-signed`, event, "rules")),
+        );
+        break;
+      case "week.closed":
+        jobs.push(to("budget", () => budgetApp?.onWeekClosed(event)));
+        break;
+      case "overspend.detected":
+        jobs.push(
+          to("rules", () => post(`${urls.rules}/events/overspend-detected`, event, "rules")),
+        );
+        break;
+      default:
+        return;
+    }
+    const results = await Promise.allSettled(jobs);
     const failed = results.find((r) => r.status === "rejected");
     if (failed) throw (failed as PromiseRejectedResult).reason;
   };
+  /** Runs the service's own publisher, then routes the event in process. */
+  const publishVia =
+    (own?: (event: EventEnvelope) => void | Promise<void>) => async (event: EventEnvelope) => {
+      await own?.(event);
+      await deliver(event);
+    };
   try {
     for (const name of SERVICE_NAMES) {
       const extra =
@@ -96,7 +162,9 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
               ? opts.schedule
               : name === "monitor"
                 ? opts.monitor
-                : undefined;
+                : name === "budget"
+                  ? opts.budget
+                  : undefined;
       let deps: ServiceDeps | undefined = extra ? { ...opts.deps, ...extra } : opts.deps;
       if (name === "schedule") {
         // Identity starts before schedule; its URL is read lazily, per request.
@@ -109,20 +177,42 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
         const own = opts.identity?.publish;
         const withPublish: IdentityDeps = {
           ...deps,
-          publish: async (event: EventEnvelope) => {
-            await own?.(event);
-            await deliver(event);
-          },
+          publish: publishVia(own),
         };
         deps = withPublish;
+      }
+      if (name === "budget") {
+        const withPublish: BudgetDeps = { ...deps, publish: publishVia(opts.budget?.publish) };
+        deps = withPublish;
+      }
+      if (name === "rules") {
+        const withPublish: RulesDeps = { ...deps, publish: publishVia(opts.rules?.publish) };
+        deps = withPublish;
+      }
+      if (name === "ingest") {
+        const given = opts.ingest ?? {};
+        const ingestDeps: IngestDeps = {
+          store: given.store ?? new MemoryIngestStore(),
+          verifyDkim: given.verifyDkim ?? createMailauthVerifier(),
+          users: given.users ?? { resolve: async () => null },
+          senderMap: given.senderMap ?? [],
+          templates: given.templates ?? [],
+          settings: given.settings ?? {
+            maxEmailBytes: SETTINGS["ingest.max_email_bytes"].default,
+            holdMatchWindowHours: SETTINGS["ingest.hold_match_window_hours"].default,
+          },
+          secret: given.secret ?? process.env.INGEST_WEBHOOK_SECRET ?? randomUUID(),
+          now: given.now ?? (() => new Date()),
+          newId: given.newId,
+          publish: publishVia(given.publish),
+        };
+        deps = { ...deps, ingest: ingestDeps } as ServiceDeps;
       }
       const app = await FACTORIES[name](config, deps);
       if (name === "rules") trialJob = app.runTrialJob;
       if (name === "schedule") sessionJob = (app as unknown as ScheduleApp).runSessionJob;
       if (name === "schedule") sleepJob = (app as unknown as ScheduleApp).runSleepJob;
-      if (name === "budget") {
-        budgetHandler = (app as unknown as BudgetApp).onOnboardingStepCompleted;
-      }
+      if (name === "budget") budgetApp = app as unknown as BudgetApp;
       if (name === "monitor") gapCheck = (app as unknown as MonitorApp).runGapCheck;
       apps.push(app);
       await app.listen({ host: "127.0.0.1", port: opts.ephemeralPorts ? 0 : servicePort(name) });
@@ -136,6 +226,7 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
   }
   return {
     urls,
+    publish: deliver,
     runTrialJob: async (now) => {
       await trialJob?.(now);
     },

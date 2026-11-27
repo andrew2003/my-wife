@@ -100,6 +100,22 @@ describe("email fixtures (docs/spec/11-ingest.md section 6)", async () => {
     }
   });
 
+  it("uses the labels the registered ingest templates read", () => {
+    const plain = (raw: string) => raw.split("\r\n--")[1] ?? raw;
+    for (const f of fixtures) {
+      if (!f.expect.fields) continue;
+      const text = plain(f.raw);
+      expect(text, f.name).toMatch(/^Account: \S*\d{3,}$/m);
+      expect(text, f.name).toMatch(/^Ref: [A-Za-z0-9]{4,40}$/m);
+      expect(text, f.name).toMatch(/^Time: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2}$/m);
+      expect(text, f.name).not.toMatch(/^(Amount|Reference|Description):/m);
+      const isAuth = f.name === "foreign-card-authorization";
+      expect(text, f.name).toMatch(
+        isAuth ? /^Authorization: \d+\.\d{2} USD$/m : /^(Debit|Credit): [\d,]+ VND$/m,
+      );
+    }
+  });
+
   it("the duplicate repeats the Message-ID and reference of the debit", () => {
     const id = (raw: string) => raw.match(/^Message-ID: (.+)$/im)![1];
     expect(id(byName.duplicate!.raw)).toBe(id(byName.debit!.raw));

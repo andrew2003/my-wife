@@ -150,6 +150,12 @@ export type TrialServiceDeps = {
   publish?: (event: EventEnvelope) => void | Promise<void>;
   /** Reads the user's trial settings; registry defaults when unavailable. */
   readSettings?: (userId: string) => Promise<TrialSettings>;
+  /**
+   * Called with the settled lines before the trial ledger is updated, so the penalty ledger
+   * can move its entries to `due`. Must be idempotent: a throw leaves the trial unsettled and
+   * the next job run tries again.
+   */
+  onSettled?: (userId: string, lines: SettlementLine[], now: Date) => Promise<void>;
   newId?: () => string;
   onPublishError?: (err: unknown) => void;
 };
@@ -234,6 +240,12 @@ export function createTrialService(deps: TrialServiceDeps) {
         installmentIntervalMs: t.settings.installmentIntervalMs,
       });
       const byId = new Map(deps.store.suspended(userId).map((e) => [e.id, e.amountVnd]));
+      try {
+        await deps.onSettled?.(userId, lines, now);
+      } catch (err) {
+        deps.onPublishError?.(err);
+        return;
+      }
       deps.store.markDue(userId, lines);
       deps.store.update(userId, {
         state: "settled",
