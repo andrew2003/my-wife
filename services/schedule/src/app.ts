@@ -7,13 +7,15 @@ import {
   IsoDateSchema,
   IsoDateTimeSchema,
   parseEvent,
+  RecurrencePatternSchema,
   SETTINGS,
   StartTaskRequestSchema,
   SubtaskSchema,
   WeekPlannedItemSchema,
   type EventEnvelope,
 } from "@my-wife/contracts";
-import { answerCarryOver, runDayEndJob } from "./carry-over";
+import { answerCarryOver, runDayEndJob, todayOf } from "./carry-over";
+import { materializeWeekRecurrences, type StoredRecurrence } from "./recurrence";
 import { resolvePomodoroSettings } from "./pomodoro";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
@@ -43,6 +45,7 @@ import {
   viewSession,
   type SessionStore,
 } from "./sessions";
+import { zoneSetting } from "./review";
 import {
   buildReview,
   type ReviewOverrunOptions,
@@ -441,6 +444,56 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     return { ok: true, data: { templates: list } };
   });
 
+  const recurrences = new Map<string, StoredRecurrence>();
+  app.post("/recurrences", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const pattern = RecurrencePatternSchema.safeParse(body.pattern);
+    const exceptions = IsoDateSchema.array().safeParse(body.exceptions ?? []);
+    const parsedTask = CreateTaskRequestSchema.omit({
+      day: true,
+      parentRecurrenceId: true,
+    }).safeParse(body.task);
+    // Only the solar calendar here; lunar recurrences need the lunar conversion.
+    if (body.calendar !== "solar" || !pattern.success || !exceptions.success || !parsedTask.success)
+      return fail(reply, 400, "schedule.invalid_request");
+    if (pattern.data.type === "lunar_day") return fail(reply, 400, "schedule.invalid_request");
+    const t = parsedTask.data;
+    let minutes: number = SETTINGS["schedule.task_default_minutes"].default;
+    if (t.estimatedMinutes === undefined) {
+      const answer = (await readSettings(userId))["schedule.task_default_minutes"];
+      if (typeof answer === "number" && Number.isInteger(answer) && answer > 0) minutes = answer;
+    }
+    const stored: StoredRecurrence = {
+      id: randomUUID(),
+      userId,
+      calendar: "solar",
+      pattern: pattern.data,
+      exceptions: exceptions.data,
+      task: {
+        title: t.title,
+        window: t.window ?? null,
+        estimatedMinutes: t.estimatedMinutes ?? minutes,
+        energyLevel: t.energyLevel ?? null,
+        definitionOfDone: t.definitionOfDone ?? null,
+        monitoringProfile: t.monitoringProfile,
+        kind: t.kind,
+      },
+    };
+    recurrences.set(stored.id, stored);
+    const { userId: _u, ...view } = stored;
+    return { ok: true, data: { recurrence: view } };
+  });
+  app.get("/recurrences", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const list = [...recurrences.values()]
+      .filter((r) => r.userId === userId)
+      .map(({ userId: _u, ...view }) => view);
+    return { ok: true, data: { recurrences: list } };
+  });
+
   /**
    * Planning step of a draft week: optionally copies a saved template once, then reports the
    * load so "overloaded" is visible before approval. Emits nothing; `week.planned` comes on approve.
@@ -462,12 +515,22 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
       templateApplied.add(found.id);
       copyTemplateIntoWeek(plan.store, found, template, randomUUID);
     }
-    const load = computeWeekLoad(plan.store, found, await readSettings(userId));
+    const values = await readSettings(userId);
+    const recurringTasks = materializeWeekRecurrences(
+      plan.store,
+      [...recurrences.values()],
+      userId,
+      found.firstDay,
+      todayOf(now(), zoneSetting(values["calendar.time_zone"])),
+      randomUUID,
+    ).map(taskView);
+    const load = computeWeekLoad(plan.store, found, values);
     const { closedAnnounced: _c, reviewAnnounced: _r, userId: _u, ...week } = found;
     return {
       ok: true,
       data: {
         week,
+        recurringTasks,
         overloaded: load.overloaded,
         overloadMinutes: load.overloadMinutes,
         plannedMinutes: load.plannedMinutes,
