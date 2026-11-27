@@ -1,5 +1,6 @@
 import { SETTINGS, type EventEnvelope } from "@my-wife/contracts";
 import type { PlanDeps, PlanStore, PlanWeek } from "./plan";
+import type { SessionStore } from "./sessions";
 
 const DAY_MS = 86_400_000;
 const WEEK_DAYS = 7;
@@ -280,8 +281,32 @@ function overspendFirstDay(ledgers: LedgerStore, row: OverspendRow): string | un
   return new Date(at).toISOString().slice(0, 10);
 }
 
+/**
+ * Thresholds of the duration suggestion. No registry setting exists yet (ADR pending), so they
+ * are injected options with these defaults; they are never read as constants elsewhere.
+ */
+export interface ReviewOverrunOptions {
+  /** A task overran when its actual time exceeds the estimate by more than this percent. */
+  tolerancePercent: number;
+  /** The suggestion appears when at least this many measured tasks overran. */
+  minOverranTasks: number;
+}
+export const DEFAULT_REVIEW_OVERRUN: ReviewOverrunOptions = {
+  tolerancePercent: 20,
+  minOverranTasks: 2,
+};
+
+const MINUTE_MS = 60_000;
+
 /** Every number is computed from the stored plan and ledgers; nothing is an LLM figure. */
-export function buildReview(store: PlanStore, ledgers: LedgerStore, week: PlanWeek) {
+export function buildReview(
+  store: PlanStore,
+  ledgers: LedgerStore,
+  week: PlanWeek,
+  sessions?: SessionStore,
+  overrunOptions?: Partial<ReviewOverrunOptions>,
+) {
+  const opts = { ...DEFAULT_REVIEW_OVERRUN, ...overrunOptions };
   const days = new Set(
     Array.from({ length: WEEK_DAYS }, (_, i) =>
       new Date(weekStart(week) + i * DAY_MS).toISOString().slice(0, 10),
@@ -300,6 +325,31 @@ export function buildReview(store: PlanStore, ledgers: LedgerStore, week: PlanWe
   const outgoing = ledgers
     .txns(week.userId)
     .filter((t) => days.has(new Date(t.occurredAt).toISOString().slice(0, 10)));
+  // Actual time is the sum of the task's ended sessions; tasks without any are not measured.
+  const ended = (sessions?.all() ?? []).filter((x) => x.userId === week.userId && x.endedAt);
+  const measuredTasks = completed.flatMap((t) => {
+    const mine = ended.filter((x) => x.taskId === t.id);
+    if (mine.length === 0 || t.estimatedMinutes <= 0) return [];
+    const ms = mine.reduce((a, x) => a + (Date.parse(x.endedAt!) - Date.parse(x.startedAt)), 0);
+    const actualMinutes = Math.round(ms / MINUTE_MS);
+    return [{ taskId: t.id, title: t.title, estimatedMinutes: t.estimatedMinutes, actualMinutes }];
+  });
+  const overranTasks = measuredTasks
+    .filter((t) => t.actualMinutes * 100 > t.estimatedMinutes * (100 + opts.tolerancePercent))
+    .map((t) => ({ ...t, suggestedMinutes: t.actualMinutes }));
+  const suggestions =
+    overranTasks.length > 0 && overranTasks.length >= opts.minOverranTasks
+      ? [
+          {
+            kind: "adjust_durations" as const,
+            /** Advice only; nothing is changed or penalised because of it. */
+            informational: true as const,
+            messageKey: "schedule.review.suggest_adjust_durations",
+            overranCount: overranTasks.length,
+            tasks: overranTasks,
+          },
+        ]
+      : [];
   const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
   return {
     weekId: week.id,
@@ -311,6 +361,13 @@ export function buildReview(store: PlanStore, ledgers: LedgerStore, week: PlanWe
       open: tasks.filter((t) => t.state === "planned" || t.state === "in_progress").length,
       completedTasks: completed.map((t) => ({ id: t.id, title: t.title, day: t.day })),
     },
+    estimates: {
+      measured: measuredTasks.length,
+      overran: overranTasks.length,
+      estimatedMinutes: sum(measuredTasks.map((t) => t.estimatedMinutes)),
+      actualMinutes: sum(measuredTasks.map((t) => t.actualMinutes)),
+    },
+    suggestions,
     faults: {
       totalPoints: sum(faults.map((f) => f.points)),
       items: faults.map(({ userId: _u, waived: _w, ...f }) => f),
