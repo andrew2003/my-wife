@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { EventEnvelope, WeekPlannedItem } from "@my-wife/contracts";
 
 export type WeekState = "draft" | "planned" | "active" | "reviewing" | "closed";
+export type TaskPriority = "high" | "normal" | "low";
 export type TaskState = "planned" | "in_progress" | "done" | "skipped" | "carried" | "cancelled";
 
 export interface PlanTask {
@@ -17,6 +18,10 @@ export interface PlanTask {
   kind: "desk" | "offline" | "money";
   state: TaskState;
   carriedCount: number;
+  /** Demoted by the `lower_priority` carry-over rule; stops at `low`. */
+  priority: TaskPriority;
+  /** Open `ask.carry_over` question; the task stays on its day until it is answered or expires. */
+  pendingAsk: { questionId: string; expiresAt: string } | null;
   parentRecurrenceId: string | null;
 }
 
@@ -54,6 +59,7 @@ export interface PlanStore {
   addTask(task: PlanTask): void;
   getTask(userId: string, taskId: string): PlanTask | undefined;
   tasksOn(userId: string, day: string): PlanTask[];
+  allTasks(): PlanTask[];
   addSubtask(subtask: PlanSubtask): void;
   getSubtask(userId: string, subtaskId: string): PlanSubtask | undefined;
   subtasksOf(userId: string, taskId: string): PlanSubtask[];
@@ -88,6 +94,7 @@ export function createMemoryPlanStore(): PlanStore {
     },
     tasksOn: (userId, day) =>
       [...tasks.values()].filter((t) => t.userId === userId && t.day === day),
+    allTasks: () => [...tasks.values()],
     addWeek: (w) => void weeks.set(w.id, w),
     getWeek: (userId, id) => {
       const w = weeks.get(id);
@@ -113,7 +120,13 @@ const WEEK_DAYS = 7;
 
 const startOfDay = (isoDay: string) => Date.parse(`${isoDay}T00:00:00Z`);
 
-function envelope(deps: PlanDeps, id: string, type: string, userId: string, payload: unknown) {
+export function envelope(
+  deps: PlanDeps,
+  id: string,
+  type: string,
+  userId: string,
+  payload: unknown,
+) {
   return {
     id,
     type,

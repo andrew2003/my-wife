@@ -22,5 +22,9 @@
   "schedule.pomodoro.break_started": "Pomodoro finished. Take a {minutes}-minute break; monitoring is paused.",
   "schedule.pomodoro.break_ended": "Break over. Back to work when you are ready.",
   "schedule.offline.check_in_start": "Checked in. I am not monitoring this task.",
-  "schedule.offline.check_in_end": "Checked out. The task is recorded as done."
+  "schedule.offline.check_in_end": "Checked out. The task is recorded as done.",
+  "schedule.carry_over.question": "\"{title}\" was not finished (carried {carriedCount} of {maxTimes} times). What should I do with it?",
+  "schedule.carry_over.option.roll_forward": "Move to tomorrow",
+  "schedule.carry_over.option.lower_priority": "Move and lower its priority",
+  "schedule.carry_over.option.skip": "Skip it"
 }
