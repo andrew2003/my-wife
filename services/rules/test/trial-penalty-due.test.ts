@@ -147,3 +147,41 @@ describe("penalty account hint (#281)", () => {
     expect(events).toHaveLength(0);
   });
 });
+
+describe("settlement with appeals and early turn-off (#84)", () => {
+  it("an appealed penalty is not settled and not counted; turn-off ends the trial", async () => {
+    const { app, events, penaltyStore, post } = await boot({ installmentsK: 1, excess: 50_000 });
+    const entry = penaltyStore.list(USER)[0]!;
+    penaltyStore.holdForAppeal(USER, entry.id, "ap-1", {
+      id: randomUUID(),
+      penaltyId: entry.id,
+      action: "penalty.appeal_hold",
+      at: T0.toISOString(),
+      detail: {},
+    });
+    const off = await app.inject({
+      method: "POST",
+      url: "/trial/turn-off",
+      headers: { "x-user-id": USER },
+      payload: {},
+    });
+    expect(off.json()).toEqual({ ok: true, data: { ended: true } });
+    const ended = events.find((e) => e.type === "trial.ended")!;
+    expect(ended.payload).toMatchObject({ reason: "turned_off", suspendedTotalVnd: 0 });
+    await app.runTrialJob!(new Date(T0.getTime() + 8 * DAY));
+    expect(penaltyStore.list(USER)[0]!.status).toBe("suspended");
+    expect(events.find((e) => e.type === "trial.settled")!.payload).toMatchObject({ totalVnd: 0 });
+    // The appeal is upheld: the hold lifts and the next run makes it due.
+    penaltyStore.releaseAppealHold(USER, entry.id, "ap-1", {
+      id: randomUUID(),
+      penaltyId: entry.id,
+      action: "penalty.appeal_released",
+      at: T0.toISOString(),
+      detail: {},
+    });
+    await app.runTrialJob!(new Date(T0.getTime() + 9 * DAY));
+    expect(penaltyStore.list(USER)[0]!.status).toBe("due");
+    expect(events.filter((e) => e.type === "penalty.issued")).toHaveLength(1);
+    void post;
+  });
+});
