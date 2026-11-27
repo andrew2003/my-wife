@@ -13,6 +13,11 @@ const EnvSchema = z.object({
   /** Prefix that isolates a worktree inside the shared NATS stack. */
   NATS_SUBJECT_PREFIX: z.string().default(""),
   SESSION_SECRET: z.string().min(32),
+  /** Base64 32-byte AES-256-GCM master key for user keys and tokens; secret routes are off without it. */
+  SECRETS_MASTER_KEY: z.string().optional(),
+  SECRETS_KEY_ID: z.string().default("k1"),
+  /** Retired keys kept for decryption after a rotation: `id:base64,id:base64`. */
+  SECRETS_PREVIOUS_KEYS: z.string().optional(),
 });
 
 export type AppConfig = {
@@ -24,6 +29,9 @@ export type AppConfig = {
   natsUrl: string;
   natsSubjectPrefix: string;
   sessionSecret: string;
+  secretsMasterKey?: string;
+  secretsKeyId: string;
+  secretsPreviousKeys?: string;
 };
 
 /** Parses environment variables once; every business number lives elsewhere as a setting. */
@@ -38,6 +46,9 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     natsUrl: e.NATS_URL,
     natsSubjectPrefix: e.NATS_SUBJECT_PREFIX,
     sessionSecret: e.SESSION_SECRET,
+    secretsMasterKey: e.SECRETS_MASTER_KEY,
+    secretsKeyId: e.SECRETS_KEY_ID,
+    secretsPreviousKeys: e.SECRETS_PREVIOUS_KEYS,
   };
 }
 

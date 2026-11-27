@@ -58,6 +58,15 @@ export type OnboardingStepRecord = {
   eventAt: string | null;
 };
 
+/** An encrypted user key or token. The plaintext never reaches the store. */
+export type SecretRecord = {
+  userId: string;
+  kind: string;
+  keyId: string;
+  payload: string;
+  updatedAt: string;
+};
+
 /** Persistence port. The Drizzle implementation (identity schema) replaces the in-memory one. */
 export interface IdentityStore {
   findUserByEmail(email: string): Promise<UserRecord | undefined>;
@@ -89,6 +98,10 @@ export interface IdentityStore {
   listSettingAudit(userId: string): Promise<SettingAuditRecord[]>;
   findOnboardingStep(userId: string, step: string): Promise<OnboardingStepRecord | undefined>;
   saveOnboardingStep(record: OnboardingStepRecord): Promise<void>;
+  saveSecret(record: SecretRecord): Promise<void>;
+  findSecret(userId: string, kind: string): Promise<SecretRecord | undefined>;
+  listSecrets(userId: string): Promise<SecretRecord[]>;
+  deleteSecret(userId: string, kind: string): Promise<void>;
 }
 
 export function createMemoryStore(): IdentityStore {
@@ -99,7 +112,20 @@ export function createMemoryStore(): IdentityStore {
   const settings = new Map<string, Record<string, unknown>>();
   const audit: SettingAuditRecord[] = [];
   const steps = new Map<string, OnboardingStepRecord>();
+  const secrets = new Map<string, SecretRecord>();
   return {
+    async saveSecret(r) {
+      secrets.set(`${r.userId}:${r.kind}`, r);
+    },
+    async findSecret(userId, kind) {
+      return secrets.get(`${userId}:${kind}`);
+    },
+    async listSecrets(userId) {
+      return [...secrets.values()].filter((r) => r.userId === userId);
+    },
+    async deleteSecret(userId, kind) {
+      secrets.delete(`${userId}:${kind}`);
+    },
     async findOnboardingStep(userId, step) {
       return steps.get(`${userId}:${step}`);
     },
