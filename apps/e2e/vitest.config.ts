@@ -10,6 +10,7 @@ export default defineConfig({
       "tests/time.spec.ts",
       "tests/time-extended.spec.ts",
       "tests/routines.spec.ts",
+      "tests/routines-extended.spec.ts",
     ],
     maxWorkers: 1,
     fileParallelism: false,

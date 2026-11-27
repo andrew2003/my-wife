@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { loadConfig } from "@my-wife/config";
-import type { ChannelKind, EventEnvelope } from "@my-wife/contracts";
+import { SETTINGS, type ChannelKind, type EventEnvelope } from "@my-wife/contracts";
 import {
   DiscordFake,
   SimClock,
@@ -13,6 +14,7 @@ import {
   ChannelService,
   InMemoryChannelLinkStore,
 } from "../../../services/notify/src/channels/channel-service";
+import { createDispatcher, InMemoryInbox } from "../../../services/notify/src/dispatch/dispatcher";
 import {
   createScheduleChatPorts,
   createWakePhotoHandler,
@@ -36,7 +38,17 @@ const MINUTE_MS = 60_000;
  * the challenge id of schedule to the one ai knows (#254), and `ai.photo_graded` to schedule
  * (#253). Chat servers receive locale keys as text (the reference channels of the test kit).
  */
-export async function startRoutinesWorld(opts: { start: string }) {
+export async function startRoutinesWorld(opts: {
+  start: string;
+  /**
+   * Settings both users share (schedule, ai and the dispatcher read them on every call, so a
+   * scenario may change them mid-run); anything missing is the registry default.
+   */
+  settings?: Record<string, unknown>;
+  /** Also runs the routine reminder job (meals) every minute of simulated time. */
+  routineJobs?: boolean;
+}) {
+  const settings = opts.settings ?? {};
   const config = loadConfig({ SESSION_SECRET: "x".repeat(32), LOG_LEVEL: "silent" });
   const clock = new SimClock(opts.start);
   const now = () => clock.now();
@@ -68,6 +80,28 @@ export async function startRoutinesWorld(opts: { start: string }) {
     publish: async () => undefined,
     onPhoto: createWakePhotoHandler(rest),
   });
+  const channelOf = (userId: string): ChannelKind =>
+    userId === TELEGRAM_USER ? "telegram" : "discord";
+  // Routine reminders pass notify's dispatcher, so quiet hours apply to them (the wake challenge
+  // is the wake-up message and goes straight out).
+  const inbox = new InMemoryInbox();
+  const dispatcher = createDispatcher({
+    now,
+    settings: {
+      get: async () => ({
+        quietHours: (settings["notify.quiet_hours"] ?? SETTINGS["notify.quiet_hours"].default) as {
+          from: string;
+          to: string;
+        },
+        timeZone: (settings["calendar.time_zone"] ?? "Asia/Ho_Chi_Minh") as string,
+      }),
+    },
+    inbox,
+    deliver: async (userId, message) =>
+      void (await service.deliver(userId, channelOf(userId), message)),
+    deliverDigest: async () => undefined,
+    publish: async () => undefined,
+  });
   const ports = createScheduleChatPorts({
     service,
     channels: ["telegram", "discord"] as ChannelKind[],
@@ -87,11 +121,20 @@ export async function startRoutinesWorld(opts: { start: string }) {
     ephemeralPorts: true,
     schedule: {
       now,
+      readSettings: async () => settings,
       publish: async (e) => {
         events.push(e);
         if (e.type === "routine.reminder_due") {
           const p = e.payload as { messageKey: string; params: Record<string, string | number> };
-          await ports.sendReply(e.userId, { key: p.messageKey, params: p.params });
+          await dispatcher.send(e.userId, {
+            id: randomUUID(),
+            class: "timed",
+            message: { key: p.messageKey, params: p.params },
+            locale: "en",
+            sourceService: "schedule",
+            isWakeUp: false,
+            createdAt: now().toISOString(),
+          });
         }
       },
       sendPhotoRequest: ports.sendPhotoRequest,
@@ -108,7 +151,7 @@ export async function startRoutinesWorld(opts: { start: string }) {
     },
     ai: {
       now,
-      readSettings: async () => ({}),
+      readSettings: async () => settings,
       publish: async (e) => {
         if (e.name !== "ai.photo_graded") return;
         const payload = e.payload as { challengeId: string };
@@ -137,6 +180,12 @@ export async function startRoutinesWorld(opts: { start: string }) {
     MINUTE_MS,
     async () => void (await postAs(TELEGRAM_USER, `${urls.schedule}/jobs/wake`)),
   );
+  if (opts.routineJobs) {
+    clock.scheduleEvery(
+      MINUTE_MS,
+      async () => void (await postAs(TELEGRAM_USER, `${urls.schedule}/jobs/routines`)),
+    );
+  }
 
   // The Discord bot's gateway connection: dispatch frames are handed to the channel service.
   const frames: unknown[] = [];
@@ -158,6 +207,8 @@ export async function startRoutinesWorld(opts: { start: string }) {
   return {
     clock,
     events,
+    inbox,
+    settings,
     urls,
     telegram,
     discord,
