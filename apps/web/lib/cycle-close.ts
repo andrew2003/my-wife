@@ -87,9 +87,7 @@ export interface WishlistRow {
 }
 
 export type WishlistResult =
-  | { status: "ready"; items: WishlistRow[] }
-  | { status: "empty" }
-  | { status: "error" };
+  { status: "ready"; items: WishlistRow[] } | { status: "empty" } | { status: "error" };
 
 /** Reads the wishlist with progress from the future-purchases savings. */
 export async function loadWishlist(doFetch: FetchLike = fetch): Promise<WishlistResult> {

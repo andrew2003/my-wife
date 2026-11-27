@@ -1,10 +1,5 @@
 import { translate, type Locale } from "../lib/i18n";
-import type {
-  ClaimState,
-  MenuResult,
-  ProjectedSurplus,
-  WishlistResult,
-} from "../lib/cycle-close";
+import type { ClaimState, MenuResult, ProjectedSurplus, WishlistResult } from "../lib/cycle-close";
 
 export type CycleCloseStatus = "loading" | "ready" | "empty" | "error";
 

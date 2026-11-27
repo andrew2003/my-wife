@@ -34,11 +34,7 @@ export function CycleCloseScreen({ locale }: { locale: Locale }) {
     setWishlist({ status: "loading" });
     setMenu({ status: "loading" });
     setClaim({ state: "idle" });
-    const [o, values, w] = await Promise.all([
-      loadOverview(),
-      loadCloseSettings(),
-      loadWishlist(),
-    ]);
+    const [o, values, w] = await Promise.all([loadOverview(), loadCloseSettings(), loadWishlist()]);
     setSettings(values);
     setWishlist(w);
     if (o.status === "ready") {
