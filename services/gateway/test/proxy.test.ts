@@ -36,10 +36,14 @@ function setup() {
       });
     if (url === "http://identity/sessions/verify") {
       const token = JSON.parse(String(init.body)).token;
+      if (token === "admin")
+        return json(200, { ok: true, data: { ...session.data, user: { ...user, role: "admin" } } });
       return token === "good"
         ? json(200, session)
         : json(401, { ok: false, error: { code: "identity.invalid_session" } });
     }
+    if (url.startsWith("http://identity/admin/"))
+      return json(200, { ok: true, data: { admin: 1 } });
     if (url.startsWith("http://schedule/")) return json(200, { ok: true, data: { sched: 1 } });
     if (url.startsWith("http://rules/penalties"))
       return json(200, { ok: true, data: { penalties: [], suspendedTotalVnd: 0 } });
@@ -269,5 +273,56 @@ describe("gateway session proxy", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(calls.map((c) => c.url)).toEqual(["http://identity/invitations/accept"]);
+  });
+});
+
+describe("gateway admin guard", () => {
+  it("returns 403 for a non-admin session and forwards nothing", async () => {
+    const { app, calls } = setup();
+    for (const url of ["/api/admin/invitations", "/api/admin"]) {
+      const res = await (
+        await app
+      ).inject({ method: "GET", url, headers: { cookie: `${SESSION_COOKIE}=good` } });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).toEqual({ ok: false, error: { code: "gateway.forbidden" } });
+    }
+    expect(calls.filter((c) => c.url.includes("/admin"))).toHaveLength(0);
+  });
+
+  it.each([
+    "/api/x/../admin/users",
+    "/api/x/%2e%2e/admin/users",
+    "/api/%61dmin/users",
+    "/api/Admin/users",
+    "/api/ADMIN",
+    "/api//admin/users",
+    "/api/%41dmin/users",
+  ])("does not let %s bypass the admin guard", async (url) => {
+    const { app, calls } = setup();
+    const res = await (
+      await app
+    ).inject({ method: "GET", url, headers: { cookie: `${SESSION_COOKIE}=good` } });
+    expect([400, 403]).toContain(res.statusCode);
+    expect(calls.filter((c) => !c.url.endsWith("/sessions/verify"))).toHaveLength(0);
+  });
+
+  it("returns 401 without a session on admin paths", async () => {
+    const { app } = setup();
+    const res = await (await app).inject({ method: "GET", url: "/api/admin/users" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("forwards an admin session to identity", async () => {
+    const { app, calls } = setup();
+    const res = await (
+      await app
+    ).inject({
+      method: "GET",
+      url: "/api/admin/users",
+      headers: { cookie: `${SESSION_COOKIE}=admin` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(calls.at(-1)?.url).toBe("http://identity/admin/users");
+    expect(calls.at(-1)?.headers["x-user-id"]).toBe("u1");
   });
 });
