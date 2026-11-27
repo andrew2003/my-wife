@@ -24,6 +24,7 @@ import {
   validateSettingValue,
   type SettingKey,
 } from "@my-wife/contracts";
+import { parseAuditQuery, queryAudit, redactAuditEntry } from "./audit-view";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
   createMemoryStore,
@@ -836,7 +837,10 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
 
   app.get("/admin/audit", async (req, reply) => {
     if (!adminId(req.headers)) return fail(reply, 403, "identity.forbidden");
-    return { ok: true, data: { entries: await incidents.listAudit() } };
+    const query = parseAuditQuery(req.query);
+    if (!query) return fail(reply, 400, "identity.audit_query_invalid");
+    const entries = queryAudit(await incidents.listAudit(), query);
+    return { ok: true, data: { entries: entries.map(redactAuditEntry) } };
   });
 
   app.post("/admin/incidents/:id/end", async (req, reply) => {
