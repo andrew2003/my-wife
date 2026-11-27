@@ -190,6 +190,28 @@ describe("gateway session proxy", () => {
     });
   });
 
+  it("forwards /api/appeals and /api/faults to rules with the user id", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good`, "content-type": "application/json" };
+    await (
+      await app
+    ).inject({
+      method: "POST",
+      url: "/api/appeals",
+      headers,
+      payload: { subjectKind: "fault", subjectId: "f1", reasonText: "present" },
+    });
+    expect(calls[1]).toMatchObject({
+      url: "http://rules/appeals",
+      method: "POST",
+      headers: { "x-user-id": "u1" },
+    });
+    await (await app).inject({ method: "GET", url: "/api/faults", headers });
+    expect(calls.at(-1)).toMatchObject({ url: "http://rules/faults", method: "GET" });
+    await (await app).inject({ method: "POST", url: "/api/appeals/frame", headers, payload: {} });
+    expect(calls.at(-1)).toMatchObject({ url: "http://rules/appeals/frame" });
+  });
+
   it("forwards wake routes to schedule with the user id", async () => {
     const { app, calls } = setup();
     const headers = { cookie: `${SESSION_COOKIE}=good` };
