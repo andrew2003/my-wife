@@ -138,7 +138,14 @@ describe("calendar mirror", () => {
     const { svc, remote } = setup();
     await svc.upsert("u1", TASK, NOW);
     await svc.upsert("u1", { ...TASK, id: "task-2" }, NOW);
-    await svc.reconcile("u1", [{ ...TASK, title: "Moved" }, { ...TASK, id: "task-3" }], NOW);
+    await svc.reconcile(
+      "u1",
+      [
+        { ...TASK, title: "Moved" },
+        { ...TASK, id: "task-3" },
+      ],
+      NOW,
+    );
     expect(remote.size).toBe(2);
     expect([...remote.values()].map((e) => e.title).sort()).toEqual(["Moved", "Write report"]);
   });
