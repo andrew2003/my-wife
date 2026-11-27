@@ -23,7 +23,8 @@ export interface TransactionRecord {
   counterparty: string | null;
   transactionType: TransactionType;
   reconciliationResult: ReconciliationResult;
-  categoryId: string;
+  /** Null for an internal transfer, which never touches a category. */
+  categoryId: string | null;
   /** Set when the receipt carried the code of a planned item. */
   plannedItemId?: string;
   /** Refund only: the original outgoing transaction it is linked to. */
@@ -96,8 +97,14 @@ export function getCategoryBalances(
     const outVnd = inCategory
       .filter((t) => t.direction === "out")
       .reduce((sum, t) => sum + t.amountVnd, 0);
+    // A refund restores spent only when its original is spent in this cycle; one linked to an
+    // earlier cycle (closed, never edited) would drive spent below zero.
     const restoredVnd = inCategory
-      .filter((t) => t.transactionType === "refund")
+      .filter(
+        (t) =>
+          t.transactionType === "refund" &&
+          (!t.refundOfTransactionId || inCategory.some((o) => o.id === t.refundOfTransactionId)),
+      )
       .reduce((sum, t) => sum + (t.restoredVnd ?? 0), 0);
     const spentVnd = outVnd - restoredVnd;
     return {

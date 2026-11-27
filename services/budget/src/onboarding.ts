@@ -32,6 +32,7 @@ export interface AuditRecord {
     | "account_funded"
     | "cycle_opened"
     | "transaction_recorded"
+    | "income_recorded"
     | "week_closed"
     | "weekly_plan_published"
     | "anomaly_opened"
@@ -57,6 +58,10 @@ export interface SampleBudgetRecord {
   openedAnnounced: boolean;
   /** Transactions booked from verified receipts (MW-023); append-only. */
   transactions: TransactionRecord[];
+  /** Income pool: refund excess and other unallocated income (spec 10 section 6). */
+  incomePool: IncomePoolEntry[];
+  /** Receipt legs of own accounts waiting for their pair (internal transfers, spec 10 section 5). */
+  pendingLegs: PendingLeg[];
   /** Weeks whose close was processed (MW-026): one entry per (cycle, week index). */
   closedWeeks: { cycleId: string; weekIndex: number }[];
   /** Overspends found at week close; `announced` flips after `overspend.detected` was published. */
@@ -71,6 +76,28 @@ export interface SampleBudgetRecord {
   plannedItems: PlannedItem[];
   /** Week indexes whose planned items were published (#307); a week is published once. */
   publishedPlanWeeks: number[];
+}
+
+export interface IncomePoolEntry {
+  id: string;
+  amountVnd: number;
+  payer: string;
+  receivedAt: string;
+  /** The transaction that produced the entry (a refund excess). */
+  sourceTransactionId: string;
+  allocatedCycleId: string | null;
+  /** False until `income.recorded` was published, so a failed publish is retried. */
+  announced: boolean;
+}
+
+export interface PendingLeg {
+  receiptId: string;
+  bankTransactionRef: string;
+  bankAccountId: string;
+  direction: "in" | "out";
+  amountVnd: number;
+  occurredAt: string;
+  memo: string;
 }
 
 export interface FundingRecord {
@@ -153,8 +180,22 @@ export interface SampleBudgetStore {
     cycleId: string,
     txn: TransactionRecord,
     at: Date,
+    income?: IncomePoolEntry,
   ): Promise<"recorded" | "duplicate" | "not_running">;
   markTransactionAnnounced(userId: string, transactionId: string): Promise<void>;
+  markIncomeAnnounced(userId: string, entryId: string): Promise<void>;
+  /** Keeps a receipt leg until its pair arrives; the same `bankTransactionRef` is kept once. */
+  holdLeg(userId: string, leg: PendingLeg): Promise<void>;
+  /**
+   * Atomically books the legs of an internal transfer (each with an audit record) and drops the
+   * pending legs they consume. Legs already booked by `bankTransactionRef` are skipped.
+   */
+  recordInternalTransfer(
+    userId: string,
+    cycleId: string,
+    txns: TransactionRecord[],
+    at: Date,
+  ): Promise<"recorded" | "not_running">;
   /**
    * Stores the planned items of one week with an audit record. A week already published is
    * `already_published` and changes nothing; a cycle that is not `running` is `not_running`.
@@ -350,7 +391,13 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     if (r) r.openedAnnounced = true;
   }
 
-  async recordTransaction(userId: string, cycleId: string, txn: TransactionRecord, at: Date) {
+  async recordTransaction(
+    userId: string,
+    cycleId: string,
+    txn: TransactionRecord,
+    at: Date,
+    income?: IncomePoolEntry,
+  ) {
     const r = this.records.get(userId);
     if (!r || r.cycle.id !== cycleId || r.cycle.state !== "running") {
       return "not_running" as const;
@@ -372,12 +419,69 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
         transactionId: txn.id,
         receiptId: txn.receiptId,
         bankTransactionRef: txn.bankTransactionRef,
-        categoryId: txn.categoryId,
+        categoryId: txn.categoryId ?? "",
         amountVnd: txn.amountVnd,
         reconciliationResult: txn.reconciliationResult,
         ...(txn.plannedItemId ? { plannedItemId: txn.plannedItemId } : {}),
       },
     });
+    if (income) {
+      r.incomePool.push({ ...income });
+      r.audit.push({
+        at: at.toISOString(),
+        userId,
+        action: "income_recorded",
+        detail: {
+          cycleId,
+          entryId: income.id,
+          transactionId: txn.id,
+          amountVnd: income.amountVnd,
+        },
+      });
+    }
+    return "recorded" as const;
+  }
+
+  async markIncomeAnnounced(userId: string, entryId: string) {
+    const entry = this.records.get(userId)?.incomePool.find((e) => e.id === entryId);
+    if (entry) entry.announced = true;
+  }
+
+  async holdLeg(userId: string, leg: PendingLeg) {
+    const r = this.records.get(userId);
+    if (!r || r.pendingLegs.some((l) => l.bankTransactionRef === leg.bankTransactionRef)) return;
+    r.pendingLegs.push({ ...leg });
+  }
+
+  async recordInternalTransfer(
+    userId: string,
+    cycleId: string,
+    txns: TransactionRecord[],
+    at: Date,
+  ) {
+    const r = this.records.get(userId);
+    if (!r || r.cycle.id !== cycleId || r.cycle.state !== "running") {
+      return "not_running" as const;
+    }
+    for (const txn of txns) {
+      if (r.transactions.some((t) => t.bankTransactionRef === txn.bankTransactionRef)) continue;
+      r.transactions.push({ ...txn });
+      r.audit.push({
+        at: at.toISOString(),
+        userId,
+        action: "transaction_recorded",
+        detail: {
+          cycleId,
+          transactionId: txn.id,
+          receiptId: txn.receiptId,
+          bankTransactionRef: txn.bankTransactionRef,
+          amountVnd: txn.amountVnd,
+          reconciliationResult: txn.reconciliationResult,
+        },
+      });
+    }
+    const booked = new Set(txns.map((t) => t.bankTransactionRef));
+    r.pendingLegs = r.pendingLegs.filter((l) => !booked.has(l.bankTransactionRef));
     return "recorded" as const;
   }
 
@@ -697,6 +801,8 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       plannedItems: [],
       publishedPlanWeeks: [],
       transactions: [],
+      incomePool: [],
+      pendingLegs: [],
     };
   }
 }
