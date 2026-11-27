@@ -6,6 +6,7 @@ import { createReceiptHandler } from "./accounts";
 import { buildFundRequests, createContractSignedHandler, createCycleApprover } from "./approval";
 import { createFundingHandler } from "./funding";
 import { createTransactionHandler } from "./transactions";
+import { createPlanPublisher, parsePublishWeeklyPlanRequest } from "./plan-publish";
 import { createWeekClosedHandler } from "./overspend";
 import { buildOverview, roundingFrom } from "./overview";
 import { createUnknownSpendHandlers, type UnknownSpendDeps } from "./unknown-spend";
@@ -111,6 +112,31 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     }
     const result = await approveCycle({ userId, ...body.data });
     if (!result.ok) return reply.code(STATUS[result.error.code] ?? 400).send(result);
+    return result;
+  });
+  const publishPlan = createPlanPublisher({
+    store,
+    now,
+    publish: deps.publish ?? (() => undefined),
+  });
+  const PLAN_STATUS: Record<string, number> = {
+    "budget.cycle_not_found": 404,
+    "budget.category_not_found": 404,
+    "budget.cycle_not_running": 409,
+    "budget.week_already_published": 409,
+  };
+  // Internal write route: the weekly plan's planned items enter the budget record here.
+  app.post("/budget/weekly-plan", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const body = parsePublishWeeklyPlanRequest(req.body);
+    if (!body) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const result = await publishPlan({ userId, ...body });
+    if (!result.ok) return reply.code(PLAN_STATUS[result.error.code] ?? 400).send(result);
     return result;
   });
   // Read route for the onboarding review; the path keeps the gateway's `/budget` prefix.

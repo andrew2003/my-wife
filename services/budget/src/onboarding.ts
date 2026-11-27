@@ -33,6 +33,7 @@ export interface AuditRecord {
     | "cycle_opened"
     | "transaction_recorded"
     | "week_closed"
+    | "weekly_plan_published"
     | "anomaly_opened"
     | "anomaly_resolved";
   detail: Record<string, string | number>;
@@ -68,6 +69,8 @@ export interface SampleBudgetRecord {
   anomalies: AnomalyRecord[];
   /** Planned items of the weekly plan with their issued transfer codes (#304). */
   plannedItems: PlannedItem[];
+  /** Week indexes whose planned items were published (#307); a week is published once. */
+  publishedPlanWeeks: number[];
 }
 
 export interface FundingRecord {
@@ -152,6 +155,17 @@ export interface SampleBudgetStore {
     at: Date,
   ): Promise<"recorded" | "duplicate" | "not_running">;
   markTransactionAnnounced(userId: string, transactionId: string): Promise<void>;
+  /**
+   * Stores the planned items of one week with an audit record. A week already published is
+   * `already_published` and changes nothing; a cycle that is not `running` is `not_running`.
+   */
+  publishWeeklyPlan(
+    userId: string,
+    cycleId: string,
+    weekIndex: number,
+    items: PlannedItem[],
+    at: Date,
+  ): Promise<"published" | "already_published" | "not_running">;
   /**
    * Stores an anomaly with an audit record. One anomaly per `receiptId`: a repeat returns the
    * stored one as `duplicate` and writes nothing; a cycle that is not `running` is `not_running`.
@@ -365,6 +379,29 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
       },
     });
     return "recorded" as const;
+  }
+
+  async publishWeeklyPlan(
+    userId: string,
+    cycleId: string,
+    weekIndex: number,
+    items: PlannedItem[],
+    at: Date,
+  ) {
+    const r = this.records.get(userId);
+    if (!r || r.cycle.id !== cycleId || r.cycle.state !== "running") {
+      return "not_running" as const;
+    }
+    if (r.publishedPlanWeeks.includes(weekIndex)) return "already_published" as const;
+    r.publishedPlanWeeks.push(weekIndex);
+    r.plannedItems.push(...items.map((i) => ({ ...i })));
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "weekly_plan_published",
+      detail: { cycleId, weekIndex, itemCount: items.length },
+    });
+    return "published" as const;
   }
 
   async markTransactionAnnounced(userId: string, transactionId: string) {
@@ -658,6 +695,7 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       penaltyDebts: [],
       anomalies: [],
       plannedItems: [],
+      publishedPlanWeeks: [],
       transactions: [],
     };
   }
