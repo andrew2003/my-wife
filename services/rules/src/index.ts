@@ -8,3 +8,4 @@ export * from "./appeal";
 export * from "./penalty-source";
 export * from "./rule-change";
 export * from "./cycle-contract";
+export * from "./reward";
