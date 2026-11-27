@@ -7,6 +7,8 @@ export interface EndSoundSettings {
   durationMs: number;
   /** Gain from 0 to 1. */
   volume: number;
+  /** An end past by more than this is not announced (the moment is gone). */
+  maxLatenessMs: number;
 }
 
 export const DEFAULT_END_SOUND: EndSoundSettings = {
@@ -14,9 +16,21 @@ export const DEFAULT_END_SOUND: EndSoundSettings = {
   frequencyHz: 880,
   durationMs: 1500,
   volume: 0.5,
+  maxLatenessMs: 5000,
 };
 
-const STORAGE_KEY = "my-wife.end-sound";
+/** Accepted ranges for the numeric settings; anything outside falls back to the default. */
+export const END_SOUND_BOUNDS = {
+  frequencyHz: { min: 50, max: 5000 },
+  durationMs: { min: 100, max: 10_000 },
+  volume: { min: 0, max: 1 },
+  maxLatenessMs: { min: 0, max: 600_000 },
+} as const;
+
+/** A moved audio time smaller than this (seconds) is jitter, not a reschedule. */
+export const RESCHEDULE_TOLERANCE_SECONDS = 0.25;
+
+export const END_SOUND_STORAGE_KEY = "my-wife.end-sound";
 
 /** Reads the user's saved sound settings, falling back to defaults for anything invalid. */
 export function loadEndSoundSettings(
@@ -25,18 +39,36 @@ export function loadEndSoundSettings(
     : localStorage,
 ): EndSoundSettings {
   try {
-    const raw = storage?.getItem(STORAGE_KEY);
+    const raw = storage?.getItem(END_SOUND_STORAGE_KEY);
     const p = raw ? (JSON.parse(raw) as Partial<EndSoundSettings>) : {};
-    const num = (v: unknown, d: number, min: number, max: number) =>
-      typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : d;
+    const num = (k: keyof typeof END_SOUND_BOUNDS) => {
+      const v = p[k];
+      const { min, max } = END_SOUND_BOUNDS[k];
+      return typeof v === "number" && Number.isFinite(v) && v >= min && v <= max
+        ? v
+        : DEFAULT_END_SOUND[k];
+    };
     return {
       enabled: typeof p.enabled === "boolean" ? p.enabled : DEFAULT_END_SOUND.enabled,
-      frequencyHz: num(p.frequencyHz, DEFAULT_END_SOUND.frequencyHz, 50, 5000),
-      durationMs: num(p.durationMs, DEFAULT_END_SOUND.durationMs, 100, 10000),
-      volume: num(p.volume, DEFAULT_END_SOUND.volume, 0, 1),
+      frequencyHz: num("frequencyHz"),
+      durationMs: num("durationMs"),
+      volume: num("volume"),
+      maxLatenessMs: num("maxLatenessMs"),
     };
   } catch {
     return DEFAULT_END_SOUND;
+  }
+}
+
+/** Persists the settings; silently ignores a blocked or full storage. */
+export function saveEndSoundSettings(
+  storage: Pick<Storage, "setItem"> | undefined,
+  settings: EndSoundSettings,
+): void {
+  try {
+    storage?.setItem(END_SOUND_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // the setting then lasts only for this page
   }
 }
 
@@ -60,8 +92,10 @@ export interface AudioContextLike {
 export interface EndSound {
   /** Call from a user gesture; unlocks audio so the later sound is allowed to play. */
   unlock(): Promise<void>;
-  /** Schedules one sound at `endsAtMs` on the audio clock. Repeated calls for the same end are no-ops. */
+  /** Schedules one sound at `endsAtMs` on the audio clock; moves it when the end or audio time shifts. */
   schedule(endsAtMs: number, clock?: Clock): void;
+  /** Applies new settings and drops any scheduled tone. */
+  configure(settings: EndSoundSettings): void;
   cancel(): void;
 }
 
@@ -75,11 +109,19 @@ export function createEndSound(opts: {
   createContext?: () => AudioContextLike | null;
   settings?: EndSoundSettings;
 }): EndSound {
-  const settings = opts.settings ?? DEFAULT_END_SOUND;
+  let settings = opts.settings ?? DEFAULT_END_SOUND;
   const create = opts.createContext ?? browserContext;
   let ctx: AudioContextLike | null = null;
-  let scheduledFor: number | null = null;
+  let scheduled: { endsAtMs: number; at: number } | null = null;
   let osc: ReturnType<AudioContextLike["createOscillator"]> | null = null;
+  const cancel = () => {
+    if (osc) {
+      osc.stop(0);
+      osc.disconnect();
+      osc = null;
+    }
+    scheduled = null;
+  };
   return {
     async unlock() {
       if (!settings.enabled) return;
@@ -88,10 +130,21 @@ export function createEndSound(opts: {
     },
     schedule(endsAtMs, clock = { now: () => Date.now() }) {
       if (!settings.enabled || !ctx || ctx.state !== "running") return;
-      if (scheduledFor === endsAtMs) return;
-      scheduledFor = endsAtMs;
-      const delay = Math.max(0, endsAtMs - clock.now()) / 1000;
-      const at = ctx.currentTime + delay;
+      const remainingMs = endsAtMs - clock.now();
+      if (remainingMs < -settings.maxLatenessMs) {
+        cancel();
+        return;
+      }
+      const at = ctx.currentTime + Math.max(0, remainingMs) / 1000;
+      if (
+        scheduled &&
+        scheduled.endsAtMs === endsAtMs &&
+        Math.abs(scheduled.at - at) <= RESCHEDULE_TOLERANCE_SECONDS
+      ) {
+        return;
+      }
+      cancel();
+      scheduled = { endsAtMs, at };
       const gain = ctx.createGain();
       gain.gain.value = settings.volume;
       gain.connect(ctx.destination);
@@ -102,13 +155,10 @@ export function createEndSound(opts: {
       osc.start(at);
       osc.stop(at + settings.durationMs / 1000);
     },
-    cancel() {
-      if (osc) {
-        osc.stop(0);
-        osc.disconnect();
-        osc = null;
-      }
-      scheduledFor = null;
+    configure(next) {
+      cancel();
+      settings = next;
     },
+    cancel,
   };
 }

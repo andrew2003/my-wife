@@ -53,6 +53,7 @@ describe("end-of-task sound", () => {
       frequencyHz: 440,
       durationMs: 2000,
       volume: 0.3,
+      maxLatenessMs: 5000,
     };
     const sound = createEndSound({ createContext: () => a.ctx, settings });
     await sound.unlock();
@@ -93,7 +94,16 @@ describe("end-of-task sound", () => {
   });
 
   it("has locale strings in vi and en", () => {
-    for (const k of ["sound.enable", "sound.enabled"]) {
+    const keys = [
+      "sound.enable",
+      "sound.enabled",
+      "sound.toggle",
+      "sound.frequency",
+      "sound.duration",
+      "sound.volume",
+      "sound.max_lateness",
+    ];
+    for (const k of keys) {
       expect((en as Record<string, string>)[k]).toBeTruthy();
       expect((vi_ as Record<string, string>)[k]).toBeTruthy();
     }

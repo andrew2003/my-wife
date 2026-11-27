@@ -11,7 +11,15 @@ import {
   type Ticker,
   type VisibilitySource,
 } from "../lib/countdown";
-import { createEndSound, loadEndSoundSettings, type EndSound } from "../lib/end-sound";
+import {
+  DEFAULT_END_SOUND,
+  END_SOUND_BOUNDS,
+  createEndSound,
+  loadEndSoundSettings,
+  saveEndSoundSettings,
+  type EndSound,
+  type EndSoundSettings,
+} from "../lib/end-sound";
 import { translate, type Locale } from "../lib/i18n";
 import { browserPipApi, isPipSupported, openCountdownPip, type CountdownPip } from "../lib/pip";
 
@@ -76,28 +84,78 @@ export function EndSoundToggle({
 }) {
   const soundRef = useRef<EndSound | null>(null);
   const [on, setOn] = useState(false);
-  const [enabled, setEnabled] = useState(false);
+  const [settings, setSettings] = useState<EndSoundSettings>(DEFAULT_END_SOUND);
   useEffect(() => {
-    const settings = loadEndSoundSettings();
-    setEnabled(settings.enabled);
-    soundRef.current = createEndSound({ settings });
+    const loaded = loadEndSoundSettings();
+    soundRef.current = createEndSound({ settings: loaded });
+    setSettings(loaded);
     return () => soundRef.current?.cancel();
   }, []);
   useEffect(() => {
-    if (!on) return;
+    if (!on || !settings.enabled) return;
     const c = clock ?? { now: () => Date.now() };
     soundRef.current?.schedule(endsAtMs, { now: () => c.now() + (serverOffsetMs ?? 0) });
-  }, [on, endsAtMs, serverOffsetMs, clock]);
-  if (!enabled) return null;
-  if (on) return <span className="sound-on">{translate(locale, "sound.enabled")}</span>;
+  }, [on, settings, endsAtMs, serverOffsetMs, clock]);
+  const apply = (next: EndSoundSettings) => {
+    saveEndSoundSettings(typeof localStorage === "undefined" ? undefined : localStorage, next);
+    soundRef.current?.configure(next);
+    setSettings(next);
+  };
+  const unlock = () => void soundRef.current?.unlock().then(() => setOn(true));
+  const numberField = (
+    name: "frequencyHz" | "durationMs" | "volume" | "maxLatenessMs",
+    labelKey: string,
+    step: number,
+  ) => (
+    <label key={name}>
+      {translate(locale, labelKey)}
+      <input
+        type="number"
+        name={name}
+        step={step}
+        min={END_SOUND_BOUNDS[name].min}
+        max={END_SOUND_BOUNDS[name].max}
+        defaultValue={settings[name]}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          const { min, max } = END_SOUND_BOUNDS[name];
+          if (e.target.value !== "" && Number.isFinite(v) && v >= min && v <= max) {
+            apply({ ...settings, [name]: v });
+          }
+        }}
+      />
+    </label>
+  );
   return (
-    <button
-      type="button"
-      className="sound-toggle"
-      onClick={() => void soundRef.current?.unlock().then(() => setOn(true))}
-    >
-      {translate(locale, "sound.enable")}
-    </button>
+    <div className="sound-settings">
+      <label>
+        <input
+          type="checkbox"
+          checked={settings.enabled}
+          onChange={(e) => {
+            apply({ ...settings, enabled: e.target.checked });
+            if (e.target.checked) unlock();
+          }}
+        />
+        {translate(locale, "sound.toggle")}
+      </label>
+      {settings.enabled && on && (
+        <span className="sound-on">{translate(locale, "sound.enabled")}</span>
+      )}
+      {settings.enabled && !on && (
+        <button type="button" className="sound-unlock" onClick={unlock}>
+          {translate(locale, "sound.enable")}
+        </button>
+      )}
+      {settings.enabled && (
+        <>
+          {numberField("frequencyHz", "sound.frequency", 10)}
+          {numberField("durationMs", "sound.duration", 100)}
+          {numberField("volume", "sound.volume", 0.1)}
+          {numberField("maxLatenessMs", "sound.max_lateness", 1000)}
+        </>
+      )}
+    </div>
   );
 }
 
