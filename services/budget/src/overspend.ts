@@ -96,7 +96,7 @@ const WEEK_DAYS = 7;
 const dayStart = (day: string) => Date.parse(`${day}T00:00:00.000Z`);
 
 /** Week index (1-based) of a week starting on `firstDay` inside the cycle, or undefined. */
-function weekIndexOf(cycleFirstDay: string, firstDay: string): number | undefined {
+export function weekIndexOf(cycleFirstDay: string, firstDay: string): number | undefined {
   const days = Math.round((dayStart(firstDay) - dayStart(cycleFirstDay)) / DAY_MS);
   if (!Number.isFinite(days) || days < 0 || days % WEEK_DAYS !== 0) return undefined;
   return days / WEEK_DAYS + 1;

@@ -136,6 +136,23 @@ describe("money flow in the dev runner", () => {
     );
   });
 
+  it("routes week.planned to budget (#310)", async () => {
+    await start();
+    await runner!.publish({
+      id: "wp1",
+      type: "week.planned",
+      userId: USER,
+      occurredAt: NOW.toISOString(),
+      schemaVersion: 1,
+      payload: {
+        weekId: "44444444-4444-4444-8444-444444444444",
+        firstDay: "2026-11-23",
+        plannedItems: [{ categoryId: "55555555-5555-4555-8555-555555555555", amountVnd: 1000 }],
+      },
+    } as EventEnvelope);
+    expect(delivered).toContain("budget:week.planned");
+  });
+
   it("routes contract.signed, week.closed and overspend.detected; rules starts the trial and suspends the penalty", async () => {
     await start();
     const base = { userId: USER, occurredAt: NOW.toISOString(), schemaVersion: 1 };

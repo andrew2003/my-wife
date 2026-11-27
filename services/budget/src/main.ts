@@ -11,6 +11,7 @@ import {
   runEventConsumer,
   runOnboardingConsumer,
   WEEK_CLOSED_SUBJECT,
+  WEEK_PLANNED_SUBJECT,
 } from "./consumer";
 
 const config = loadConfig(process.env);
@@ -69,6 +70,14 @@ void runEventConsumer({
   prefix,
   type: WEEK_CLOSED_SUBJECT,
   handler: app.onWeekClosed,
+  log: app.log,
+});
+
+void runEventConsumer({
+  nats,
+  prefix,
+  type: WEEK_PLANNED_SUBJECT,
+  handler: app.onWeekPlanned,
   log: app.log,
 });
 

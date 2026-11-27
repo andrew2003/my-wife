@@ -7,6 +7,7 @@ export const RECEIPT_UNKNOWN_SUBJECT = "receipt.unknown";
 export const REPLY_RECEIVED_SUBJECT = "notify.reply_received";
 export const CONTRACT_SIGNED_SUBJECT = "contract.signed";
 export const WEEK_CLOSED_SUBJECT = "week.closed";
+export const WEEK_PLANNED_SUBJECT = "week.planned";
 /** Replicas of budget share one queue group so each event is handled once. */
 export const BUDGET_QUEUE_GROUP = "budget";
 
