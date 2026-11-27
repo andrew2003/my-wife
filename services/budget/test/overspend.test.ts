@@ -300,3 +300,121 @@ describe("criterion 2: week.closed consumed twice", () => {
     );
   });
 });
+
+describe("refunds in the week close (spec 10 acceptance 7)", () => {
+  const cases = [
+    { name: "full restore of 200,000", out: 200_000, restored: 200_000, excess: 0, spent: 0 },
+    {
+      name: "partial restore of 50,000",
+      out: 200_000,
+      restored: 50_000,
+      excess: 50_000,
+      spent: 150_000,
+    },
+    {
+      name: "restore down to the limit",
+      out: 200_000,
+      restored: 100_000,
+      excess: 0,
+      spent: 100_000,
+    },
+    {
+      name: "no restore keeps the overspend",
+      out: 150_000,
+      restored: 0,
+      excess: 50_000,
+      spent: 150_000,
+    },
+  ];
+  it.each(cases)("$name", async ({ out, restored, excess, spent }) => {
+    const s = await seeded();
+    await s.book(out);
+    const record = s.store.get("u1")!;
+    const original = record.transactions.at(-1)!;
+    record.transactions.push({
+      ...original,
+      id: "refund-1",
+      receiptId: "r-refund",
+      bankTransactionRef: "ref-refund",
+      direction: "in",
+      amountVnd: Math.max(restored, 1),
+      transactionType: "refund",
+      refundOfTransactionId: original.id,
+      restoredVnd: restored,
+    });
+    await s.handle(s.weekClosed(1));
+    const events = overspends(s.published);
+    if (excess === 0) {
+      expect(events).toHaveLength(0);
+      expect(s.store.get("u1")!.limitAdjustments).toEqual([]);
+    } else {
+      expect(events).toHaveLength(1);
+      expect(events[0]!.payload).toMatchObject({ spentVnd: spent, excessVnd: excess });
+    }
+  });
+
+  const refundOf = (s: Awaited<ReturnType<typeof seeded>>, restored: number, at: Date) => {
+    const record = s.store.get("u1")!;
+    const original = record.transactions.at(-1)!;
+    record.transactions.push({
+      ...original,
+      id: `refund-${restored}-${at.getTime()}`,
+      direction: "in",
+      amountVnd: restored,
+      occurredAt: at.toISOString(),
+      transactionType: "refund",
+      refundOfTransactionId: original.id,
+      restoredVnd: restored,
+    });
+  };
+
+  it("floors spent at 0 when restored exceeds spending in the same week", async () => {
+    const s = await seeded();
+    await s.book(50_000);
+    refundOf(s, 80_000, NOW);
+    await s.handle(s.weekClosed(1));
+    expect(overspends(s.published)).toHaveLength(0);
+  });
+
+  it("a week-2 refund of a week-1 original with no week-2 spending gives spent 0, no event", async () => {
+    const s = await seeded();
+    await s.book(80_000, new Date("2026-03-03T10:00:00Z"));
+    await s.handle(s.weekClosed(1));
+    refundOf(s, 80_000, new Date("2026-03-10T10:00:00Z"));
+    await s.handle(s.weekClosed(2, "2026-03-09"));
+    expect(overspends(s.published)).toHaveLength(0);
+    expect(s.store.get("u1")!.limitAdjustments).toEqual([]);
+  });
+
+  it("a week-2 refund of a week-1 original nets against real week-2 spending", async () => {
+    const s = await seeded();
+    await s.book(80_000, new Date("2026-03-03T10:00:00Z"));
+    await s.handle(s.weekClosed(1));
+    refundOf(s, 80_000, new Date("2026-03-10T10:00:00Z"));
+    await s.book(200_000, new Date("2026-03-11T10:00:00Z"));
+    await s.handle(s.weekClosed(2, "2026-03-09"));
+    const events = overspends(s.published);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({
+      weekIndex: 2,
+      spentVnd: 120_000,
+      excessVnd: 20_000,
+    });
+  });
+
+  it("ignores a refund linked to a transaction outside the cycle", async () => {
+    const s = await seeded();
+    await s.book(150_000);
+    const record = s.store.get("u1")!;
+    record.transactions.push({
+      ...record.transactions.at(-1)!,
+      id: "refund-2",
+      direction: "in",
+      transactionType: "refund",
+      refundOfTransactionId: "older-cycle-txn",
+      restoredVnd: 150_000,
+    });
+    await s.handle(s.weekClosed(1));
+    expect(overspends(s.published)[0]!.payload.spentVnd).toBe(150_000);
+  });
+});
