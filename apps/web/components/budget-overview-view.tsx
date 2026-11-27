@@ -9,6 +9,8 @@ export interface BudgetOverviewViewProps {
   status: OverviewStatus;
   overview: Overview | null;
   penalties: PenaltiesResult;
+  /** IANA zone of the user's `calendar.time_zone`; dates are shown in it. */
+  timeZone: string;
   onRefresh: () => void;
 }
 
@@ -18,6 +20,7 @@ export function BudgetOverviewView({
   status,
   overview,
   penalties,
+  timeZone,
   onRefresh,
 }: BudgetOverviewViewProps) {
   const t = (key: string, params?: Record<string, string | number>) =>
@@ -27,7 +30,7 @@ export function BudgetOverviewView({
   const when = (iso: string) =>
     new Intl.DateTimeFormat(locale === "vi" ? "vi-VN" : "en-US", {
       dateStyle: "medium",
-      timeZone: "UTC",
+      timeZone,
     }).format(new Date(iso));
 
   if (status === "loading") return <p role="status">{t("budget.loading")}</p>;

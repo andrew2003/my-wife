@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import en from "../locales/en.json";
 import vi from "../locales/vi.json";
 import { BudgetOverviewView } from "../components/budget-overview-view";
-import { loadOverview, loadPenalties, type Overview } from "../lib/budget-overview";
+import { loadOverview, loadPenalties, loadTimeZone, type Overview } from "../lib/budget-overview";
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -191,6 +191,17 @@ describe("BudgetOverviewView", () => {
     expect(html).toContain(en["budget.penalty.error"]);
   });
 
+  it("shows dates in the user's time zone", () => {
+    const html = view({
+      timeZone: "Pacific/Honolulu",
+      penalties: { status: "ready", due: [penalty] },
+    });
+    expect(html).toContain("Nov 9, 2026");
+    expect(html).toContain("Nov 29, 2026");
+    expect(html).not.toContain("Nov 10, 2026");
+    expect(view({ timeZone: "Asia/Ho_Chi_Minh" })).toContain("Nov 10, 2026");
+  });
+
   it("has loading, empty and error states with a retry", () => {
     expect(view({ status: "loading", overview: null })).toContain(en["budget.loading"]);
     expect(view({ status: "empty", overview: null })).toContain(en["budget.empty"]);
@@ -203,5 +214,31 @@ describe("BudgetOverviewView", () => {
     const keys = Object.keys(en).filter((k) => k.startsWith("budget."));
     expect(keys.length).toBeGreaterThan(15);
     for (const k of keys) expect(vi).toHaveProperty([k]);
+  });
+});
+
+describe("loadTimeZone", () => {
+  it("reads calendar.time_zone from the settings", async () => {
+    const f = async (url: string) => {
+      expect(url).toBe("/api/settings");
+      return json(200, { ok: true, data: { values: { "calendar.time_zone": "Asia/Tokyo" } } });
+    };
+    expect(await loadTimeZone(f)).toBe("Asia/Tokyo");
+  });
+
+  it("falls back to the default on failure, bad data or an invalid zone", async () => {
+    const fallback = "Asia/Ho_Chi_Minh";
+    expect(await loadTimeZone(async () => json(500, {}))).toBe(fallback);
+    expect(await loadTimeZone(async () => json(200, { nope: 1 }))).toBe(fallback);
+    expect(
+      await loadTimeZone(async () =>
+        json(200, { ok: true, data: { values: { "calendar.time_zone": "Mars/Base" } } }),
+      ),
+    ).toBe(fallback);
+    expect(
+      await loadTimeZone(async () => {
+        throw new Error("down");
+      }),
+    ).toBe(fallback);
   });
 });

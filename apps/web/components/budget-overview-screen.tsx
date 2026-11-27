@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   loadOverview,
   loadPenalties,
+  loadTimeZone,
   type Overview,
   type PenaltiesResult,
 } from "../lib/budget-overview";
@@ -16,9 +17,12 @@ export function BudgetOverviewScreen({ locale }: { locale: Locale }) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [penalties, setPenalties] = useState<PenaltiesResult>({ status: "loading" });
 
+  const [timeZone, setTimeZone] = useState<string>("UTC");
+
   const load = useCallback(async () => {
     setStatus("loading");
-    const [o, p] = await Promise.all([loadOverview(), loadPenalties()]);
+    const [o, p, zone] = await Promise.all([loadOverview(), loadPenalties(), loadTimeZone()]);
+    setTimeZone(zone);
     if (o.status === "ready") setOverview(o.overview);
     setPenalties(p);
     setStatus(o.status);
@@ -34,6 +38,7 @@ export function BudgetOverviewScreen({ locale }: { locale: Locale }) {
       status={status}
       overview={overview}
       penalties={penalties}
+      timeZone={timeZone}
       onRefresh={() => void load()}
     />
   );

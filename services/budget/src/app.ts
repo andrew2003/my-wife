@@ -7,6 +7,7 @@ import { buildFundRequests, createContractSignedHandler, createCycleApprover } f
 import { createFundingHandler } from "./funding";
 import { createTransactionHandler } from "./transactions";
 import { createWeekClosedHandler } from "./overspend";
+import { buildOverview, roundingFrom } from "./overview";
 import { createUnknownSpendHandlers, type UnknownSpendDeps } from "./unknown-spend";
 import {
   createOnboardingHandler,
@@ -122,6 +123,19 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
       return reply.code(404).send({ ok: false, error: { code: "budget.cycle_not_found" } });
     }
     return { ok: true, data: { cycle: record.cycle, categories: record.categories } };
+  });
+  // Read route for the budget page; the response schema is `BudgetOverviewResponse` (ADR 0012).
+  app.get("/budget/overview", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const record = await store.find(userId);
+    if (!record) {
+      return reply.code(404).send({ ok: false, error: { code: "budget.cycle_not_found" } });
+    }
+    const settings = (await deps.readSettings?.(userId)) ?? {};
+    return { ok: true, data: buildOverview(record, now(), roundingFrom(settings)) };
   });
   // Read route for the funding screen. There is no contract response schema yet (ADR needed),
   // so the shape is defined locally; it follows the web's expectation (decisions.md, MW-022).
