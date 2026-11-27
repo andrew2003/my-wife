@@ -64,6 +64,7 @@ import {
   createMemoryRoutineStore,
   effectiveLevel,
   runRoutineReminderJob,
+  type MenuSource,
   type RoutineStore,
 } from "./routines";
 import { createMemorySleepStore, recordWebActivity, runSleepJob, type SleepStore } from "./sleep";
@@ -113,6 +114,8 @@ export type ScheduleDeps = ServiceDeps & {
   sleepStore?: SleepStore;
   /** Routine level changes and meal reminders storage port; in memory for now. */
   routineStore?: RoutineStore;
+  /** Today's dish from the budget menu (internal REST in production); none without budget. */
+  menuSource?: MenuSource;
   /** `wake` challenge storage port; in memory until the Drizzle store lands. */
   wakeStore?: WakeStore;
   /** Daily challenge text; the fake generator in M1. */
@@ -682,6 +685,8 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
   const routineDeps = {
     plan,
     store: routineStore,
+    sessions: sessionDeps.sessions,
+    ...(deps.menuSource ? { menuSource: deps.menuSource } : {}),
     readSettings: readSettings as (userId: string) => Promise<Record<string, unknown>>,
   };
   app.decorate("runRoutineJob", (at: Date) => runRoutineReminderJob(routineDeps, at));
