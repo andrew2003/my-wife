@@ -17,7 +17,7 @@ import {
   TransactionSchema,
   WeeklyLimitSchema,
 } from "./entities";
-import { LearnScopeSchema, SurplusTargetSchema } from "./enums";
+import { AnomalyKindSchema, LearnScopeSchema, SurplusTargetSchema } from "./enums";
 
 export const CreateCycleDraftRequestSchema = z.object({
   weeks: z.number().int().positive().optional(),
@@ -132,3 +132,33 @@ export type SurplusAllocation = z.infer<typeof SurplusAllocationSchema>;
 
 export const BankAccountListResponseSchema = okOrError(z.object({ accounts: z.array(BankAccountSchema) }));
 export const DebtListResponseSchema = okOrError(z.object({ debts: z.array(DebtSchema) }));
+
+/** One category with the limit of the current week (ADR 0012); follows `BudgetStatusResponse`. */
+export const CategoryStatusSchema = z.object({
+  category: BudgetCategorySchema,
+  weeklyLimitVnd: NonNegativeVndSchema,
+  spentVnd: VndAmountSchema,
+  remainingVnd: VndAmountSchema,
+});
+export type CategoryStatus = z.infer<typeof CategoryStatusSchema>;
+
+/** An open item of the anomaly inbox; the same id, kind and subject as `anomaly.opened`. */
+export const AnomalyViewSchema = z.object({
+  id: IdSchema,
+  kind: AnomalyKindSchema,
+  subjectRef: z.string().min(1),
+});
+export type AnomalyView = z.infer<typeof AnomalyViewSchema>;
+
+/** `GET /budget/overview` for the signed-in user (ADR 0012). */
+export const BudgetOverviewResponseSchema = okOrError(
+  z.object({
+    cycle: BudgetCycleSchema,
+    weekIndex: z.number().int().positive(),
+    bankAccounts: z.array(BankAccountSchema),
+    categories: z.array(CategoryStatusSchema),
+    transactions: z.array(TransactionSchema),
+    anomalies: z.array(AnomalyViewSchema),
+  }),
+);
+export type BudgetOverviewResponse = z.infer<typeof BudgetOverviewResponseSchema>;

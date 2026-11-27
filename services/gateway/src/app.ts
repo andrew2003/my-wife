@@ -18,7 +18,7 @@ const PUBLIC_ROUTES = new Set(["POST /api/invitations/accept"]);
 const SCHEDULE_PREFIXES = ["/checklist", "/tasks", "/sessions", "/wake", "/sample-schedule"];
 const BUDGET_PREFIXES = ["/budget"];
 /** Paths owned by the rules service (contract signing). */
-const RULES_PREFIXES = ["/contracts"];
+const RULES_PREFIXES = ["/contracts", "/penalties"];
 
 function isUnder(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((p) => path === p || path.startsWith(`${p}/`));

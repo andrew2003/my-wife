@@ -3,6 +3,7 @@ import { loadConfig } from "@my-wife/config";
 import {
   AcceptInvitationRequestSchema,
   GetSettingsResponseSchema,
+  ListPenaltiesResponseSchema,
   SessionResponseSchema,
 } from "@my-wife/contracts";
 import { createApp, SESSION_COOKIE } from "../src/index";
@@ -40,6 +41,8 @@ function setup() {
         : json(401, { ok: false, error: { code: "identity.invalid_session" } });
     }
     if (url.startsWith("http://schedule/")) return json(200, { ok: true, data: { sched: 1 } });
+    if (url.startsWith("http://rules/penalties"))
+      return json(200, { ok: true, data: { penalties: [], suspendedTotalVnd: 0 } });
     if (url.startsWith("http://rules/")) return json(200, { ok: true, data: { contract: 1 } });
     if (url.startsWith("http://budget/")) return json(201, { ok: true, data: { raw: 1 } });
     if (url === "http://identity/settings") return json(200, { ok: true, data: { values: {} } });
@@ -173,6 +176,18 @@ describe("gateway session proxy", () => {
       headers: { "x-user-id": "u1" },
     });
     expect(JSON.parse(calls[1]!.body!)).toEqual({ cycleId: "c1" });
+  });
+
+  it("forwards /api/penalties to rules and returns a ListPenaltiesResponse", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good` };
+    const res = await (await app).inject({ method: "GET", url: "/api/penalties", headers });
+    expect(res.statusCode).toBe(200);
+    expect(ListPenaltiesResponseSchema.safeParse(res.json()).success).toBe(true);
+    expect(calls[1]).toMatchObject({
+      url: "http://rules/penalties",
+      headers: { "x-user-id": "u1" },
+    });
   });
 
   it("forwards wake routes to schedule with the user id", async () => {
