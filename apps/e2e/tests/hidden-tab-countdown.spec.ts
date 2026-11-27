@@ -40,11 +40,63 @@ test("the countdown of a hidden tab stays within one second of the server clock"
   });
 
   const timer = () => page.getByRole("timer", { name: text("countdown.label") });
-  /** Displayed seconds minus the seconds left on the server end time, read at the same moment. */
-  const drift = async () => {
-    const shown = seconds(await timer().innerText());
-    return shown - Math.ceil((plannedEndMs - Date.now()) / 1000);
-  };
+  /**
+   * Displayed seconds minus the seconds left on the server end time, both read in one
+   * evaluation so no time passes between them.
+   */
+  const drift = () =>
+    page.evaluate(
+      ({ endMs, label }) => {
+        const el = document.querySelector(`[role="timer"][aria-label="${label}"]`);
+        const parts = (el?.textContent ?? "").trim().split(":").map(Number);
+        const shown = parts.reduce((total, part) => total * 60 + part, 0);
+        return shown - Math.ceil((endMs - Date.now()) / 1000);
+      },
+      { endMs: plannedEndMs, label: text("countdown.label") },
+    );
+
+  // A background tab loses timer ticks. Headless Chromium throttles nothing, so the page is
+  // given a switch that swallows every tick (worker messages and page intervals) while on.
+  // A display that counted ticks would fall behind by every swallowed tick; one that is
+  // computed from the stored end time catches up on the next tick.
+  await page.addInitScript(() => {
+    const w = window as unknown as { __stallTicks: boolean };
+    w.__stallTicks = false;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      set onmessage(handler: ((e: MessageEvent) => unknown) | null) {
+        super.onmessage = handler
+          ? (e: MessageEvent) => {
+              if (!w.__stallTicks) handler.call(this, e);
+            }
+          : null;
+      }
+    } as typeof Worker;
+    const nativeSetInterval = window.setInterval.bind(window);
+    window.setInterval = ((fn: TimerHandler, ms?: number, ...args: unknown[]) =>
+      nativeSetInterval(
+        typeof fn === "function"
+          ? (...a: unknown[]) => {
+              if (!w.__stallTicks) fn(...a);
+            }
+          : fn,
+        ms,
+        ...args,
+      )) as typeof setInterval;
+  });
+  const stallTicks = (on: boolean) =>
+    page.evaluate((v) => {
+      (window as unknown as { __stallTicks: boolean }).__stallTicks = v;
+    }, on);
+  const hide = (hidden: boolean) =>
+    page.evaluate((h) => {
+      Object.defineProperty(document, "visibilityState", {
+        value: h ? "hidden" : "visible",
+        configurable: true,
+      });
+      Object.defineProperty(document, "hidden", { value: h, configurable: true });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, hidden);
 
   await test.step("the visible countdown matches the server end time", async () => {
     await page.goto("/schedule/today");
@@ -52,33 +104,32 @@ test("the countdown of a hidden tab stays within one second of the server clock"
     expect(Math.abs(await drift())).toBeLessThanOrEqual(ONE_SECOND);
   });
 
-  await test.step("the tab goes to the background and keeps counting", async () => {
-    const before = seconds(await timer().innerText());
+  await test.step("a hidden tab stays within one second, also after lost ticks", async () => {
     const other = await context.newPage();
     await other.goto("about:blank");
     await other.bringToFront();
     // Headless Chromium keeps every page visible, so hide this one the way the browser does:
     // the document reports `hidden` and fires `visibilitychange`.
-    await page.evaluate(() => {
-      Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
-      Object.defineProperty(document, "hidden", { value: true, configurable: true });
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
+    await hide(true);
     expect(await page.evaluate(() => document.visibilityState)).toBe("hidden");
-    await expect
-      .poll(async () => before - seconds(await timer().innerText()), {
-        timeout: 15_000,
-      })
-      .toBeGreaterThanOrEqual(5);
-    expect(Math.abs(await drift())).toBeLessThanOrEqual(ONE_SECOND);
+    const before = seconds(await timer().innerText());
+    const samples: number[] = [];
+    // Ten seconds, one sample per second. Seconds 3 to 6 lose every tick; the samples taken
+    // from second 7 on have had a tick since, so they must be right again.
+    for (let second = 1; second <= 10; second += 1) {
+      await stallTicks(second >= 3 && second <= 6);
+      // Real time must pass: the countdown under test follows the wall clock, nothing to poll for.
+      await page.waitForTimeout(1000);
+      if (second < 3 || second >= 8) samples.push(await drift());
+    }
+    await stallTicks(false);
+    expect(samples).toHaveLength(5);
+    for (const d of samples) expect(Math.abs(d)).toBeLessThanOrEqual(ONE_SECOND);
+    expect(before - seconds(await timer().innerText())).toBeGreaterThanOrEqual(9);
   });
 
   await test.step("showing the tab again refreshes the display at once", async () => {
-    await page.evaluate(() => {
-      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
-      Object.defineProperty(document, "hidden", { value: false, configurable: true });
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
+    await hide(false);
     expect(Math.abs(await drift())).toBeLessThanOrEqual(ONE_SECOND);
   });
 });
