@@ -66,13 +66,20 @@ export function dayStart(day: string, zone: string): Date {
   return new Date(zonedInstant(y!, mo!, d!, 0, 0, zone));
 }
 
-/** The cycle a day belongs to (its first day), or `none` when no known cycle covers it. */
+const DAY_MS = 86_400_000;
+const dayNumber = (day: string) => Math.floor(Date.parse(`${day}T00:00:00Z`) / DAY_MS);
+
+/**
+ * The cycle a day belongs to, named by its first day. Boundaries are projected by `cycleDays`
+ * from the nearest known cycle first day (the closest earlier one, else the earliest later one),
+ * so days outside the known cycles still fall into cycle-length windows. Without any known cycle
+ * the windows are anchored at 1970-01-01.
+ */
 export function cycleKeyOf(day: string, cycleFirstDays: string[], cycleDays: number): string {
-  const first = cycleFirstDays
-    .filter((f) => f <= day && day < addDays(f, cycleDays))
-    .sort()
-    .pop();
-  return first ?? "none";
+  const sorted = [...cycleFirstDays].sort();
+  const anchor = sorted.filter((f) => f <= day).pop() ?? sorted[0] ?? "1970-01-01";
+  const offset = dayNumber(day) - dayNumber(anchor);
+  return addDays(anchor, Math.floor(offset / cycleDays) * cycleDays);
 }
 
 export type PlanResult =
@@ -97,6 +104,11 @@ export interface PlanInput {
 export function planPeriod(input: PlanInput): PlanResult {
   const { kind, fromDay, toDay, now, settings } = input;
   if (toDay < fromDay) return { ok: false, code: "schedule.special_mode_invalid_range" };
+  // Reject before walking the days: a range longer than the quota can never fit.
+  const length = dayNumber(toDay) - dayNumber(fromDay) + 1;
+  if (length > settings.daysPerCycle) {
+    return { ok: false, code: "schedule.special_mode_quota_exceeded" };
+  }
   const today = todayOf(now, settings.zone);
   const retroactive = fromDay < today;
   const reason = input.reason?.trim();

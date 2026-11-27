@@ -47,10 +47,18 @@ describe("cycleKeyOf", () => {
   it.each([
     ["2026-11-02", "2026-11-02"],
     ["2026-11-29", "2026-11-02"],
-    ["2026-11-30", "none"],
-    ["2026-11-01", "none"],
-  ])("%s -> %s", (day, key) => {
+    ["2026-11-30", "2026-11-30"],
+    ["2026-12-27", "2026-11-30"],
+    ["2026-12-28", "2026-12-28"],
+    ["2026-10-31", "2026-10-05"],
+  ])("%s -> %s (projected from the nearest known cycle)", (day, key) => {
     expect(cycleKeyOf(day, ["2026-11-02"], 28)).toBe(key);
+  });
+
+  it("uses fixed windows when no cycle is known", () => {
+    const a = cycleKeyOf("2026-12-01", [], 28);
+    expect(cycleKeyOf("2026-12-02", [], 28)).toBe(a);
+    expect(cycleKeyOf("2027-06-01", [], 28)).not.toBe(a);
   });
 });
 
@@ -182,6 +190,21 @@ describe("planPeriod (table-driven window and quota rules)", () => {
         existing: [{ fromDay: "2026-12-03", toDay: "2026-12-04" }],
       },
       code: "schedule.special_mode_overlap",
+    },
+    {
+      name: "a huge range is rejected without walking its days",
+      input: { kind: "holiday", fromDay: "2026-12-01", toDay: "9999-12-31" },
+      code: "schedule.special_mode_quota_exceeded",
+    },
+    {
+      name: "two future windows do not share quota",
+      input: {
+        kind: "holiday",
+        fromDay: "2027-03-01",
+        toDay: "2027-03-05",
+        existing: [{ fromDay: "2026-12-01", toDay: "2026-12-05" }],
+      },
+      retroactive: false,
     },
     {
       name: "an inverted range is invalid",
@@ -329,5 +352,27 @@ describe("special modes over HTTP", () => {
     await app.inject({ method: "POST", url: "/jobs/special-modes" });
     await app.inject({ method: "POST", url: "/jobs/special-modes" });
     expect(events.filter((e) => e.type === "special_mode.ended")).toHaveLength(1);
+  });
+
+  it("excludes waived faults from the weekly review", async () => {
+    const { appP, t } = setup();
+    const app = await appP;
+    await sendLedger(app, fault("f-sick", "2026-11-26T03:00:00Z"));
+    await sendLedger(app, fault("f-kept", "2026-11-25T03:00:00Z"));
+    await activate(app, { kind: "sick", fromDay: "2026-11-26", toDay: "2026-11-26", reason: "x" });
+    const week = await app.inject({
+      method: "POST",
+      url: "/weeks",
+      headers: H,
+      payload: { firstDay: "2026-11-23" },
+    });
+    const weekId = week.json().data.week?.id ?? week.json().data.id;
+    await app.inject({ method: "POST", url: `/weeks/${weekId}/approve`, headers: H });
+    t.now = new Date("2026-12-01T00:00:00Z");
+    await app.inject({ method: "POST", url: "/jobs/week-boundary" });
+    const review = await app.inject({ method: "GET", url: `/weeks/${weekId}/review`, headers: H });
+    expect(review.statusCode).toBe(200);
+    const items = review.json().data.review.faults.items as { faultId: string }[];
+    expect(items.map((f) => f.faultId)).toEqual(["f-kept"]);
   });
 });
