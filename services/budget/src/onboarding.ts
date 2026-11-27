@@ -288,6 +288,10 @@ export interface SampleBudgetStore {
   /** Stores a new debt with an audit record. */
   openDebt(userId: string, debt: DebtRecord, at: Date): Promise<"opened" | "not_found">;
   markDebtOpenedAnnounced(userId: string, debtId: string): Promise<void>;
+  /** Atomically stores several debts (a shared expense) with one audit record each. */
+  openDebts(userId: string, debts: DebtRecord[], at: Date): Promise<"opened" | "not_found">;
+  /** Stores an income pool entry that has no transaction yet, with an audit record. */
+  recordIncome(userId: string, entry: IncomePoolEntry, at: Date): Promise<"recorded" | "not_found">;
   /**
    * Atomically writes off the open part of a receivable: books `txn` (an expense of its funding
    * category), marks the debt `written_off` and writes an audit record. A debt that is not an
@@ -832,6 +836,25 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
       },
     });
     return "opened" as const;
+  }
+
+  async openDebts(userId: string, debts: DebtRecord[], at: Date) {
+    if (!this.records.has(userId)) return "not_found" as const;
+    for (const debt of debts) await this.openDebt(userId, debt, at);
+    return "opened" as const;
+  }
+
+  async recordIncome(userId: string, entry: IncomePoolEntry, at: Date) {
+    const r = this.records.get(userId);
+    if (!r) return "not_found" as const;
+    r.incomePool.push({ ...entry });
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "income_recorded",
+      detail: { cycleId: r.cycle.id, entryId: entry.id, amountVnd: entry.amountVnd },
+    });
+    return "recorded" as const;
   }
 
   async markDebtOpenedAnnounced(userId: string, debtId: string) {

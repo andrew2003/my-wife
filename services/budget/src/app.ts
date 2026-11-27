@@ -23,6 +23,11 @@ import {
 import { createWeekClosedHandler } from "./overspend";
 import { createExceptionClaimer } from "./exceptions";
 import { createDebtOpener, toDebt } from "./debts";
+import {
+  createGroupExpenseRecorder,
+  createIncomeRecorder,
+  incomePoolTotalVnd,
+} from "./income-pool";
 import { buildOverview, roundingFrom } from "./overview";
 import {
   createUnknownDeadlineJob,
@@ -167,6 +172,60 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
       return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
     }
     const result = await debts.open(userId, req.body);
+    if (!result.ok) {
+      return reply.code(result.error.code === "budget.cycle_not_found" ? 404 : 400).send(result);
+    }
+    return reply.code(201).send(result);
+  });
+
+  // Shared expenses and the income pool (spec 10 section 6).
+  const poolDeps = {
+    store,
+    now,
+    newId: randomUUID,
+    publish: deps.publish ?? (() => undefined),
+    readSettings: deps.readSettings,
+  };
+  const groupExpenses = createGroupExpenseRecorder(poolDeps);
+  const incomeRecorder = createIncomeRecorder(poolDeps);
+  app.post("/budget/group-expenses", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const result = await groupExpenses.record(userId, req.body);
+    if (!result.ok) {
+      return reply.code(result.error.code === "budget.cycle_not_found" ? 404 : 400).send(result);
+    }
+    return reply.code(201).send(result);
+  });
+  app.get("/budget/income-pool", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const record = await store.find(userId);
+    const entries = record?.incomePool ?? [];
+    return {
+      ok: true,
+      data: {
+        totalVnd: incomePoolTotalVnd(entries),
+        entries: entries.map((e) => ({
+          id: e.id,
+          amountVnd: e.amountVnd,
+          payer: e.payer,
+          receivedAt: e.receivedAt,
+          allocatedCycleId: e.allocatedCycleId,
+        })),
+      },
+    };
+  });
+  app.post("/budget/income", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const result = await incomeRecorder.record(userId, req.body);
     if (!result.ok) {
       return reply.code(result.error.code === "budget.cycle_not_found" ? 404 : 400).send(result);
     }
