@@ -21,7 +21,14 @@ import {
 } from "./keys";
 import { runHandoverTest, type HandoverFact } from "./handover";
 import { createProvider, type LlmProvider } from "./llm";
-import { InMemoryMemoryStore, loadMemoryLimits, MemoryService, type MemoryStore } from "./memory";
+import { InMemoryConversationStore, SummaryService, type ConversationStore } from "./conversation";
+import {
+  InMemoryMemoryStore,
+  loadMemoryLimits,
+  loadSummaryMaxLength,
+  MemoryService,
+  type MemoryStore,
+} from "./memory";
 import { createSettingsReader } from "./settings";
 import {
   createVisionModel,
@@ -53,6 +60,7 @@ export interface AiDeps extends ServiceDeps {
     name:
       | "ai.message_sent"
       | "memory.created"
+      | "memory.deleted"
       | "ai.photo_graded"
       | "llm_key.saved"
       | "llm_key.invalid"
@@ -64,6 +72,7 @@ export interface AiDeps extends ServiceDeps {
     payload: unknown;
   }) => Promise<void>;
   memoryStore?: MemoryStore;
+  conversationStore?: ConversationStore;
   /** Effective user settings (identity `GET /settings`); defaults to an HTTP reader. */
   readSettings?: (userId: string) => Promise<Record<string, unknown>>;
   challengeStore?: ChallengeStore;
@@ -90,6 +99,8 @@ export interface AiDeps extends ServiceDeps {
   /** Log destination, for tests that scan logs. */
   logStream?: Writable;
   now?: () => Date;
+  /** Longest accepted conversation summary; defaults to `AI_SUMMARY_MAX_LENGTH`. */
+  summaryMaxLength?: number;
   memoryLimits?: { maxFactLength: number; maxPerTurn: number };
 }
 
@@ -104,8 +115,11 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
   const publish = deps.publish ?? (async () => {});
   const identityUrl = process.env.IDENTITY_URL ?? `http://localhost:${servicePort("identity")}`;
   const readSettings = deps.readSettings ?? createSettingsReader(identityUrl);
+  const memoryStore = deps.memoryStore ?? new InMemoryMemoryStore();
+  const conversations = deps.conversationStore ?? new InMemoryConversationStore();
+  const provider = deps.provider ?? createProvider();
   const memory = new MemoryService({
-    store: deps.memoryStore ?? new InMemoryMemoryStore(),
+    store: memoryStore,
     publish,
     topK: async (userId) => {
       const values = await readSettings(userId);
@@ -117,14 +131,36 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     ...(deps.memoryLimits ?? loadMemoryLimits()),
   });
   const chat = new ChatService({
-    provider: deps.provider ?? createProvider(),
+    provider,
     publish,
     memory,
+    conversations,
     fallback: deps.fallbackProvider,
     readSettings,
     warn: (fields, message) => app.log.warn(fields, message),
   });
   const now = deps.now ?? (() => new Date());
+  const summaries = new SummaryService({
+    conversations,
+    memories: memoryStore,
+    provider,
+    publish,
+    readSettings,
+    maxLength: deps.summaryMaxLength ?? loadSummaryMaxLength(),
+    locale: config.uiLanguage,
+    warn: (fields, message) => app.log.warn(fields, message),
+  });
+  // Periodic job: summarises long conversations and compacts the old turns.
+  app.post("/jobs/summaries", async () => ({
+    ok: true,
+    data: { summarised: await summaries.run(now()) },
+  }));
+  app.delete<{ Params: { id: string } }>("/memories/:id", async (req, reply) => {
+    const deleted = await memory.delete(userOf(req.headers["x-user-id"]), req.params.id);
+    return deleted
+      ? { ok: true, data: {} }
+      : reply.code(404).send({ ok: false, error: "not_found" });
+  });
   const userOf = (header: unknown) =>
     typeof header === "string" && header !== "" ? header : "local";
   const ring = config.secretsMasterKey

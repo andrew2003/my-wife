@@ -15,16 +15,24 @@ import {
 } from "../fallback";
 import { renderMessage } from "../i18n";
 import type { LlmProvider } from "../llm";
+import type { ConversationStore } from "../conversation";
 import type { MemoryService } from "../memory";
 import { buildSystemPrompt } from "./persona";
 
 export interface ChatServiceDeps {
   provider: LlmProvider;
   publish: (event: {
-    name: "ai.message_sent" | "memory.created" | "ai.degraded_entered" | "ai.degraded_exited";
+    name:
+      | "ai.message_sent"
+      | "memory.created"
+      | "memory.deleted"
+      | "ai.degraded_entered"
+      | "ai.degraded_exited";
     payload: unknown;
   }) => Promise<void>;
   memory?: MemoryService;
+  /** Where answered turns are recorded for the summary job. */
+  conversations?: ConversationStore;
   now?: () => Date;
   newId?: () => string;
   /** Structured warn logger; never receives user text or secrets. */
@@ -93,23 +101,30 @@ export class ChatService {
   }
 
   /** A memory failure must never cost the user a reply: fall back to no memories. */
-  private async recallSafely(userId: string): Promise<string[]> {
+  private async recallSafely(userId: string): Promise<[string[], string[]]> {
     try {
-      return (await this.deps.memory?.recall(userId)) ?? [];
+      const memory = this.deps.memory;
+      return memory
+        ? [await memory.recall(userId), await memory.recallSummaries(userId)]
+        : [[], []];
     } catch (error) {
       this.deps.warn?.(
         { errorName: error instanceof Error ? error.name : "unknown" },
         "memory recall failed",
       );
-      return [];
+      return [[], []];
     }
   }
 
   async handleMessage(text: string, locale: Locale, userId: string): Promise<ChatResult> {
     const messageId = (this.deps.newId ?? randomUUID)();
     const threshold = await this.threshold(userId);
-    const memories = await this.recallSafely(userId);
-    const request = { system: buildSystemPrompt(locale, memories), userText: text, locale };
+    const [memories, summaries] = await this.recallSafely(userId);
+    const request = {
+      system: buildSystemPrompt(locale, memories, summaries),
+      userText: text,
+      locale,
+    };
     const before = this.statusOf(userId);
     const { fallback } = this.deps;
     const slots: [ModelSlot, LlmProvider][] = [];
@@ -161,6 +176,16 @@ export class ChatService {
       name: "ai.message_sent",
       payload: aiEvents["ai.message_sent"].parse({ messageId, toolCalls: 0 }),
     });
+    try {
+      const at = (this.deps.now ?? (() => new Date()))();
+      await this.deps.conversations?.append({ userId, role: "user", text, at });
+      await this.deps.conversations?.append({ userId, role: "assistant", text: answered.text, at });
+    } catch (error) {
+      this.deps.warn?.(
+        { errorName: error instanceof Error ? error.name : "unknown" },
+        "conversation record failed",
+      );
+    }
     // The turn has ended: code validates and stores the proposed facts.
     try {
       await this.deps.memory?.endTurn(

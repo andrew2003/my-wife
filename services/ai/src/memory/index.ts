@@ -1,6 +1,7 @@
 export {
   DEFAULT_MEMORY_LIMITS,
   loadMemoryLimits,
+  loadSummaryMaxLength,
   MemoryService,
   type MemoryServiceOptions,
 } from "./memory-service";
