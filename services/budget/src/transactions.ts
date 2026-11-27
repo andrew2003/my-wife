@@ -213,11 +213,62 @@ export function createTransactionHandler(deps: TransactionDeps) {
     };
   }
 
+  /**
+   * Spending while the next cycle awaits funds goes to the previous cycle as `coded_unplanned` /
+   * `unplanned`, with no overspend check and no penalty (spec 10 section 3). Only a coded
+   * transfer can be booked, as it names its category.
+   */
+  async function bookAwaitingFunds(
+    userId: string,
+    record: SampleBudgetRecord,
+    payload: CodedTransferReceipt & {
+      receiptId: string;
+      bankTransactionRef: string;
+      occurredAt: string;
+      counterparty: string | null;
+    },
+  ) {
+    const previous = record.previousCycle;
+    if (!previous) return;
+    const existing = record.transactions.find(
+      (t) => t.bankTransactionRef === payload.bankTransactionRef,
+    );
+    if (existing) {
+      if (!existing.announced) await announce(userId, existing);
+      return;
+    }
+    const found = classifyCodedTransfer(payload, previous.categories, record.accounts);
+    if (!found) return;
+    const txn: TransactionRecord = {
+      id: deps.newId(),
+      cycleId: previous.id,
+      receiptId: payload.receiptId,
+      bankTransactionRef: payload.bankTransactionRef,
+      bankAccountId: found.bankAccountId,
+      direction: payload.direction,
+      amountVnd: payload.amountVnd,
+      occurredAt: payload.occurredAt,
+      memo: payload.memo,
+      counterparty: payload.counterparty,
+      transactionType: found.transactionType,
+      reconciliationResult: found.reconciliationResult,
+      categoryId: found.categoryId,
+      announced: false,
+    };
+    const result = await deps.store.recordAwaitingFundsTransaction(userId, txn, deps.now());
+    if (result === "recorded") await announce(userId, txn);
+  }
+
   return async function onTransactionReceipt(event: EventEnvelope): Promise<void> {
     if (event.type !== "receipt.parsed") return;
     const { payload } = event as EventEnvelope<"receipt.parsed">;
     const record = await deps.store.find(event.userId);
-    if (!record || record.cycle.state !== "running") return;
+    if (!record) return;
+    if (record.cycle.state === "awaiting_funds") {
+      await bookAwaitingFunds(event.userId, record, payload);
+      return;
+    }
+    if (record.cycle.state !== "running") return;
 
     const existing = record.transactions.find(
       (t) => t.bankTransactionRef === payload.bankTransactionRef,
