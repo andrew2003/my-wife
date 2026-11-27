@@ -23,8 +23,7 @@ describe("loadKeys", () => {
     const ok = await loadKeys((async () =>
       json(200, { ok: true, data: { keys: [key] } })) as never);
     expect(ok).toEqual({ status: "ready", keys: [key] });
-    const none = await loadKeys((async () =>
-      json(200, { ok: true, data: { keys: [] } })) as never);
+    const none = await loadKeys((async () => json(200, { ok: true, data: { keys: [] } })) as never);
     expect(none).toEqual({ status: "empty" });
     expect((await loadKeys((async () => json(500, {})) as never)).status).toBe("error");
   });

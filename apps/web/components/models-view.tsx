@@ -9,11 +9,7 @@ import { maskKey, type HandoverResult, type SwitchInput } from "../lib/models";
 
 export type ModelsStatus = "loading" | "ready" | "empty" | "error";
 export type SwitchState =
-  | "idle"
-  | "switching"
-  | "refused_key_invalid"
-  | "refused_not_ready"
-  | "failed";
+  "idle" | "switching" | "refused_key_invalid" | "refused_not_ready" | "failed";
 
 export interface ModelsViewProps {
   locale: Locale;
