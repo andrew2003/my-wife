@@ -11,5 +11,7 @@
   "ai.memory.remember_triggers": "please remember that|please remember|remember that|remember|do not forget|don't forget",
   "ai.wake.challenge.fingers": "Hold up {n} fingers and take a photo of yourself, out of bed.",
   "ai.wake.challenge.sink": "Take a photo of yourself at the sink.",
-  "ai.wake.challenge.object": "Hold up an object you can see in the room and take a photo of yourself."
+  "ai.wake.challenge.object": "Hold up an object you can see in the room and take a photo of yourself.",
+  "ai.wake.retake": "I could not tell from that photo. Please send another one.",
+  "ai.wake.button_check_in": "I still cannot tell from the photos. Please confirm with the button instead."
 }
