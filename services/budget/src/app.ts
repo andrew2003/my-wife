@@ -16,7 +16,11 @@ import {
 } from "./plan-publish";
 import { createWeekClosedHandler } from "./overspend";
 import { buildOverview, roundingFrom } from "./overview";
-import { createUnknownSpendHandlers, type UnknownSpendDeps } from "./unknown-spend";
+import {
+  createUnknownDeadlineJob,
+  createUnknownSpendHandlers,
+  type UnknownSpendDeps,
+} from "./unknown-spend";
 import {
   createOnboardingHandler,
   MemorySampleBudgetStore,
@@ -106,6 +110,19 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     // Without an ingest reader the receipt facts are unknown and nothing is opened.
     readReceipt: deps.readReceipt ?? (async () => undefined),
     readSettings: deps.readSettings,
+  });
+  const unknownDeadline = createUnknownDeadlineJob({
+    store,
+    newId: randomUUID,
+    publish: deps.publish ?? (() => undefined),
+  });
+  // Internal job (the gateway forwards only /budget paths): books overdue unknown spend of a user.
+  app.post("/jobs/unknown-deadline", async (req, reply) => {
+    const userId = (req.body as { userId?: unknown } | null)?.userId;
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    return { ok: true, data: await unknownDeadline.run(userId, now()) };
   });
   app.decorate("onReceiptUnknown", unknownSpend.onReceiptUnknown);
   app.decorate("onReplyReceived", unknownSpend.onReplyReceived);
