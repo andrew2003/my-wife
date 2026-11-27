@@ -58,7 +58,9 @@ export type InboundOutcome =
   { state: "unknown_address" } | { state: ReceiptState; receiptId: string; reason?: string };
 
 function tokenOf(address: string): string | null {
-  const m = /^u-([A-Za-z0-9_-]+)@/.exec(address.trim());
+  // Routed recipients may carry a display name, angle brackets or upper case.
+  const angle = /<([^<>]*)>/.exec(address);
+  const m = /^u-([A-Za-z0-9_-]+)@/i.exec((angle?.[1] ?? address).trim());
   return m?.[1] ?? null;
 }
 

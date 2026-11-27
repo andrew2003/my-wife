@@ -50,6 +50,10 @@ export function createApp(config: AppConfig, deps: ServiceDeps & { ingest?: Inge
       if (!body.success) {
         return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
       }
+      // The declared size lets an oversize message be refused before it is decoded.
+      if (body.data.sizeBytes > ingest.settings.maxEmailBytes) {
+        return reply.code(422).send({ ok: false, error: { code: "too_large" } });
+      }
       const outcome = await processInbound(
         { toAddress: body.data.toAddress, raw: Buffer.from(body.data.rawBase64, "base64") },
         { ...ingest, newId: ingest.newId ?? randomUUID },
