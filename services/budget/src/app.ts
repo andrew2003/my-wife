@@ -31,6 +31,11 @@ import {
   type WishlistStore,
 } from "./wishlist";
 import {
+  createWeeklyMenuService,
+  MemoryWeeklyMenuStore,
+  type WeeklyMenuStore,
+} from "./weekly-menu";
+import {
   createGroupExpenseRecorder,
   createIncomeRecorder,
   incomePoolTotalVnd,
@@ -56,6 +61,7 @@ export type BudgetDeps = ServiceDeps & {
   readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
   publish?: (event: EventEnvelope) => void | Promise<void>;
   wishlistStore?: WishlistStore;
+  weeklyMenuStore?: WeeklyMenuStore;
   totalVnd?: (userId: string) => number | undefined;
   /** Reads the facts of an unknown receipt from ingest (`receipt.unknown` has no amount). */
   readReceipt?: UnknownSpendDeps["readReceipt"];
@@ -222,6 +228,36 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     if (result.ok) return result;
     const code = result.error.code;
     return reply.code(code === "budget.wishlist_item_not_found" ? 404 : 409).send(result);
+  });
+
+  // Weekly menu and shopping list (spec 10 section 4): code fits the estimate to the food limit.
+  const weeklyMenu = createWeeklyMenuService({
+    store,
+    menus: deps.weeklyMenuStore ?? new MemoryWeeklyMenuStore(),
+    now,
+    readSettings: deps.readSettings,
+  });
+  const menuStatus = (code: string) =>
+    code === "budget.cycle_not_found" || code === "budget.menu_not_found" ? 404 : 400;
+  app.post("/budget/weekly-menu", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const result = await weeklyMenu.generate(userId, req.body);
+    return reply.code(result.ok ? 201 : menuStatus(result.error.code)).send(result);
+  });
+  app.get("/budget/weekly-menu", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const weekIndex = Number((req.query as { weekIndex?: string }).weekIndex);
+    if (!Number.isSafeInteger(weekIndex) || weekIndex < 1) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const result = await weeklyMenu.get(userId, weekIndex);
+    return result.ok ? result : reply.code(menuStatus(result.error.code)).send(result);
   });
 
   // Shared expenses and the income pool (spec 10 section 6).

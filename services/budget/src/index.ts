@@ -80,3 +80,11 @@ export {
   writeOffOverdueReceivables,
   type DebtRecord,
 } from "./debts";
+export {
+  DEFAULT_MEALS_PER_DAY,
+  DEFAULT_MENU_DAYS,
+  generateWeeklyMenu,
+  MemoryWeeklyMenuStore,
+  type WeeklyMenu,
+  type WeeklyMenuStore,
+} from "./weekly-menu";
