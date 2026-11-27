@@ -271,9 +271,7 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (!taskId.success) return fail(reply, 400, "schedule.invalid_request");
     if (!plan.store.getTask(userId, taskId.data))
       return fail(reply, 404, "schedule.task_not_in_plan");
-    const checkIns = plan.store
-      .checkInsOf(userId, taskId.data)
-      .map(({ userId: _u, ...c }) => c);
+    const checkIns = plan.store.checkInsOf(userId, taskId.data).map(({ userId: _u, ...c }) => c);
     return { ok: true, data: { checkIns } };
   });
 

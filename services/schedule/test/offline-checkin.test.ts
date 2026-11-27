@@ -39,7 +39,8 @@ describe("offline task check-ins", () => {
     expect(res.json().data.checkIn).toMatchObject({ taskId, phase: "start", informational: true });
     expect(events.map((e) => e.type)).toEqual(["task.started"]);
     const active = await app.inject({ method: "GET", url: "/sessions/active", headers: H });
-    expect(JSON.stringify(active.json().data ?? null)).not.toContain(taskId);
+    expect(active.json().data?.session ?? null).toBeNull();
+    expect(events.some((e) => e.type === "session.started")).toBe(false);
   });
 
   it("end check-in completes the task and carries no penalty", async () => {
