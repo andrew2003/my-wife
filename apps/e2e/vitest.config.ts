@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-// The money, time and routines scenarios run under Vitest: Playwright's loader cannot import the services' JSON
+// The money, time, routines and AI scenarios run under Vitest: Playwright's loader cannot import the services' JSON
 // locale files. Playwright ignores this file (see playwright.config.ts).
 export default defineConfig({
   test: {
@@ -11,6 +11,7 @@ export default defineConfig({
       "tests/time-extended.spec.ts",
       "tests/routines.spec.ts",
       "tests/routines-extended.spec.ts",
+      "tests/ai-extended.spec.ts",
     ],
     maxWorkers: 1,
     fileParallelism: false,
