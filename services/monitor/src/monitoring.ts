@@ -140,7 +140,36 @@ export function createMemoryNudgeStore(): NudgeStore {
   };
 }
 
+/** A pause of monitoring. `manual` breaks use the daily quota; `scheduled` ones (pomodoro, meal) do not. */
+export interface Break {
+  id: string;
+  userId: string;
+  sessionId: string;
+  kind: "manual" | "scheduled";
+  startedAt: string;
+  /** Server time the allowed break ends; absence counts from here. */
+  allowedUntil: string;
+  endedAt: string | null;
+}
+export interface BreakStore {
+  add(b: Break): void;
+  remove(id: string): void;
+  all(): Break[];
+}
+export function createMemoryBreakStore(): BreakStore {
+  const breaks: Break[] = [];
+  return {
+    add: (b) => void breaks.push(b),
+    remove: (id) => {
+      const i = breaks.findIndex((b) => b.id === id);
+      if (i >= 0) breaks.splice(i, 1);
+    },
+    all: () => [...breaks],
+  };
+}
+
 export interface MonitorState {
+  breaks: BreakStore;
   nudges: NudgeStore;
   sessions: SessionStore;
   tickets: TicketStore;
@@ -291,6 +320,7 @@ export async function processSoftSignals(
 }
 
 type PositiveKey =
+  | "monitor.break_max_minutes"
   | "monitor.heartbeat_missing_seconds"
   | "monitor.urgent_chat_after_seconds"
   | "monitor.urgent_silent_fault_after_seconds"
@@ -307,6 +337,110 @@ async function positiveSetting(
     ? answer
     : SETTINGS[key].default;
 }
+const MINUTE_MS = 60 * SECOND_MS;
+
+/** The break not yet closed; it may be past its allowed end (the gap check needs that case). */
+const openBreak = (deps: MonitorDeps, sessionId: string) =>
+  deps.state.breaks.all().find((b) => b.sessionId === sessionId && b.endedAt === null);
+
+/** Same UTC calendar day; the user's time zone is not known to monitor yet (see decisions.md). */
+const sameDay = (a: string, b: Date) => a.slice(0, 10) === b.toISOString().slice(0, 10);
+
+export type BreakResult =
+  | { ok: true; break: Break }
+  | {
+      ok: false;
+      error:
+        | "session.not_found"
+        | "break.already_running"
+        | "break.quota_exceeded"
+        | "break.not_running";
+    };
+
+/**
+ * Starts a pause. A manual pause lasts up to `monitor.break_max_minutes` and at most
+ * `monitor.breaks_per_day` start per day (beyond that: `break.quota_exceeded`, normal monitoring
+ * continues). A scheduled pause (pomodoro break, meal block) lasts its planned `minutes` and
+ * uses no quota. Announced as `break.started`; state changes after the event is published.
+ */
+export async function startBreak(
+  deps: MonitorDeps,
+  userId: string,
+  input: { sessionId: string; kind: "manual" | "scheduled"; minutes?: number },
+  now: Date,
+): Promise<BreakResult> {
+  const s = deps.state.sessions.get(userId, input.sessionId);
+  if (!s || s.endedAt !== null) return { ok: false, error: "session.not_found" };
+  const open = openBreak(deps, s.id);
+  if (open) {
+    // A break past its allowed end no longer blocks a new one; it is closed without a sign of life.
+    if (Date.parse(open.allowedUntil) > now.getTime()) {
+      return { ok: false, error: "break.already_running" };
+    }
+    await deps.publish(
+      envelope(now, `break-ended-${open.id}`, "break.ended", userId, { sessionId: s.id }),
+    );
+    open.endedAt = open.allowedUntil;
+  }
+  const maxMinutes = await positiveSetting(deps, userId, "monitor.break_max_minutes");
+  let minutes = maxMinutes;
+  if (input.kind === "manual") {
+    const answer = (await deps.readSettings(userId))["monitor.breaks_per_day"];
+    const perDay =
+      typeof answer === "number" && Number.isInteger(answer) && answer >= 0
+        ? answer
+        : SETTINGS["monitor.breaks_per_day"].default;
+    const today = deps.state.breaks
+      .all()
+      .filter((b) => b.userId === userId && b.kind === "manual" && sameDay(b.startedAt, now));
+    if (today.length >= perDay) return { ok: false, error: "break.quota_exceeded" };
+  } else {
+    minutes = input.minutes ?? maxMinutes;
+  }
+  const b: Break = {
+    id: randomUUID(),
+    userId,
+    sessionId: s.id,
+    kind: input.kind,
+    startedAt: now.toISOString(),
+    allowedUntil: new Date(now.getTime() + minutes * MINUTE_MS).toISOString(),
+    endedAt: null,
+  };
+  // Stored before publishing so a concurrent start sees it; undone if the event is not sent.
+  deps.state.breaks.add(b);
+  try {
+    await deps.publish(
+      envelope(now, `break-started-${b.id}`, "break.started", userId, {
+        sessionId: s.id,
+        maxMinutes: minutes,
+      }),
+    );
+  } catch (err) {
+    deps.state.breaks.remove(b.id);
+    throw err;
+  }
+  return { ok: true, break: b };
+}
+
+/** Ends the running pause; the end counts as a sign of life, so normal monitoring resumes from it. */
+export async function endBreak(
+  deps: MonitorDeps,
+  userId: string,
+  sessionId: string,
+  now: Date,
+): Promise<BreakResult> {
+  const s = deps.state.sessions.get(userId, sessionId);
+  if (!s || s.endedAt !== null) return { ok: false, error: "session.not_found" };
+  const b = openBreak(deps, s.id);
+  if (!b) return { ok: false, error: "break.not_running" };
+  await deps.publish(
+    envelope(now, `break-ended-${b.id}`, "break.ended", userId, { sessionId: s.id }),
+  );
+  b.endedAt = now.toISOString();
+  s.lastHeartbeatAt = now.toISOString();
+  return { ok: true, break: b };
+}
+
 const gapSeconds = (deps: MonitorDeps, userId: string) =>
   positiveSetting(deps, userId, "monitor.heartbeat_missing_seconds");
 
@@ -323,8 +457,14 @@ export async function runGapCheck(
   for (const s of deps.state.sessions.allActive()) {
     try {
       const seconds = await gapSeconds(deps, s.userId);
-      if (now.getTime() - Date.parse(s.lastHeartbeatAt) < seconds * SECOND_MS) continue;
-      const signalRef = `heartbeat_lost-${s.id}-${s.lastHeartbeatAt}`;
+      // During a break the gap starts at the end of the allowed break (never retroactive).
+      const pause = openBreak(deps, s.id);
+      const lastSign =
+        pause && Date.parse(pause.allowedUntil) > Date.parse(s.lastHeartbeatAt)
+          ? pause.allowedUntil
+          : s.lastHeartbeatAt;
+      if (now.getTime() - Date.parse(lastSign) < seconds * SECOND_MS) continue;
+      const signalRef = `heartbeat_lost-${s.id}-${lastSign}`;
       if (deps.state.tickets.hasRef(signalRef)) continue;
       const ticket: ReasonTicket = {
         id: randomUUID(),
@@ -333,7 +473,7 @@ export async function runGapCheck(
         signal: "heartbeat_lost",
         signalRef,
         state: "open",
-        occurredAt: s.lastHeartbeatAt,
+        occurredAt: lastSign,
         createdAt: now.toISOString(),
       };
       deps.state.tickets.add(ticket);
