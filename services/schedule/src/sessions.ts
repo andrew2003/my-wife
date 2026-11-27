@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { EventEnvelope } from "@my-wife/contracts";
 import { startTask, type PlanDeps } from "./plan";
+import { planBreak, type BreakKind, type BreakPlan, type PomodoroSettings } from "./pomodoro";
 
 const MINUTE_MS = 60_000;
 
@@ -19,6 +20,8 @@ export interface WorkSession {
   endedAt: string | null;
   /** Claimed before `session.ended` is published, released on failure, so it is sent once. */
   endAnnounced: boolean;
+  /** Break that follows if the pomodoro runs to its planned end; fixed at start from user settings. */
+  pomodoroBreak: BreakPlan;
 }
 
 /** Port: the Drizzle store replaces the in-memory one without touching the logic below. */
@@ -58,15 +61,43 @@ export interface SessionView {
   endedAt: string | null;
   plannedEndAt: string;
   remainingSeconds: number;
+  phase: "work" | "break" | "done";
+  /** True during the break that follows a completed pomodoro; this is never a fault. */
+  monitoringPaused: boolean;
+  break: {
+    kind: BreakKind;
+    startedAt: string;
+    endsAt: string;
+    remainingSeconds: number;
+  } | null;
   /** Server time of this response; clients use it to correct their own clock offset. */
   serverNow: string;
 }
 
 const plannedEndMs = (s: WorkSession) => Date.parse(s.startedAt) + s.durationMinutes * MINUTE_MS;
 
+const completedNaturally = (s: WorkSession) =>
+  s.endedAt !== null && Date.parse(s.endedAt) >= plannedEndMs(s);
+
 /** Derives the remaining time from the stored start and duration at `now`. */
 export function viewSession(s: WorkSession, now: Date): SessionView {
+  const breakStartMs = plannedEndMs(s);
+  const breakEndMs = breakStartMs + s.pomodoroBreak.minutes * MINUTE_MS;
+  const reached = now.getTime() >= breakStartMs;
+  const stoppedEarly = s.endedAt !== null && !completedNaturally(s);
+  const hasBreak = reached && !stoppedEarly;
+  const onBreak = hasBreak && now.getTime() < breakEndMs;
   return {
+    phase: onBreak ? "break" : hasBreak || stoppedEarly ? "done" : "work",
+    monitoringPaused: onBreak,
+    break: hasBreak
+      ? {
+          kind: s.pomodoroBreak.kind,
+          startedAt: new Date(breakStartMs).toISOString(),
+          endsAt: new Date(breakEndMs).toISOString(),
+          remainingSeconds: Math.max(0, Math.ceil((breakEndMs - now.getTime()) / 1000)),
+        }
+      : null,
     id: s.id,
     taskId: s.taskId,
     startedAt: s.startedAt,
@@ -107,6 +138,7 @@ export async function startSession(
   userId: string,
   taskId: string,
   durationMinutes: number,
+  pomodoro: Pick<PomodoroSettings, "shortMinutes" | "longMinutes" | "longEvery">,
 ): Promise<StartSessionResult> {
   const task = deps.plan.store.getTask(userId, taskId);
   if (!task) return { ok: false, error: "not_in_plan" };
@@ -117,6 +149,9 @@ export async function startSession(
   } else if (task.state !== "in_progress") {
     return { ok: false, error: "invalid_state" };
   }
+  const completed = deps.sessions
+    .all()
+    .filter((o) => o.userId === userId && o.taskId === taskId && completedNaturally(o)).length;
   const session: WorkSession = {
     id: randomUUID(),
     userId,
@@ -125,6 +160,7 @@ export async function startSession(
     durationMinutes,
     endedAt: null,
     endAnnounced: false,
+    pomodoroBreak: planBreak(completed + 1, pomodoro),
   };
   deps.sessions.add(session);
   await deps.plan.publish(

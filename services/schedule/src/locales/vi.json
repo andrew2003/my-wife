@@ -18,5 +18,7 @@
   "routine.wake_photo_unclear": "Mình chưa nhìn rõ ảnh này. Bạn gửi thêm một ảnh nữa nhé.",
   "routine.wake_photo_failed": "Ảnh này chưa thể hiện đúng yêu cầu. Bạn có thể khiếu nại kết quả.",
   "routine.wake_recorded": "Đã ghi nhận giờ thức dậy lúc {time}, đúng giờ.",
-  "routine.wake_recorded_late": "Đã ghi nhận giờ thức dậy lúc {time}, trễ {minutes} phút."
+  "routine.wake_recorded_late": "Đã ghi nhận giờ thức dậy lúc {time}, trễ {minutes} phút.",
+  "schedule.pomodoro.break_started": "Hết một pomodoro. Nghỉ {minutes} phút nhé, hệ thống tạm dừng theo dõi.",
+  "schedule.pomodoro.break_ended": "Hết giờ nghỉ. Quay lại làm việc khi bạn sẵn sàng."
 }
