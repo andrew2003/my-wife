@@ -10,6 +10,7 @@ import {
   type Delegate,
   type FrameAnalyzer,
 } from "../lib/camera-monitor";
+import { createFrameGuardedFetch } from "../lib/frame-guard";
 import { translate, type Locale } from "../lib/i18n";
 
 /** Placeholder analyser until the MediaPipe landmarker is wired in: it reports nothing. */
@@ -41,7 +42,7 @@ export function CameraMonitor(props: {
         // The frame stays in the page; only the analyser sees it.
         grabFrame: () => video.current,
         analyzer: quietAnalyzer,
-        send: httpHeartbeatSender(),
+        send: httpHeartbeatSender(createFrameGuardedFetch()),
         onVisibility: documentVisibility,
       }).start();
       setState("running");
