@@ -38,7 +38,7 @@ export interface ChatContext {
 }
 
 export interface PublishedEvent {
-  name: "notify.sent" | "notify.reply_received";
+  name: "notify.sent" | "notify.reply_received" | "notify.question_expired";
   payload: unknown;
   /** Chat context of inbound events; not part of the contract payload. */
   context?: ChatContext;
