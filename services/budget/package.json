@@ -18,7 +18,7 @@
     "@my-wife/config": "workspace:*",
     "@my-wife/contracts": "workspace:*",
     "@my-wife/service-kit": "workspace:*",
-    "drizzle-orm": "^0.38.0",
+    "drizzle-orm": "^0.45.4",
     "fastify": "^5.2.0"
   },
   "devDependencies": {
