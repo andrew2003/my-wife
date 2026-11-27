@@ -253,12 +253,7 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
       .optional()
       .safeParse((req.body as { plannedItems?: unknown } | null | undefined)?.plannedItems);
     if (!items.success) return fail(reply, 400, "schedule.invalid_request");
-    const res = await approveWeek(
-      plan,
-      userId,
-      (req.params as { id: string }).id,
-      items.data,
-    );
+    const res = await approveWeek(plan, userId, (req.params as { id: string }).id, items.data);
     if (!res.ok) {
       return res.error === "not_found"
         ? fail(reply, 404, "schedule.week_not_found")
