@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@my-wife/contracts": "workspace:*",
-    "zod": "^3.24.0"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "vitest": "^3.0.0"
