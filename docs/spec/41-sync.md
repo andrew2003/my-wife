@@ -4,7 +4,7 @@ Owner: `sync`. The database is written to a Google Sheet (one per cycle) and the
 
 ## 1. Authorization
 
-Google OAuth with the narrow `drive.file` scope (sync only touches files it created or that the user opened with it) and a Calendar events scope, stored encrypted. Consent `google_sync` is required. The user grants a folder through the Drive picker for the Sheets. Tokens never leave the service.
+Google OAuth with the narrow `drive.file` scope (sync only touches files it created or that the user opened with it) and a Calendar events scope, stored encrypted. Consent `google_sync` is required (`apple_calendar_sync` for Apple Calendar). The user grants a folder through the Drive picker for the Sheets. Tokens never leave the service.
 
 ## 2. Sheet per cycle
 

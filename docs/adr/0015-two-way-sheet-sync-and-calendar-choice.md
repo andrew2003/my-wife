@@ -1,6 +1,6 @@
 # ADR 0015: Two-way sheet sync and calendar choice
 
-Status: proposed (2026-11-28). Changes `docs/spec/00-final-decisions.md`, `docs/spec/41-sync.md` and, when implemented, `packages/contracts`.
+Status: accepted (2026-11-28, owner decision). Changes `docs/spec/00-final-decisions.md`, `docs/spec/41-sync.md` and, when implemented, `packages/contracts`.
 
 ## Context
 

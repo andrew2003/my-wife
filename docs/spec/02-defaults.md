@@ -166,5 +166,18 @@ Conventions: `key` is `<domain>.<name>` in `snake_case`. Money is integer VND. D
 | `sync.debounce_seconds` | 30 | admin | sync |
 | `sync.calendar_horizon_weeks` | 4 | user | sync |
 | `sync.retry_backoff_seconds` | `[30, 120, 600, 3600]` | admin | sync |
+| `sync.sheet_readback_enabled` | true | user | sync |
+| `sync.calendar_providers` | `[]` (any of `google`, `apple`) | user | sync |
+| `appearance.skin` | `navy` (`hanfu`, `silver`, `street`) | user | web |
+| `appearance.mode` | `system` (`light`, `dark`) | user | web |
+| `appearance.expression_set` | `chibi` (`blue_face`, `silver_face`) | user | web |
+| `appearance.expression_map` | one key per state (greeting, task done, praised, news, needs an answer, fault or penalty, bedtime) from `greet`, `joy`, `love`, `surprise`, `ask`, `sulk`, `sleep` | user | web |
+| `persona.address_user` | per locale list of `{text, enabled}` | user | ai, web |
+| `persona.self_reference` | per locale list of `{text, enabled}` | user | ai, web |
+| `persona.wife_label` | per locale list of `{text, enabled}` | user | ai, web |
+| `commands.enabled` | every built-in command on | user | ai, notify |
+| `commands.overrides` | `{}` per command: name, aliases, description | user | ai, notify |
+| `commands.custom` | `[]` (kinds `prompt`, `mood`, `shortcut`) | user | ai, notify |
+| `ai.companion_remark_cache_hours` | 24 | user | ai |
 | `admin.audit_retention_days` | 730 | admin | admin |
 | `admin.incident_waiver_default` | true | admin | rules |

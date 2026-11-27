@@ -10,7 +10,7 @@ The bot has no chat commands today. The owner approved a default command set, us
 
 1. **What a command is.** A message from the linked user that starts with `/`. Code parses and executes it; only commands marked AI pass text to the model. Text inside forwarded emails, receipts or sheet cells is never a command. Replies use the persona voice.
 2. **Defaults.** Each default has an English name and a Vietnamese alias.
-   - Control: `/help`, `/model [name]` (the switch runs the existing handover test and asks for confirmation), `/usage`, `/status`, `/new`, `/stop`, `/lang vi|en`, `/strict 1-5`, `/quiet [until HH:MM|off]`, `/skin [name]`.
+   - Control: `/help`, `/model [name]` (the switch runs the existing handover test and asks for confirmation), `/usage` (tokens used today, the daily cap `ai.daily_token_cap`, provider quota when the provider reports it), `/status` (cycle sequence and week index, tasks done and total today, fault points this week, sync state per link, degraded mode flag), `/new`, `/stop`, `/lang vi|en`, `/strict 1-5`, `/quiet [until HH:MM|off]`, `/skin [name]`.
    - Capture: `/task`, `/spend <amount> <category or note>`, `/remember`, `/forget` (with confirmation).
    - Summaries (AI, facts supplied by code): `/summary`, `/today`, `/week`, `/budget`.
    - Mood tags: `/happy`, `/sad`, `/tired`, `/stressed`, `/angry` plus a message. The mood is stored with the message and shapes the reply and expression only; it never changes money, fault points or penalties.
