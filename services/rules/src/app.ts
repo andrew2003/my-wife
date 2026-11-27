@@ -1,6 +1,20 @@
 import type { AppConfig } from "@my-wife/config";
-import { parseEvent, SignContractRequestSchema, type EventEnvelope } from "@my-wife/contracts";
+import {
+  DecideAppealRequestSchema,
+  IdSchema,
+  OpenAppealRequestSchema,
+  parseEvent,
+  SignContractRequestSchema,
+  type EventEnvelope,
+} from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
+import {
+  createAppealService,
+  InMemoryAppealStore,
+  type AppealRecord,
+  type AppealSettings,
+  type AppealStore,
+} from "./appeal";
 import { createContractService, InMemoryContractStore, type ContractStore } from "./contract";
 import {
   createFaultService,
@@ -23,6 +37,19 @@ import {
   type TrialStore,
 } from "./trial";
 
+function toAppealView(a: AppealRecord) {
+  return {
+    id: a.id,
+    subjectKind: a.subjectKind,
+    subjectId: a.subjectId,
+    status: a.status,
+    reasonText: a.reasonText,
+    openedAt: a.openedAt,
+    windowEndsAt: a.windowEndsAt,
+    hasEvidenceFrame: a.hasEvidenceFrame,
+  };
+}
+
 export const SERVICE_NAME = "rules";
 
 export type RulesDeps = ServiceDeps & {
@@ -43,6 +70,9 @@ export type RulesDeps = ServiceDeps & {
    * (budget account of kind `penalty_savings`). Defaults to the seeded code `PEN`.
    */
   isPenaltySavingsAccount?: PenaltyServiceDeps["isPenaltySavingsAccount"];
+  appealStore?: AppealStore;
+  /** Reads the user's appeal settings (`appeal.window_hours`); registry defaults when absent. */
+  readAppealSettings?: (userId: string) => Promise<AppealSettings>;
   /** Reads the user's trial settings (identity `GET /settings`); registry defaults when absent. */
   readTrialSettings?: (userId: string) => Promise<TrialSettings>;
 };
@@ -94,8 +124,9 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
   });
   app.decorate("runTrialJob", (now: Date) => trial.runJob(now));
 
+  const faultStore = deps.faultStore ?? new InMemoryFaultStore();
   const faults = createFaultService({
-    store: deps.faultStore ?? new InMemoryFaultStore(),
+    store: faultStore,
     publish: deps.publish,
     readSettings: deps.readFaultSettings,
     onPublishError: (err) =>
@@ -172,7 +203,7 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     if (typeof userId !== "string" || userId === "") {
       return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
     }
-    const list = [...penaltyStore.list(userId)];
+    const list = penaltyStore.list(userId).filter((p) => !p.reversedAt);
     const suspendedTotalVnd = list
       .filter((p) => p.status === "suspended")
       .reduce((sum, p) => sum + p.amountVnd, 0);
@@ -189,6 +220,59 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
       contractId: p.contractId ?? null,
     }));
     return { ok: true, data: { penalties, suspendedTotalVnd } };
+  });
+
+  const appeals = createAppealService({
+    store: deps.appealStore ?? new InMemoryAppealStore(),
+    faultStore,
+    penaltyStore,
+    publish: deps.publish,
+    readSettings: deps.readAppealSettings,
+    onPublishError: (err) =>
+      app.log.error(
+        { err: err instanceof Error ? err.message : "unknown" },
+        "appeal event publish failed; it will be retried",
+      ),
+  });
+
+  app.post("/appeals", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const body = OpenAppealRequestSchema.extend({ penaltyId: IdSchema.optional() }).safeParse(
+      req.body,
+    );
+    if (!body.success) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    const result = await appeals.open(userId, body.data, now);
+    if (!result.ok) {
+      return reply.code(409).send({ ok: false, error: { code: result.error } });
+    }
+    return { ok: true, data: { appeal: toAppealView(result.appeal) } };
+  });
+
+  // Decisions are made by code or by the user's accountability rules, never by the AI; this
+  // route is internal (not forwarded by the gateway).
+  app.post("/appeals/decide", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const body = DecideAppealRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    const { appealId, outcome, note } = body.data;
+    const result = await appeals.decide(userId, appealId, outcome, now, note);
+    if (!result.ok) {
+      const code = result.error === "rules.appeal_not_found" ? 404 : 409;
+      return reply.code(code).send({ ok: false, error: { code: result.error } });
+    }
+    return { ok: true, data: { appeal: toAppealView(result.appeal) } };
   });
 
   app.post("/contracts/sign", async (req, reply) => {

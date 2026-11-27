@@ -58,7 +58,12 @@ export type FaultLedgerEntry = FaultEntry & { honestReason: boolean };
 export type FaultAuditRecord = {
   id: string;
   faultId: string;
-  action: "fault.recorded" | "fault.waived_system";
+  action:
+    | "fault.recorded"
+    | "fault.waived_system"
+    | "fault.appealed"
+    | "fault.upheld"
+    | "fault.overturned";
   at: string;
   detail: Record<string, unknown>;
 };
@@ -74,6 +79,17 @@ export interface FaultStore {
   /** Synchronously inserts the entry with its audit record unless (user, signalRef) exists. */
   insertOnce(userId: string, entry: FaultLedgerEntry, audit: FaultAuditRecord): boolean;
   findBySignal(userId: string, signalRef: string): FaultLedgerEntry | undefined;
+  /**
+   * Synchronously moves the entry from one of the `from` statuses to `to` with its audit
+   * record. Returns undefined when the entry is missing or in another status.
+   */
+  transition(
+    userId: string,
+    faultId: string,
+    from: readonly FaultLedgerEntry["status"][],
+    to: FaultLedgerEntry["status"],
+    audit: FaultAuditRecord,
+  ): FaultLedgerEntry | undefined;
   /** Honest-reason faults of the type with occurredAt in (from, to]. */
   countHonest(userId: string, type: FaultType, from: Date, to: Date): number;
   claimOwedEvent(userId: string, signalRef: string): Stored | undefined;
@@ -103,6 +119,19 @@ export class InMemoryFaultStore implements FaultStore {
   }
   findBySignal(userId: string, signalRef: string) {
     return this.rows.get(userId)?.find((r) => r.entry.signalRef === signalRef)?.entry;
+  }
+  transition(
+    userId: string,
+    faultId: string,
+    from: readonly FaultLedgerEntry["status"][],
+    to: FaultLedgerEntry["status"],
+    audit: FaultAuditRecord,
+  ) {
+    const row = this.rows.get(userId)?.find((r) => r.entry.id === faultId);
+    if (!row || !from.includes(row.entry.status)) return undefined;
+    row.entry = Object.freeze({ ...row.entry, status: to });
+    this.audits.set(userId, [...(this.audits.get(userId) ?? []), Object.freeze(audit)]);
+    return row.entry;
   }
   countHonest(userId: string, type: FaultType, from: Date, to: Date) {
     return (this.rows.get(userId) ?? []).filter((r) => {
