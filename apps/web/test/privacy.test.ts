@@ -71,9 +71,7 @@ describe("deletion", () => {
     const bad = await requestDeletion("no", (async () =>
       json(400, { ok: false, error: "identity.deletion_not_confirmed" })) as never);
     expect(bad).toEqual({ status: "not_confirmed" });
-    expect((await requestDeletion("a", (async () => json(503, {})) as never)).status).toBe(
-      "error",
-    );
+    expect((await requestDeletion("a", (async () => json(503, {})) as never)).status).toBe("error");
   });
 });
 
