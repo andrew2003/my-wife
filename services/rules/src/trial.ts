@@ -69,6 +69,8 @@ export function settleTrial(input: {
     });
 }
 
+export type TrialEndReason = "elapsed" | "turned_off" | "account_closing";
+
 export type TrialState = "active" | "final_appeal" | "settled";
 
 export type TrialRecord = {
@@ -78,6 +80,8 @@ export type TrialRecord = {
   endsAt: string;
   state: TrialState;
   finalAppealEndsAt?: string;
+  /** Why the trial ended; `elapsed` when the clock ran out. */
+  endReason?: TrialEndReason;
   suspendedTotalVnd?: number;
   settledTotalVnd?: number;
   startedPublished: boolean;
@@ -94,7 +98,7 @@ export interface TrialStore {
   find(userId: string): TrialRecord | undefined;
   create(record: TrialRecord): void;
   update(userId: string, patch: Partial<TrialRecord>): void;
-  /** Users whose trial still has something to do. */
+  /** Users whose trial still has something to do, including suspended entries left after settlement. */
   open(): TrialRecord[];
   suspended(userId: string): SuspendedEntry[];
   markDue(userId: string, lines: SettlementLine[]): void;
@@ -118,7 +122,11 @@ export class InMemoryTrialStore implements TrialStore {
     if (row) Object.assign(row, patch);
   }
   open() {
-    return [...this.trials.values()].filter((t) => !(t.state === "settled" && t.settledPublished));
+    // A settled trial stays open while entries are still suspended (held by an appeal).
+    return [...this.trials.values()].filter(
+      (t) =>
+        !(t.state === "settled" && t.settledPublished && this.suspended(t.userId).length === 0),
+    );
   }
   suspended(userId: string) {
     return (this.ledger.get(userId) ?? []).filter((e) => e.status === "suspended");
@@ -155,6 +163,11 @@ export type TrialServiceDeps = {
    * can move its entries to `due`. Must be idempotent: a throw leaves the trial unsettled and
    * the next job run tries again.
    */
+  /**
+   * True while an entry must not be settled: its appeal is open or it was reversed. Held
+   * entries stay suspended and are settled by a later run once released.
+   */
+  isHeld?: (userId: string, entryId: string) => Promise<boolean>;
   onSettled?: (userId: string, lines: SettlementLine[], now: Date) => Promise<void>;
   newId?: () => string;
   onPublishError?: (err: unknown) => void;
@@ -187,6 +200,39 @@ export function createTrialService(deps: TrialServiceDeps) {
     }
   }
 
+  /** Suspended entries that may be settled now (not under an open appeal, not reversed). */
+  async function settleable(userId: string): Promise<SuspendedEntry[]> {
+    const out: SuspendedEntry[] = [];
+    for (const e of deps.store.suspended(userId)) {
+      if (e.appealOpen) continue;
+      if (deps.isHeld && (await deps.isHeld(userId, e.id))) continue;
+      out.push(e);
+    }
+    return out;
+  }
+
+  /** Settles the given entries; false when the penalty ledger failed and the run must retry. */
+  async function settleEntries(
+    t: TrialRecord,
+    entries: SuspendedEntry[],
+    now: Date,
+  ): Promise<SettlementLine[] | undefined> {
+    const lines = settleTrial({
+      entries,
+      installmentsK: t.settings.installmentsK,
+      settledAt: now,
+      installmentIntervalMs: t.settings.installmentIntervalMs,
+    });
+    try {
+      await deps.onSettled?.(t.userId, lines, now);
+    } catch (err) {
+      deps.onPublishError?.(err);
+      return undefined;
+    }
+    deps.store.markDue(t.userId, lines);
+    return lines;
+  }
+
   async function advance(t: TrialRecord, now: Date): Promise<void> {
     const { userId } = t;
     if (!t.startedPublished) {
@@ -204,9 +250,10 @@ export function createTrialService(deps: TrialServiceDeps) {
       deps.store.update(userId, { startedPublished: true });
     }
     if (t.state === "active" && now.getTime() >= Date.parse(t.endsAt)) {
-      const total = deps.store.suspended(userId).reduce((sum, e) => sum + e.amountVnd, 0);
+      const total = (await settleable(userId)).reduce((sum, e) => sum + e.amountVnd, 0);
       deps.store.update(userId, {
         state: "final_appeal",
+        endReason: "elapsed",
         suspendedTotalVnd: total,
         finalAppealEndsAt: computeFinalAppealEnd(
           new Date(t.endsAt),
@@ -219,7 +266,7 @@ export function createTrialService(deps: TrialServiceDeps) {
         userId,
         "trial.ended",
         {
-          reason: "elapsed",
+          reason: t.endReason ?? "elapsed",
           suspendedTotalVnd: t.suspendedTotalVnd ?? 0,
           finalAppealEndsAt: t.finalAppealEndsAt!,
         },
@@ -233,20 +280,10 @@ export function createTrialService(deps: TrialServiceDeps) {
       t.endedPublished &&
       now.getTime() >= Date.parse(t.finalAppealEndsAt!)
     ) {
-      const lines = settleTrial({
-        entries: deps.store.suspended(userId),
-        installmentsK: t.settings.installmentsK,
-        settledAt: now,
-        installmentIntervalMs: t.settings.installmentIntervalMs,
-      });
-      const byId = new Map(deps.store.suspended(userId).map((e) => [e.id, e.amountVnd]));
-      try {
-        await deps.onSettled?.(userId, lines, now);
-      } catch (err) {
-        deps.onPublishError?.(err);
-        return;
-      }
-      deps.store.markDue(userId, lines);
+      const entries = await settleable(userId);
+      const lines = await settleEntries(t, entries, now);
+      if (!lines) return;
+      const byId = new Map(entries.map((e) => [e.id, e.amountVnd]));
       deps.store.update(userId, {
         state: "settled",
         settledTotalVnd: lines.reduce((s, l) => s + (byId.get(l.entryId) ?? 0), 0),
@@ -260,6 +297,12 @@ export function createTrialService(deps: TrialServiceDeps) {
         now,
       );
       if (ok) deps.store.update(userId, { settledPublished: true });
+    }
+    // Entries released from an appeal after settlement are settled by the same rules; the
+    // trial.settled event is not repeated (it carries the total settled at the end).
+    if (t.state === "settled" && t.settledPublished) {
+      const late = await settleable(userId);
+      if (late.length > 0) await settleEntries(t, late, now);
     }
   }
 
@@ -283,6 +326,28 @@ export function createTrialService(deps: TrialServiceDeps) {
       deps.store.create(record);
       await advance(record, now);
       return { started: true };
+    },
+    /**
+     * Turning the trial off (or closing the account) ends it immediately: `trial.ended` carries
+     * the reason, the final appeal window opens now, and settlement follows as at a normal end.
+     */
+    async endEarly(
+      userId: string,
+      reason: Exclude<TrialEndReason, "elapsed">,
+      now: Date,
+    ): Promise<{ ended: boolean }> {
+      const t = deps.store.find(userId);
+      if (!t || t.state !== "active") return { ended: false };
+      const total = (await settleable(userId)).reduce((sum, e) => sum + e.amountVnd, 0);
+      deps.store.update(userId, {
+        state: "final_appeal",
+        endReason: reason,
+        endsAt: now.toISOString(),
+        suspendedTotalVnd: total,
+        finalAppealEndsAt: computeFinalAppealEnd(now, t.settings.finalAppealHours).toISOString(),
+      });
+      await advance(t, now);
+      return { ended: true };
     },
     /** The trial job: run with an injected `now` (test-kit clock in scenarios). */
     async runJob(now: Date): Promise<void> {

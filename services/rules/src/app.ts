@@ -121,6 +121,10 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     publish: deps.publish,
     readSettings: deps.readTrialSettings,
     onSettled: (userId, lines, now) => settlePenalties(userId, lines, now),
+    isHeld: async (userId, entryId) => {
+      const p = penaltyStore.list(userId).find((e) => e.id === entryId);
+      return !!p && (!!p.appealId || !!p.reversedAt);
+    },
     onPublishError: (err) =>
       app.log.error(
         { err: err instanceof Error ? err.message : "unknown" },
@@ -215,6 +219,20 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     }
     const now = (deps.now ?? (() => new Date()))();
     return { ok: true, data: await trial.onContractSigned(parsed.data as EventEnvelope, now) };
+  });
+
+  // Internal: turning the trial off ends it at once (the account-closing flow passes the reason).
+  app.post("/trial/turn-off", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const reason = (req.body as { reason?: unknown } | null)?.reason ?? "turned_off";
+    if (reason !== "turned_off" && reason !== "account_closing") {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    return { ok: true, data: await trial.endEarly(userId, reason, now) };
   });
 
   // The gateway has verified the session and forwards the user id (see decisions.md).
