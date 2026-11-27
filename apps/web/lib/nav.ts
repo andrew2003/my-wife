@@ -18,4 +18,5 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/faults", labelKey: "nav.faults" },
   { href: "/penalties", labelKey: "nav.penalties" },
   { href: "/settings", labelKey: "nav.settings" },
+  { href: "/admin", labelKey: "nav.admin" },
 ];
