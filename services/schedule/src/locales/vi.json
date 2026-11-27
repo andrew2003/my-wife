@@ -22,5 +22,9 @@
   "schedule.pomodoro.break_started": "Hết một pomodoro. Nghỉ {minutes} phút nhé, hệ thống tạm dừng theo dõi.",
   "schedule.pomodoro.break_ended": "Hết giờ nghỉ. Quay lại làm việc khi bạn sẵn sàng.",
   "schedule.offline.check_in_start": "Đã điểm danh bắt đầu. Mình không giám sát công việc này.",
-  "schedule.offline.check_in_end": "Đã điểm danh kết thúc. Công việc được ghi nhận là hoàn thành."
+  "schedule.offline.check_in_end": "Đã điểm danh kết thúc. Công việc được ghi nhận là hoàn thành.",
+  "schedule.carry_over.question": "\"{title}\" chưa xong (đã dồn {carriedCount}/{maxTimes} lần). Bạn muốn xử lý thế nào?",
+  "schedule.carry_over.option.roll_forward": "Dồn sang ngày mai",
+  "schedule.carry_over.option.lower_priority": "Dồn và hạ ưu tiên",
+  "schedule.carry_over.option.skip": "Bỏ qua"
 }

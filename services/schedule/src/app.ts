@@ -13,6 +13,7 @@ import {
   WeekPlannedItemSchema,
   type EventEnvelope,
 } from "@my-wife/contracts";
+import { answerCarryOver, runDayEndJob } from "./carry-over";
 import { resolvePomodoroSettings } from "./pomodoro";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
@@ -202,6 +203,8 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
       kind: b.kind,
       state: "planned",
       carriedCount: 0,
+      priority: "normal",
+      pendingAsk: null,
       parentRecurrenceId: b.parentRecurrenceId ?? null,
     };
     plan.store.addTask(task);
@@ -234,6 +237,27 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     };
   app.post("/tasks/start", transition(startTask, StartTaskRequestSchema));
   app.post("/tasks/complete", transition(completeTask, CompleteTaskRequestSchema));
+
+  app.post("/tasks/carry-over-answer", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const b = (req.body ?? {}) as { taskId?: unknown; questionId?: unknown; value?: unknown };
+    const taskId = IdSchema.safeParse(b.taskId);
+    const questionId = IdSchema.safeParse(b.questionId);
+    if (!taskId.success || !questionId.success || typeof b.value !== "string")
+      return fail(reply, 400, "schedule.invalid_request");
+    const res = await answerCarryOver(plan, userId, taskId.data, questionId.data, b.value);
+    if (res.ok) return { ok: true, data: { task: taskView(res.task) } };
+    if (res.error === "not_in_plan") return fail(reply, 404, "schedule.task_not_in_plan");
+    if (res.error === "invalid_answer") return fail(reply, 400, "schedule.invalid_request");
+    return fail(reply, 409, "schedule.no_open_question");
+  });
+
+  /** Internal entry for the scheduler; safe to run any number of times. */
+  app.post("/jobs/day-end", async () => ({
+    ok: true,
+    data: await runDayEndJob(plan, readSettings),
+  }));
 
   app.post("/tasks/check-in", async (req, reply) => {
     const userId = userOf(req.headers);

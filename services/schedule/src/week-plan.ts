@@ -7,7 +7,7 @@ const DAY_MINUTES = 24 * 60;
 
 export interface TemplateTask extends Omit<
   PlanTask,
-  "id" | "userId" | "day" | "state" | "carriedCount"
+  "id" | "userId" | "day" | "state" | "carriedCount" | "priority" | "pendingAsk"
 > {
   /** 0 is the first day of the week. */
   dayOffset: number;
@@ -82,6 +82,8 @@ export function copyTemplateIntoWeek(
       day: addDays(week.firstDay, dayOffset),
       state: "planned",
       carriedCount: 0,
+      priority: "normal",
+      pendingAsk: null,
     };
     store.addTask(task);
     return task;
