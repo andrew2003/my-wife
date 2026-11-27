@@ -18,6 +18,7 @@ import type { LlmProvider } from "../llm";
 import type { ConversationStore } from "../conversation";
 import type { MemoryService } from "../memory";
 import { buildSystemPrompt } from "./persona";
+import { wrapUntrusted, type UntrustedSource } from "./untrusted";
 
 export interface ChatServiceDeps {
   provider: LlmProvider;
@@ -155,13 +156,37 @@ export class ChatService {
   }
 
   async handleMessage(text: string, locale: Locale, userId: string): Promise<ChatResult> {
+    return this.run(text, locale, userId, null);
+  }
+
+  /**
+   * An email field or a chat paste: wrapped as data, answered in words only. Whatever tools or
+   * memories the model proposes are dropped, and nothing of it is recorded as a user turn.
+   */
+  async handleUntrusted(
+    text: string,
+    source: UntrustedSource,
+    locale: Locale,
+    userId: string,
+  ): Promise<ChatResult> {
+    return this.run(text, locale, userId, source);
+  }
+
+  private async run(
+    text: string,
+    locale: Locale,
+    userId: string,
+    untrusted: UntrustedSource | null,
+  ): Promise<ChatResult> {
     const messageId = (this.deps.newId ?? randomUUID)();
     const threshold = await this.threshold(userId);
     const strictness = await this.strictness(userId);
     const [memories, summaries] = await this.recallSafely(userId);
     const request = {
-      system: buildSystemPrompt(locale, memories, summaries, strictness),
-      userText: text,
+      system: untrusted
+        ? `${buildSystemPrompt(locale, memories, summaries, strictness)}\n${renderMessage({ key: "ai.untrusted.rule", params: {} }, locale)}`
+        : buildSystemPrompt(locale, memories, summaries, strictness),
+      userText: untrusted ? wrapUntrusted(text, untrusted) : text,
       locale,
     };
     const before = this.statusOf(userId);
@@ -177,7 +202,16 @@ export class ChatService {
       try {
         const response = await provider.complete(request);
         state = nextFailoverState(state, slot, true, threshold, { hasFallback: !!fallback });
-        answered = { slot, text: response.text, memories: response.memories ?? [] };
+        if (untrusted && response.toolCalls.length > 0)
+          this.deps.warn?.(
+            { dropped: response.toolCalls.length, source: untrusted },
+            "untrusted content proposed tools; dropped",
+          );
+        answered = {
+          slot,
+          text: response.text,
+          memories: untrusted ? [] : (response.memories ?? []),
+        };
         break;
       } catch (error) {
         // Plain error handling; nothing from the provider is acted on.
@@ -215,6 +249,9 @@ export class ChatService {
       name: "ai.message_sent",
       payload: aiEvents["ai.message_sent"].parse({ messageId, toolCalls: 0 }),
     });
+    if (untrusted) {
+      return { messageId, reply: { text: replyText }, pendingConfirmations: [], degraded: false };
+    }
     try {
       const at = (this.deps.now ?? (() => new Date()))();
       await this.deps.conversations?.append({ userId, role: "user", text, at });
