@@ -86,6 +86,35 @@ export function detectOverspends(
   return findings;
 }
 
+/**
+ * Pure: settles the last-week excess of a closing cycle (spec 10 section 8). A debt whose
+ * category (matched by short code) exists in the next cycle becomes a deduction from that
+ * category's first week; every other debt stays penalty debt. Integer VND: the amounts of the
+ * two results always sum to the input.
+ */
+export function settleLastWeekExcess(
+  debts: readonly PenaltyDebt[],
+  currentCategories: readonly { categoryId: string; shortCode: string }[],
+  nextCategories: readonly { categoryId: string; shortCode: string }[] | undefined,
+): { adjustments: LimitAdjustment[]; remainingDebts: PenaltyDebt[] } {
+  const adjustments: LimitAdjustment[] = [];
+  const remainingDebts: PenaltyDebt[] = [];
+  for (const debt of debts) {
+    const code = currentCategories.find((c) => c.categoryId === debt.categoryId)?.shortCode;
+    const target = code ? nextCategories?.find((c) => c.shortCode === code) : undefined;
+    if (target) {
+      adjustments.push({
+        categoryId: target.categoryId,
+        weekIndex: 1,
+        deductionVnd: debt.amountVnd,
+      });
+    } else {
+      remainingDebts.push({ ...debt });
+    }
+  }
+  return { adjustments, remainingDebts };
+}
+
 /** Pure: the weekly limit after the deductions caused by earlier overspends; never below 0. */
 export function effectiveWeeklyLimit(
   baseLimitVnd: number,

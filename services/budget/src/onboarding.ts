@@ -46,7 +46,8 @@ export interface AuditRecord {
     | "anomaly_resolved"
     | "debt_opened"
     | "debt_written_off"
-    | "cycle_closed";
+    | "cycle_closed"
+    | "last_week_excess_settled";
   detail: Record<string, string | number>;
 }
 
@@ -313,6 +314,8 @@ export interface SampleBudgetStore {
     cycleId: string,
     allocation: SurplusAllocation,
     at: Date,
+    /** Last-week excess of the cycle: deductions for the next cycle and what stays as debt. */
+    settlement?: { adjustments: LimitAdjustment[]; remainingDebts: PenaltyDebt[] },
   ): Promise<"closed" | "duplicate" | "not_closing">;
   markCycleCloseAnnounced(
     userId: string,
@@ -896,13 +899,39 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     if (d) d.writtenOffAnnounced = true;
   }
 
-  async closeCycle(userId: string, cycleId: string, allocation: SurplusAllocation, at: Date) {
+  async closeCycle(
+    userId: string,
+    cycleId: string,
+    allocation: SurplusAllocation,
+    at: Date,
+    settlement?: { adjustments: LimitAdjustment[]; remainingDebts: PenaltyDebt[] },
+  ) {
     const r = this.records.get(userId);
     if (!r || r.cycle.id !== cycleId) return "not_closing" as const;
     if (r.cycleCloses.some((c) => c.cycleId === cycleId)) return "duplicate" as const;
     if (r.cycle.state !== "closing") return "not_closing" as const;
     r.cycle.state = "closed";
     r.cycle.closedAt = at.toISOString();
+    if (settlement) {
+      const owed = r.penaltyDebts.filter((d) => d.cycleId === cycleId);
+      if (owed.length > 0) {
+        r.penaltyDebts = [
+          ...r.penaltyDebts.filter((d) => d.cycleId !== cycleId),
+          ...settlement.remainingDebts.map((d) => ({ ...d })),
+        ];
+        r.limitAdjustments.push(...settlement.adjustments.map((a) => ({ ...a })));
+        r.audit.push({
+          at: at.toISOString(),
+          userId,
+          action: "last_week_excess_settled",
+          detail: {
+            cycleId,
+            deductedVnd: settlement.adjustments.reduce((sum, a) => sum + a.deductionVnd, 0),
+            debtVnd: settlement.remainingDebts.reduce((sum, d) => sum + d.amountVnd, 0),
+          },
+        });
+      }
+    }
     r.cycleCloses.push({
       cycleId,
       allocation: { ...allocation },
