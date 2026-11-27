@@ -12,6 +12,7 @@ import {
   type MonitoringProfileSchema,
   type ReasonTicketStateSchema,
 } from "@my-wife/contracts";
+import { decideReasonOutcome, localWeekStart } from "./reason-quota";
 
 type Profile = (typeof MonitoringProfileSchema)["_output"];
 type ReasonKind = (typeof ReasonKindSchema)["_output"];
@@ -49,6 +50,8 @@ export interface ReasonTicket {
   answeredAt?: string;
   reasonKind?: ReasonKind;
   reasonText?: string;
+  /** How the answer is scored: an honest reason, or silence (quota used up). Set with the answer. */
+  scoredAs?: "honest" | "silence";
   /** Set when the chat message went out (state `escalated`). */
   escalatedAt?: string;
   /** Set when the silence delay passed (state `expired`). */
@@ -500,6 +503,45 @@ export async function runGapCheck(
 export type GiveReasonResult =
   { ok: true; ticket: ReasonTicket } | { ok: false; error: "ticket.not_found" | "ticket.not_open" };
 
+/** Honest reasons of this type the user already used in the local week of the fault. */
+async function honestReasonsUsed(deps: MonitorDeps, t: ReasonTicket, kind: ReasonKind) {
+  const settings = await deps.readSettings(t.userId);
+  const zoneAnswer = settings["calendar.time_zone"];
+  const dayAnswer = settings["calendar.week_start_day"];
+  const validZone = (z: unknown): z is string => {
+    if (typeof z !== "string") return false;
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: z });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const timeZone = validZone(zoneAnswer) ? zoneAnswer : SETTINGS["calendar.time_zone"].default;
+  const dayDef = SETTINGS["calendar.week_start_day"];
+  const parsedDay = dayDef.schema.safeParse(dayAnswer);
+  const weekStartDay = parsedDay.success ? parsedDay.data : dayDef.default;
+  const week = (iso: string) => localWeekStart(new Date(iso), timeZone, weekStartDay);
+  const thisWeek = week(t.occurredAt);
+  return deps.state.tickets
+    .all()
+    .filter(
+      (o) =>
+        o.id !== t.id &&
+        o.userId === t.userId &&
+        o.reasonKind === kind &&
+        o.scoredAs === "honest" &&
+        week(o.occurredAt) === thisWeek,
+    ).length;
+}
+
+async function reasonQuota(deps: MonitorDeps, userId: string): Promise<number> {
+  const answer = (await deps.readSettings(userId))["reason.quota_per_week"];
+  return typeof answer === "number" && Number.isInteger(answer) && answer >= 0
+    ? answer
+    : SETTINGS["reason.quota_per_week"].default;
+}
+
 /** The user answers a ticket that is still `open` or `escalated`; a repeat or a late answer is refused. */
 export async function giveReason(
   deps: MonitorDeps,
@@ -510,10 +552,15 @@ export async function giveReason(
   const t = deps.state.tickets.get(userId, input.ticketId);
   if (!t) return { ok: false, error: "ticket.not_found" };
   if (t.state !== "open" && t.state !== "escalated") return { ok: false, error: "ticket.not_open" };
+  const outcome = decideReasonOutcome(
+    await reasonQuota(deps, userId),
+    await honestReasonsUsed(deps, t, input.kind),
+  );
   const previous = { ...t };
   t.state = "answered";
   t.answeredAt = now.toISOString();
   t.reasonKind = input.kind;
+  t.scoredAs = outcome;
   if (input.text) t.reasonText = input.text;
   try {
     await deps.publish(
@@ -524,12 +571,26 @@ export async function giveReason(
         givenAt: t.answeredAt,
       }),
     );
+    // Rules scores the fault: an honest reason at the honest percentage, silence in full.
+    // A reason beyond the weekly quota is sent as silence (`none`) but keeps its kind for audit.
+    await deps.publish(
+      envelope(now, `fault-detected-${t.signalRef}`, "fault.detected", userId, {
+        signalRef: t.signalRef,
+        type: t.signal,
+        occurredAt: t.occurredAt,
+        reason: outcome === "honest" ? "given" : "none",
+        reasonRef: outcome === "honest" ? t.id : null,
+        reasonKind: input.kind,
+        overlapsOutage: false,
+      }),
+    );
   } catch (err) {
     // The answer is not recorded unless it was announced; the user can answer again.
     Object.assign(t, previous);
     delete t.answeredAt;
     delete t.reasonKind;
     delete t.reasonText;
+    delete t.scoredAs;
     throw err;
   }
   return { ok: true, ticket: t };

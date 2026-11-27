@@ -289,7 +289,12 @@ describe("urgent escalation and reason ticket (MW-036)", () => {
       givenAt: at(DEFAULT_GAP + 20).toISOString(),
     });
     await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT + 10));
-    expect(types(s.events)).not.toContain("fault.detected");
+    // Answering emits one fault with the honest reason (MW-106); no silent fault follows.
+    expect(s.events.filter((e) => e.type === "fault.detected")).toHaveLength(1);
+    expect(s.events.find((e) => e.type === "fault.detected")?.payload).toMatchObject({
+      reason: "given",
+      reasonRef: s.ticket.id,
+    });
     expect(types(s.events)).not.toContain("reason.expired");
   });
 
@@ -393,7 +398,9 @@ describe("urgent escalation and reason ticket (MW-036)", () => {
       200,
     );
     await s.app.runUrgentJob(at(DEFAULT_GAP + SILENT + 100));
-    expect(types(s.events)).not.toContain("fault.detected");
+    // Only the honest fault from the answer exists; the silence delay adds no silent fault.
+    const faults = s.events.filter((e) => e.type === "fault.detected");
+    expect(faults.map((f) => (f.payload as { reason: string }).reason)).toEqual(["given"]);
   });
 
   it("falls back to the registry defaults for invalid urgent settings", async () => {
