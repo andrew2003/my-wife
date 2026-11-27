@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig } from "@my-wife/config";
 import { createApp as createGateway } from "@my-wife/gateway";
@@ -6,6 +9,8 @@ import { startAll, type Runner } from "../src/runner";
 import { DEMO_USER_EMAIL } from "../src/demo-state";
 import { prepareDemoLogin, type DemoLogin } from "../src/demo-login";
 
+// Keeps the tests from writing the default `.demo/` file.
+const DEMO_STATE_FILE = join(mkdtempSync(join(tmpdir(), "demo-login-")), "state.json");
 const SECRET = "s".repeat(40);
 const now = new Date("2026-11-27T03:00:00Z");
 let runner: Runner | undefined;
@@ -27,7 +32,13 @@ describe("prepareDemoLogin", () => {
     ["flag set, no env", { DEMO_LOGIN: "1" }, true],
   ])("%s", async (_name, env, enabled) => {
     const store = createMemoryStore();
-    const result = await prepareDemoLogin({ env, store, secret: SECRET, now, port: 0 });
+    const result = await prepareDemoLogin({
+      env: { ...env, DEMO_STATE_FILE },
+      store,
+      secret: SECRET,
+      now,
+      port: 0,
+    });
     login = result;
     expect(result !== undefined).toBe(enabled);
     expect(await store.countUsers()).toBe(enabled ? 1 : 0);
@@ -37,7 +48,7 @@ describe("prepareDemoLogin", () => {
     const store = createMemoryStore();
     await expect(
       prepareDemoLogin({
-        env: { DEMO_LOGIN: "1", NODE_ENV: "production" },
+        env: { DEMO_LOGIN: "1", NODE_ENV: "production", DEMO_STATE_FILE },
         store,
         secret: SECRET,
         now,
@@ -52,7 +63,7 @@ describe("prepareDemoLogin", () => {
     const store = createMemoryStore();
     const config = loadConfig({ SESSION_SECRET: SECRET, LOG_LEVEL: "silent" });
     login = await prepareDemoLogin({
-      env: { DEMO_LOGIN: "1", WEB_URL: "http://localhost:3000" },
+      env: { DEMO_LOGIN: "1", WEB_URL: "http://localhost:3000", DEMO_STATE_FILE },
       store,
       secret: SECRET,
       now,
@@ -88,7 +99,7 @@ describe("prepareDemoLogin", () => {
 
   it("answers other paths with 404 and shows no secret", async () => {
     login = await prepareDemoLogin({
-      env: { DEMO_LOGIN: "1" },
+      env: { DEMO_LOGIN: "1", DEMO_STATE_FILE },
       store: createMemoryStore(),
       secret: SECRET,
       now,

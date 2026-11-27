@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { SETTINGS, type ChannelKind, type CycleState, type SettingKey } from "@my-wife/contracts";
 import { buildSampleBudget, DEFAULT_SAMPLE_TOTAL_VND } from "@my-wife/budget";
 import type { IdentityStore } from "@my-wife/identity";
@@ -48,10 +50,62 @@ export interface DemoState {
 /** Holds the parts of the demo state that have no persistent store yet (in-process services). */
 export interface DemoWorld {
   state: DemoState | undefined;
+  /** Where the state survives a restart; absent means in-process only. */
+  persistence?: DemoStateStore;
 }
 
-export function createDemoWorld(): DemoWorld {
-  return { state: undefined };
+/** Keeps the demo state outside the process so a restart finds the same cycle and routines. */
+export interface DemoStateStore {
+  /** Undefined when nothing usable is stored (missing, unreadable or malformed). */
+  load(): Promise<DemoState | undefined>;
+  save(state: DemoState): Promise<void>;
+}
+
+export function createDemoWorld(persistence?: DemoStateStore): DemoWorld {
+  return { state: undefined, persistence };
+}
+
+/** Default location, relative to the working directory; `.demo/` is ignored by git. */
+export const DEFAULT_DEMO_STATE_FILE = ".demo/demo-state.json";
+
+function looksLikeDemoState(value: unknown): value is DemoState {
+  const v = value as Partial<DemoState> | null;
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    typeof v.user?.id === "string" &&
+    typeof v.cycle?.id === "string" &&
+    Array.isArray(v.cycle.categories) &&
+    Array.isArray(v.schedule) &&
+    v.schedule.length > 0 &&
+    Array.isArray(v.routines) &&
+    Array.isArray(v.channels)
+  );
+}
+
+/** JSON file store; writes go through a temporary file so a crash never leaves half a state. */
+export function createFileDemoStateStore(path: string): DemoStateStore {
+  return {
+    async load() {
+      try {
+        const parsed: unknown = JSON.parse(await readFile(path, "utf8"));
+        return looksLikeDemoState(parsed) && parsed.user.id === DEMO_USER_ID ? parsed : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    async save(state) {
+      await mkdir(dirname(path), { recursive: true });
+      const tmp = `${path}.${process.pid}.tmp`;
+      await writeFile(tmp, JSON.stringify(state, null, 2), "utf8");
+      await rename(tmp, path);
+    },
+  };
+}
+
+/** The file store named by DEMO_STATE_FILE (default `.demo/demo-state.json`). */
+export function demoStateStoreFromEnv(env: Record<string, string | undefined>): DemoStateStore {
+  return createFileDemoStateStore(env.DEMO_STATE_FILE || DEFAULT_DEMO_STATE_FILE);
 }
 
 const DAY_MS = 86_400_000;
@@ -129,8 +183,21 @@ export interface ResetOptions {
  * revoked, settings the demo does not set go back to the registry default.
  */
 export async function resetDemoState(opts: ResetOptions): Promise<DemoState> {
+  return applyDemoState(opts, buildDemoState(opts.now));
+}
+
+/**
+ * Startup path: reuses the persisted demo state when there is one (the cycle, blocks and
+ * routines survive a restart) and builds a fresh one otherwise. The identity side is
+ * rewritten either way, since the runner's identity store may be empty after a restart.
+ */
+export async function ensureDemoState(opts: ResetOptions): Promise<DemoState> {
+  const saved = await opts.world.persistence?.load();
+  return applyDemoState(opts, saved ?? buildDemoState(opts.now));
+}
+
+async function applyDemoState(opts: ResetOptions, state: DemoState): Promise<DemoState> {
   const { store, world, now } = opts;
-  const state = buildDemoState(now);
   const at = now.toISOString();
   const existing = await store.findUserById(state.user.id);
   await store.saveUser({
@@ -177,5 +244,6 @@ export async function resetDemoState(opts: ResetOptions): Promise<DemoState> {
   }
 
   world.state = state;
+  await world.persistence?.save(state);
   return state;
 }

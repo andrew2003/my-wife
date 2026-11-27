@@ -9,6 +9,7 @@
     "generate:service": "node scripts/generate-service.mjs",
     "dev": "pnpm --filter @my-wife/dev-runner start",
     "demo:reset": "pnpm --filter @my-wife/dev-runner demo:reset",
+    "demo:probe": "pnpm --filter @my-wife/dev-runner demo:probe",
     "test": "turbo run test --concurrency=2",
     "typecheck": "turbo run typecheck --concurrency=2",
     "lint": "turbo run lint --concurrency=2",
