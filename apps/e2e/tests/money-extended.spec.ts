@@ -22,7 +22,9 @@ import { at, merchantReceipt, openRunningCycle, START, step, TAIL } from "../sup
  */
 const TRIAL = { weeks: 1, installmentsK: 1, finalAppealHours: 0 } as const;
 const pct = SETTINGS["penalty.overspend_percent"].default;
-const penaltyOf = (excessVnd: number) => Math.floor((excessVnd * pct + 50) / 100);
+// Spec 12: penalty = excess x penalty.overspend_percent / 100. Every excess used below is a
+// multiple of 100, so the division is exact and no rounding rule is repeated here.
+const penaltyOf = (excessVnd: number) => (excessVnd * pct) / 100;
 
 type PenaltyView = {
   id: string;
@@ -393,6 +395,7 @@ it("money, extended: failure branches, debts, appeals, trial settlement and surp
         (e) => (e.payload as { categoryId: string }).categoryId === catId,
       )!;
       const res = await world.call("rules", "POST", "/appeals", {
+        // Contracts have no overspend subject kind; a penalty is appealed as a classification.
         subjectKind: "classification",
         subjectId: subject.id,
         reasonText: `Appeal of the ${code} overspend`,
@@ -461,12 +464,39 @@ it("money, extended: failure branches, debts, appeals, trial settlement and surp
       expect(after.size).toBe(2);
       // The settled total of the trial was published once and is not repeated.
       expect(world.ofType("trial.settled")).toHaveLength(1);
+
+      // Audit trail: the penalty ledger records the reversal and the release with the appeal id.
+      // The decision event exists for fault appeals only, and the appeal's own audit (with the
+      // decision note) has no read route, so neither is asserted here.
+      const audit = world.penaltyStore.audit(MONEY_USER);
+      expect(
+        audit.find((r) => r.penaltyId === overturned.id && r.action === "penalty.reversed"),
+      ).toMatchObject({ detail: { appealId: appealIds.AG, outcome: "overturned" } });
+      expect(
+        audit.find((r) => r.penaltyId === upheld.id && r.action === "penalty.appeal_released"),
+      ).toMatchObject({ detail: { appealId: appealIds.MS, outcome: "upheld" } });
     },
   );
 
   await step(
     "a transfer with the code pays the upheld penalty; the reversed one cannot be paid",
     async () => {
+      // A transfer with the reversed penalty's code pays nothing.
+      const reversedTry = await world.sendMail({
+        kind: "credit",
+        id: "pay-reversed",
+        amountVnd: overturned.amountVnd,
+        reference: "PAYP0001",
+        at: world.clock.now(),
+        accountTail: TAIL.penalty_savings,
+        memo: overturned.transferCode,
+      });
+      expect(reversedTry.status).toBe(200);
+      expect(world.ofType("penalty.paid")).toHaveLength(0);
+      const reversed = world.penaltyStore.list(MONEY_USER).find((p) => p.id === overturned.id)!;
+      expect(reversed.reversedAt).toBeDefined();
+      expect(reversed.status).not.toBe("paid");
+
       const res = await world.sendMail({
         kind: "credit",
         id: "pay-upheld",
@@ -494,6 +524,7 @@ it("money, extended: failure branches, debts, appeals, trial settlement and surp
 
     // Nothing in the services moves a cycle from running to closing yet, so the scenario puts
     // the cycle there and drives the closing step itself on the real store (see #373).
+    // TODO(#373): replace with the real running -> closing trigger.
     world.budgetStore.get(MONEY_USER)!.cycle.state = "closing";
     const close = createCycleCloser({
       store: world.budgetStore,
@@ -535,8 +566,16 @@ it("money, refund of the spec example: the refund restores the category before t
   // category (150,000), so only the refund keeps the week from counting as an overspend.
   const refundWorld = await startMoneyWorld({ start: START, trial: TRIAL });
   try {
-    await step("a running cycle exists", async () => {
+    await step("a running cycle exists and the original is above the weekly limit", async () => {
       await openRunningCycle(refundWorld);
+      const record = await refundWorld.record();
+      const dl = record.categories.find((c) => c.shortCode === "DL")!;
+      const [weekly] = buildWeeklyLimitPlan({
+        cycleLimitVnd: dl.cycleLimitVnd,
+        weeks: record.cycle.weeks,
+        roundingVnd: SETTINGS["budget.weekly_limit_rounding_vnd"].default,
+      });
+      expect(200_000).toBeGreaterThan(weekly!);
     });
     await step("the refund restores 200,000 and 100,000 is income", async () => {
       await refundWorld.emit(
