@@ -54,6 +54,12 @@ import {
   type WeeklyPenaltyStore,
 } from "./weekly-fault-penalty";
 import type { WeeklyPenaltySettings } from "./weekly-penalty";
+import {
+  createRewardService,
+  InMemoryRewardStore,
+  type RewardSettings,
+  type RewardStore,
+} from "./reward";
 
 function toAppealView(a: AppealRecord) {
   return {
@@ -96,6 +102,10 @@ export type RulesDeps = ServiceDeps & {
   weeklyPenaltyStore?: WeeklyPenaltyStore;
   /** Fault thresholds and weekly cap in force (identity `GET /settings`); registry defaults when absent. */
   readWeeklyPenaltySettings?: (userId: string, at: Date) => Promise<WeeklyPenaltySettings>;
+  /** Clean-week reward results (one per user and week); in memory when absent. */
+  rewardStore?: RewardStore;
+  /** Reward streak, amount and target in force; registry defaults when absent. */
+  readRewardSettings?: (userId: string, at: Date) => Promise<RewardSettings>;
   appealStore?: AppealStore;
   /** Short-lived store for the consented appeal frame; frames are refused when absent. */
   appealFrameStore?: AppealFrameStore;
@@ -268,6 +278,28 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
       ok: true,
       data: await weeklyPenalties.onWeekClosed(parsed.data as EventEnvelope, now),
     };
+  });
+
+  const rewards = createRewardService({
+    faultStore,
+    store: deps.rewardStore ?? new InMemoryRewardStore(),
+    readSettings: deps.readRewardSettings,
+    publish: deps.publish,
+    onPublishError: (err) =>
+      app.log.error(
+        { err: err instanceof Error ? err.message : "unknown" },
+        "reward event publish failed; it will be retried",
+      ),
+  });
+
+  /** Internal entry for the bus bridge: `week.closed` unlocks the clean-week reward. */
+  app.post("/events/week-closed-reward", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (!parsed.success || parsed.data.type !== "week.closed") {
+      return reply.code(400).send({ ok: false, error: { code: "rules.invalid_event" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    return { ok: true, data: await rewards.onWeekClosed(parsed.data as EventEnvelope, now) };
   });
 
   /** Internal entry for the bus bridge: `contract.signed` starts the user's trial. */
