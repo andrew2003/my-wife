@@ -239,3 +239,94 @@ describe("decide an appeal", () => {
     expect(events.map((e) => e.type)).toEqual(["appeal.opened"]);
   });
 });
+
+describe("penalty must derive from the appealed fault", () => {
+  it.each([
+    ["an overspend penalty", { source: "overspend" as const, issuedAt: hours(1) }],
+    ["a penalty issued before the fault", { source: "monitoring" as const, issuedAt: hours(-1) }],
+    [
+      "a penalty issued a month after the fault",
+      { source: "routine" as const, issuedAt: hours(24 * 30) },
+    ],
+  ])("rejects %s", async (_n, other) => {
+    const { service, penaltyStore, faultStore, events } = setup();
+    const id = "66666666-6666-4666-8666-666666666666";
+    penaltyStore.insertOnce(
+      USER,
+      {
+        id,
+        source: other.source,
+        amountVnd: 10_000,
+        status: "due",
+        dueDate: hours(100).toISOString(),
+        transferCode: "MW-PH-Y",
+        sourceKey: "other",
+        auditRefs: [],
+        issuedAt: other.issuedAt.toISOString(),
+        contractId: null,
+      },
+      { id: "p9", penaltyId: id, action: "penalty.created", at: "", detail: {} },
+    );
+    const r = await service.open(USER, { ...request, penaltyId: id, reasonText: "x" }, hours(2));
+    expect(r).toEqual({ ok: false, error: "rules.penalty_not_from_fault" });
+    expect(faultStore.list(USER)[0]!.status).toBe("recorded");
+    expect(penaltyStore.list(USER).find((p) => p.id === id)!.appealId).toBeUndefined();
+    expect(events).toHaveLength(0);
+  });
+});
+
+describe("atomic open", () => {
+  it("a failed penalty hold leaves the fault appealable", async () => {
+    const base = setup();
+    const failing = Object.create(base.penaltyStore) as typeof base.penaltyStore;
+    failing.holdForAppeal = () => undefined;
+    const service = createAppealService({
+      store: new InMemoryAppealStore(),
+      faultStore: base.faultStore,
+      penaltyStore: failing,
+      newId: ids(),
+    });
+    const r = await service.open(USER, { ...request, reasonText: "x" }, hours(1));
+    expect(r.ok).toBe(false);
+    expect(base.faultStore.list(USER)[0]!.status).toBe("recorded");
+    expect(service.list(USER)).toHaveLength(0);
+    const retry = await base.service.open(USER, { ...request, reasonText: "x" }, hours(1));
+    expect(retry.ok).toBe(true);
+  });
+
+  it("a failed fault transition releases the penalty hold", async () => {
+    const base = setup();
+    const failing = Object.create(base.faultStore) as typeof base.faultStore;
+    failing.transition = () => undefined;
+    const service = createAppealService({
+      store: new InMemoryAppealStore(),
+      faultStore: failing,
+      penaltyStore: base.penaltyStore,
+      newId: ids(),
+    });
+    const r = await service.open(USER, { ...request, reasonText: "x" }, hours(1));
+    expect(r).toEqual({ ok: false, error: "rules.subject_not_appealable" });
+    expect(base.penaltyStore.list(USER)[0]!.appealId).toBeUndefined();
+    expect(service.list(USER)).toHaveLength(0);
+  });
+});
+
+describe("decide checks the fault state", () => {
+  it("rejects the decision when the fault is no longer appealed", async () => {
+    const { service, faultStore, penaltyStore, events } = setup();
+    const r = await service.open(USER, { ...request, reasonText: "x" }, hours(1));
+    if (!r.ok) throw new Error("open failed");
+    faultStore.transition(USER, FAULT, ["appealed"], "waived_system", {
+      id: "w",
+      faultId: FAULT,
+      action: "fault.waived_system",
+      at: hours(2).toISOString(),
+      detail: {},
+    });
+    const d = await service.decide(USER, r.appeal.id, "overturned", hours(3));
+    expect(d).toEqual({ ok: false, error: "rules.fault_not_appealed" });
+    expect(service.list(USER)[0]!.status).toBe("open");
+    expect(penaltyStore.list(USER)[0]!.reversedAt).toBeUndefined();
+    expect(events.some((e) => e.type === "fault.appeal_decided")).toBe(false);
+  });
+});

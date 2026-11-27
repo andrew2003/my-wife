@@ -157,6 +157,7 @@ export type AppealError =
   | "rules.invalid_appeal"
   | "rules.subject_not_found"
   | "rules.subject_not_appealable"
+  | "rules.penalty_not_from_fault"
   | "rules.appeal_window_closed"
   | "rules.appeal_already_open";
 
@@ -164,7 +165,10 @@ export type OpenAppealResult =
   { ok: true; appeal: AppealRecord } | { ok: false; error: AppealError };
 export type DecideAppealResult =
   | { ok: true; appeal: AppealRecord }
-  | { ok: false; error: "rules.appeal_not_found" | "rules.appeal_already_decided" };
+  | {
+      ok: false;
+      error: "rules.appeal_not_found" | "rules.appeal_already_decided" | "rules.fault_not_appealed";
+    };
 
 export type AppealServiceDeps = {
   store: AppealStore;
@@ -173,6 +177,11 @@ export type AppealServiceDeps = {
   publish?: (event: EventEnvelope) => void | Promise<void>;
   /** The user's appeal settings; registry defaults when absent. */
   readSettings?: (userId: string) => Promise<AppealSettings>;
+  /**
+   * Longest gap between a fault and the penalty issued for it (the penalty is issued at week
+   * close); a structural guard, 14 days by default.
+   */
+  maxPenaltyLagMs?: number;
   newId?: () => string;
   onPublishError?: (err: unknown) => void;
 };
@@ -181,6 +190,7 @@ export type AppealServiceDeps = {
 export function createAppealService(deps: AppealServiceDeps) {
   const newId = deps.newId ?? randomUUID;
   const readSettings = deps.readSettings ?? (async () => DEFAULT_APPEAL_SETTINGS);
+  const maxLagMs = deps.maxPenaltyLagMs ?? 14 * 24 * HOUR_MS;
   const claimed = new Set<string>();
 
   async function emitOwed(userId: string, now: Date): Promise<void> {
@@ -251,6 +261,17 @@ export function createAppealService(deps: AppealServiceDeps) {
       )
         return { ok: false, error: "rules.appeal_already_open" };
 
+      // The ledger has no fault link on a penalty, so the match is by user, source (a fault
+      // penalty is monitoring or routine) and time (issued after the fault, within one lag).
+      if (fault && penalty) {
+        const lag = Date.parse(penalty.issuedAt) - Date.parse(fault.occurredAt);
+        if (
+          (penalty.source !== "monitoring" && penalty.source !== "routine") ||
+          lag < 0 ||
+          lag > maxLagMs
+        )
+          return { ok: false, error: "rules.penalty_not_from_fault" };
+      }
       if (
         (fault && fault.status !== "recorded") ||
         (penalty && (penalty.reversedAt || penalty.status === "paid"))
@@ -283,17 +304,7 @@ export function createAppealService(deps: AppealServiceDeps) {
         decisionNote: null,
       };
       const at = now.toISOString();
-      if (fault) {
-        const audit: FaultAuditRecord = {
-          id: newId(),
-          faultId: fault.id,
-          action: "fault.appealed",
-          at,
-          detail: { appealId: appeal.id },
-        };
-        if (!deps.faultStore.transition(userId, fault.id, ["recorded"], "appealed", audit))
-          return { ok: false, error: "rules.subject_not_appealable" };
-      }
+      // Hold the penalty first; the fault transition is rolled back by releasing the hold.
       if (penalty) {
         const audit: PenaltyAuditRecord = {
           id: newId(),
@@ -304,6 +315,26 @@ export function createAppealService(deps: AppealServiceDeps) {
         };
         if (!deps.penaltyStore.holdForAppeal(userId, penalty.id, appeal.id, audit))
           return { ok: false, error: "rules.appeal_already_open" };
+      }
+      if (fault) {
+        const audit: FaultAuditRecord = {
+          id: newId(),
+          faultId: fault.id,
+          action: "fault.appealed",
+          at,
+          detail: { appealId: appeal.id },
+        };
+        if (!deps.faultStore.transition(userId, fault.id, ["recorded"], "appealed", audit)) {
+          if (penalty)
+            deps.penaltyStore.releaseAppealHold(userId, penalty.id, appeal.id, {
+              id: newId(),
+              penaltyId: penalty.id,
+              action: "penalty.appeal_released",
+              at,
+              detail: { appealId: appeal.id, reason: "rollback" },
+            });
+          return { ok: false, error: "rules.subject_not_appealable" };
+        }
       }
       deps.store.insert(userId, appeal, {
         id: newId(),
@@ -332,6 +363,13 @@ export function createAppealService(deps: AppealServiceDeps) {
       const existing = deps.store.find(userId, appealId);
       if (!existing) return { ok: false, error: "rules.appeal_not_found" };
       const at = now.toISOString();
+      // A fault appeal can only be decided while its fault is still `appealed`.
+      if (
+        existing.status === "open" &&
+        existing.subjectKind === "fault" &&
+        deps.faultStore.list(userId).find((f) => f.id === existing.subjectId)?.status !== "appealed"
+      )
+        return { ok: false, error: "rules.fault_not_appealed" };
       const appeal = deps.store.decide(userId, appealId, outcome, at, note ?? null, {
         id: newId(),
         appealId,
