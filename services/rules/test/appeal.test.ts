@@ -200,6 +200,25 @@ describe("decide an appeal", () => {
     });
   });
 
+  it.each([
+    ["overturned", 1],
+    ["upheld", 0],
+  ] as const)(
+    "outcome %s publishes %i fault.waived events so the ledger drops the fault",
+    async (outcome, count) => {
+      const { service, events } = setup();
+      const r = await service.open(USER, { ...request, reasonText: "x" }, hours(1));
+      if (!r.ok) throw new Error("open failed");
+      await service.decide(USER, r.appeal.id, outcome, hours(5));
+      const waived = events.filter((e) => e.type === "fault.waived");
+      expect(waived).toHaveLength(count);
+      if (count) {
+        expect(waived[0]!.payload).toEqual({ faultId: FAULT, cause: "appeal", kind: "system" });
+        expect(waived[0]!.id).toBe(`fault-waived-appeal-${r.appeal.id}`);
+      }
+    },
+  );
+
   it("decides once, and only for the owner", async () => {
     const { service, events } = setup();
     const r = await service.open(USER, { ...request, reasonText: "x" }, hours(1));

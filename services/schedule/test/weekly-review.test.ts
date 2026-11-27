@@ -249,6 +249,25 @@ describe("weekly review", () => {
     expect(res.json().data.review.faults.totalPoints).toBe(4);
   });
 
+  it("drops a fault waived by an overturned appeal from the review", async () => {
+    const { appP, setNow } = setup();
+    const app = await appP;
+    const weekId = await plannedWeek(app);
+    setNow("2026-11-30T00:00:01Z");
+    await job(app);
+    await post(app, "/events/ledger", fault("f1", 10));
+    await post(app, "/events/ledger", fault("f2", 4));
+    await post(
+      app,
+      "/events/ledger",
+      ledger("fault.waived", "fw-2", { faultId: "f1", cause: "appeal", kind: "system" }),
+    );
+    const res = await app.inject({ method: "GET", url: `/weeks/${weekId}/review`, headers: H });
+    const faults = res.json().data.review.faults;
+    expect(faults.totalPoints).toBe(4);
+    expect(faults.items.map((f: { faultId: string }) => f.faultId)).toEqual(["f2"]);
+  });
+
   it("refuses the review of a week that is not closed or not the caller's", async () => {
     const { appP, setNow } = setup();
     const app = await appP;
