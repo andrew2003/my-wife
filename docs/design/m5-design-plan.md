@@ -1,214 +1,262 @@
-# M5 design plan: visual system, navigation, theming, locale
+# M5 design plan: design system, skins, screens, sheets, commands
 
-Status: revised after po and reviewer review (2026-11-28). Owner brief: M5 in `factory/prompts/milestones.md`. Decisions: ADR 0014. Source of truth for conflicts: `docs/spec/00-final-decisions.md`. No application code is part of this plan.
+Status: revised 2026-11-28 to match the final owner brief. Decisions: ADR 0014 (design system, theming, locale, read routes), ADR 0015 (two-way sync and calendars), ADR 0016 (chat command contracts). Source of truth for conflicts: `docs/spec/00-final-decisions.md`. This document plans work; it contains no application code.
+
+The visual reference is a set of static mock-up frames kept on the owner's machine outside the repository. Components are rebuilt in Next.js with locale files; no text or image from the mock-up is copied into the repository.
 
 ## 1. Principles
 
-- The app is a caring assistant ("wife"), mascot Whale-chan: cute, elegant, never sexualized. No DeepSeek name or logo in UI or assets.
-- Calm, single-column, generous whitespace, pill buttons, large-radius cards, soft shadows, translucent sticky top bar.
-- Both themes and both languages are designed, not inverted.
-- All UI strings come from `apps/web/locales/{vi,en}.json` (CLAUDE.md language policy).
+- The app is a caring assistant who speaks as the user's wife. The character is a mascot only. Its name never appears in the UI, locale files, alt text, code or public docs; the product name is "My Wife".
+- Soft and calm: sticky translucent top bar with blur and a thin border, pill buttons and chips, cards with 22 to 28 px radius, soft shadows, generous whitespace, short motion. Style reference only: toey.app/ielts.
+- Every screen is designed for light and dark, in four skins, in Vietnamese and English.
+- One global appearance setting (skin and mode) drives every screen through shared tokens on the root, never per screen.
+- All UI strings come from `apps/web/locales/{vi,en}.json`.
+- Principle 4 holds everywhere: the model writes words, code decides numbers.
 
-## 2. Design tokens
+## 2. Locale bugs (first issue, tests first)
 
-All tokens are CSS custom properties on `:root` (light) and overridden under `[data-theme="dark"]` and `@media (prefers-color-scheme: dark)` for `:root:not([data-theme])`.
+Reproduced on `main`: after choosing English, navigation is English and the page body stays Vietnamese.
 
-| Group | Tokens |
+Causes: `app/page.tsx`, `app/manifest.ts` and the root `metadata` call `defaultLocale(process.env.UI_LANGUAGE)`; `app/locale/route.ts` always redirects to `/`; `components/locale-switch.tsx` shows the target language, which reads as the current state.
+
+Design:
+
+- One helper `getRequestLocale()` (cookie `mw_locale`, else `Accept-Language`, else `defaultLocale(UI_LANGUAGE)`) used by the layout, every page, `generateMetadata` and the client provider. Client components receive the locale from the provider. `UI_LANGUAGE` is read in exactly one file as the fallback; a test greps `apps/web` for other reads.
+- Root `metadata` becomes `generateMetadata`. `manifest.ts` cannot see user context, so it uses the default locale for its text; this is the one deliberate exception and is recorded in `docs/decisions.md`.
+- `/locale?lang=xx&next=/path`: `lang` must be `vi` or `en`, otherwise 400. The cookie is set, then 303 to a relative path. Target: `next` if valid, else the same-origin `Referer` path if valid, else `/`. A path is valid only when it starts with a single `/`, does not start with `//` or `/\`, has no `\`, control characters, scheme, or `@` in the first segment, still passes after up to two decoding passes, and is at most 512 characters. The `Location` is always the relative path.
+- Table-driven cases that must resolve to the fallback: `//evil.com`, `/\evil.com`, `https://evil.com`, `javascript:alert(1)`, `%2F%2Fevil.com`, `/%2Fevil.com`, `/%5Cevil.com`, `///evil.com`, `/\t/evil.com`, `evil.com`, empty, a 600-character path, and a cross-origin `Referer`. Valid: `/budget`, `/schedule/today?day=2026-11-28`, `/settings/models#keys`.
+- The segmented `VI | EN` control shows both languages, the active one highlighted, `aria-pressed`, group name from the current locale. It sets only the cookie.
+- Tests: catalog parity (same keys and placeholders), no Vietnamese diacritics in `en` values (an allowlist file names strings that may match across languages), no Vietnamese literal in `.tsx`. The end-to-end test signs in, switches to English, visits every screen and asserts `html[lang="en"]` and no `vi` catalog string in visible text; then the same for Vietnamese.
+
+## 3. Private art
+
+- The repository is public. Source images, cut-outs, faces, stickers and logos that show the character are never committed, never attached to an issue or PR, never uploaded, and never added and removed in history. Sources live in `docs/image/`, derived files in `.private-assets/`; both are ignored through the local exclude file, and an M5 PR adds the same two rules to `.gitignore`.
+- Run-time loading: the web app reads art from the directory named by `MASCOT_ART_DIR`. A route handler serves files from it only to signed-in users, with path validation (file names from an allowlist built from the directory listing, no traversal), cache headers and sized variants. It is never a public static path.
+- Fallback theme when the directory is missing (CI, fresh clone): gradient background, an original wave or whale-tail motif in SVG, initials for avatars, and original neutral empty-state art. Tests and CI pass without the art. One test starts the app with the variable unset and asserts the fallback renders and every screen still works.
+- Anything committed (favicon, repository PWA icons, empty-state art) is original non-character artwork. Character versions of the logo and PWA icons are served from the private directory at run time.
+- The approved files are used exactly as provided. Nothing is redrawn, restyled or given drawn-on effects.
+- A credits screen states the attribution required by the licence (original character, derivative work, CC BY-NC-SA 4.0) and the private, non-commercial use. The name appears only in private art notes, not in the UI or public docs. No third-party AI brand name or logo is used.
+- Art file keys follow the board names (for example `dress-full`, `hanfu-full`, `silver-full`, `street-full` with a `-dark` variant, expression keys of section 6, `logo-512`, `logo-192`, `logo-maskable-512`, `logo-white-512`). The component asks for a key, size and mode; the server maps it to a file.
+
+## 4. Design tokens, skins and modes
+
+Tokens are CSS custom properties with the `--mw-` prefix, defined in one TypeScript source that generates the stylesheet (so a unit test can read the same table). Groups: color, radius (22 to 28 px for cards, pill for controls), space (4-based), shadow, motion, layout, type.
+
+Brand colors: navy `#16204A`, royal `#2F5BB7`, ocean `#6FB6E8`, gold `#C9A45C`, white `#FFFFFF`, black `#0B0B10`. Status colors and the full light and dark tables are taken from the approved board. Primary per skin (light / dark): `navy` `#16204A` / `#6FB6E8`, `hanfu` `#27407F` / `#9CC3F0`, `silver` `#3443B8` / `#A3ADFF`, `street` `#0B0B10` / `#FFFFFF` with accent `#2F54EB`.
+
+Mechanism:
+
+- Settings `appearance.skin` (`navy` default, `hanfu`, `silver`, `street`) and `appearance.mode` (`light`, `dark`, `system`). Stored in cookies `mw_skin` and `mw_mode` (not HttpOnly because the client control writes them; `SameSite=Lax`, `Path=/`, one year; `Secure` over HTTPS) and mirrored to the user profile once signed in.
+- The root layout reads the cookies per request and renders `<html lang data-skin data-mode>`. `system` sets no `data-mode` and CSS `prefers-color-scheme` applies. Server HTML plus CSS means no flash and no inline script. `viewport.themeColor` has a light and a dark entry.
+- Selectors `[data-skin="x"]` and `[data-skin="x"][data-mode="dark"]` override the primary, accent and surface tokens. The art component picks the skin file and its `-dark` variant from the same two attributes.
+- Dark is designed per skin, not inverted. A pure unit test reproduces WCAG 2.x contrast for every text, control and focus pair in all 4 skins x 2 modes (4.5 for text, 3.0 for large text, control boundaries and focus rings) and fails below the threshold. Gold is decorative only where it fails contrast; a test greps modules for the gold token outside an allowlist. A test fails on a hex color outside the token source.
+- Responsive from 360 px up with no horizontal page scroll; touch targets at least 44 px; visible focus ring; motion limited to transform and opacity and removed under `prefers-reduced-motion`.
+
+Typography: Be Vietnam Pro (UI) and Playfair Display (titles), both OFL, self-hosted through `next/font/local` with Latin plus Vietnamese subsets and `display: swap`. No runtime font CDN; a test greps the build output for font CDN hosts. Weights: UI 400 and 600, titles one serif weight, plus an italic only if the board uses it. Tabular figures for money and countdown. Licence texts sit beside the font files.
+
+Logo and PWA icons: the wordmark is "My Wife" alone. The manifest's text uses the default locale; its icons point to original committed icons, and signed-in clients get the character icons from the private directory.
+
+## 5. Expressions
+
+- Keys, identical across three sets: `greet`, `joy`, `love`, `surprise`, `ask`, `sulk`, `sleep`.
+- Sets: chibi (default for the whole system and every skin), blue-hair faces, silver-hair faces. The file map per key is a server-side table that reads the private directory; with no directory, initials or neutral SVG stand in.
+- Small images (message avatars, reactions, empty and error states) use the active set. Faces are rounded squares, chibis uncropped.
+- State to key mapping: greeting, task done, praised, news, needs an answer, fault or penalty, bedtime. Defaults come from the board; the user changes the set and, per state, the key in settings. Because keys are shared, switching sets keeps the mapping. Stored as `appearance.expression_set` and `appearance.expression_map`.
+- Extra images found in the private directory can be offered as additional choices later. Mood tag commands (section 10) can pick an expression key.
+- No drawn-on effects are added to any image.
+
+## 6. Screens and navigation
+
+Every route is placed in one of the areas below or excluded in one source file; a test enumerates `app/**/page.tsx` and fails when a route is in neither.
+
+| Area | Routes |
 |---|---|
-| Color | `--c-bg`, `--c-surface`, `--c-surface-2`, `--c-text`, `--c-muted`, `--c-primary`, `--c-on-primary`, `--c-link`, `--c-gold`, `--c-gold-text`, `--c-danger`, `--c-success`, `--c-warning`, `--c-border`, `--c-focus` |
-| Radius | `--r-sm 10px`, `--r-md 14px`, `--r-lg 20px`, `--r-xl 24px`, `--r-pill 999px` |
-| Space | 4-based scale `--s-1 4px` to `--s-8 64px` |
-| Shadow | `--sh-1` (card), `--sh-2` (sheet, dialog); navy tint in light, black 40% in dark |
-| Motion | `--t-fast 150ms`, `--t-base 220ms`, easing `cubic-bezier(.2,.7,.2,1)`; all set to `0ms` under `prefers-reduced-motion: reduce` |
-| Layout | `--w-content 720px`, `--w-wide 1080px`, `--nav-w 240px`, `--nav-w-collapsed 72px`, `--topbar-h 56px`, `--tap 44px` |
-| Type | `--font-ui`, sizes `--fs-sm 14`, `--fs-md 16`, `--fs-lg 18`, `--fs-xl 24`, `--fs-2xl 32`; line height 1.5 body, 1.25 titles |
+| Today | `/` dashboard, `/schedule/today`, `/monitor` (focus session), `/inbox` (label "Messages") |
+| Schedule | `/schedule`, `/schedule/review`, `/schedule/calendar`, timetable sheet |
+| Budget | `/budget`, `/budget/funding`, `/anomalies`, `/contract`, `/penalties`, `/debts`, `/cycle-close`, `/receipts/[id]` (detail), budget sheet |
+| Routines | `/routines`, `/routines/sleep`, `/faults` |
+| More | `/settings`, `/settings/models`, `/settings/privacy`, `/settings/appearance`, `/settings/persona`, `/settings/commands`, credits, `/admin` (admin only) |
 
-Breakpoints: 360 (min supported), 640 (side nav appears collapsed), 1024 (side nav expanded), 1440+ (content stays centered at `--w-wide`).
+`/onboarding` is excluded from navigation (first-run redirect). Admin items are not rendered for non-admins; the API still enforces the role.
 
-### Palettes (derived from the character poster)
+Shell: a sticky translucent top bar and a pill nav on desktop; a bottom tab bar with a "More" sheet on phones (a dialog with focus trap, Escape, backdrop close, focus return, safe-area padding). Every screen except the dashboard and the focus session has a companion panel on the right with an LLM-written remark for that screen (section 7).
 
-Brand anchors: navy `#1B2559`, royal blue `#2F5BB7`, gold `#C9A45C`, ocean light from the hair, cream apron.
+Screens, following the board:
 
-| Token | Light | Dark |
-|---|---|---|
-| `--c-bg` | `#F6F9FD` (cream to ice-blue gradient on the body) | `#0A1230` (deep ocean gradient) |
-| `--c-surface` | `#FFFFFF` | `#121B45` |
-| `--c-text` | `#141E4A` | `#EDF2FF` |
-| `--c-muted` | `#46517A` | `#AAB7DE` |
-| `--c-primary` | `#2F5BB7` | `#8DB0FA` |
-| `--c-on-primary` | `#FFFFFF` | `#0A1230` |
-| `--c-link` | `#244A9A` | `#9DBBFB` |
-| `--c-gold` (decorative) | `#C9A45C` | `#E2C374` |
-| `--c-gold-text` | `#6F5210` | `#E2C374` |
-| `--c-danger` | `#B42318` | `#FF9C94` |
-| `--c-success` | `#1B7042` | `#78D9A3` |
-| `--c-warning` | `#8A5300` | `#F4CB69` |
-| `--c-border` (controls) | `#7C89B0` | `#6F7FB8` |
-| `--c-focus` | `#2F5BB7` | `#8DB0FA` |
+- **Dashboard.** Three columns on desktop (cards, character, cards), a centred hero on phones. The character is fully opaque and animated with transform and opacity only (float, sway, breathing, pulsing halo, ground shadow, rising bubbles, a hop when a task is ticked). Speech bubble with typing dots, then the text from section 7, and a reaction sticker. Checklist rows are large rounded buttons with a round check, title, time and a status chip (done, upcoming, not done); ticking plays a check pop and a sparkle burst, strikes the title and advances the bar; a late task wobbles gently. Every state change gets a reaction announced with `role="status"`. A messages card shows her messages with a matching sticker and quick-reply chips.
+- **Schedule.** Tabs today, week, solar and lunar calendar, weekly review; week strip; timeline with done, late, current and upcoming blocks; a details button on every block (time, repeat, monitoring, sync status per calendar, edit, open in calendar); running-block card with countdown; fault points; calendar sync chips; a button that opens the timetable sheet.
+- **Focus session.** Opened from the start-session button: Pomodoro progress, distraction and fault counts, a countdown ring on the server clock, pause, finish early, leave with a reason, always-on-top window, end sound, full screen, the on-device camera panel with presence status and the privacy note (video stays on the device, nothing is stored), and the urgent prompt for a reason with its answer deadline.
+- **Budget.** Cycle, week and penalty summary; categories with need or want tag, transfer code and progress; transactions, with an unknown spend asking for a category; a button that opens the budget sheet. The words "top up" are not used anywhere (UI, locale files, docs). Money is never paid into the app: funding a cycle is the user moving their own money between their own bank accounts using the transfer list with prefilled QR codes; the app only reads the receipt. Locale wording: "transfer list" and "verified by receipt". A test greps both catalogs for the banned wording.
+- **Routines.** Wake photo banner, one card per routine with the four-level control, a note and a week strip.
+- **Messages.** Filters, chat thread with a sticker on each of her messages, inline answer chips, sticker button, input, send, command autocomplete.
+- **Settings.** Appearance (skin, mode), address terms, expression mapping, chat commands and the existing sections.
+- Loading uses skeletons. Empty and error states are friendly, with a sticker or fallback art and a retry action.
 
-### Computed contrast (WCAG 2.x relative luminance; text needs 4.5, large text and UI parts 3.0)
+Component list: Button, IconButton, Input, Select, Textarea, Toggle, Checkbox, SegmentedControl, Card, StatTile, Tabs, Chip, ProgressBar, ResponsiveTable, Dialog, Sheet, Toast, Skeleton, EmptyState, ErrorState, TopBar, PillNav, BottomBar, MoreSheet, PageHeader, Avatar, AccountMenu, CompanionPanel, SpeechBubble, Mascot (art key, size, mode, fallback), SheetGrid (editable, computed and locked cells), CommandEditor.
 
-| Pair | Light | Dark | Needs |
+## 7. Voice and address terms
+
+Three user-editable lists per locale (add, edit, remove, switch on or off, custom text). The directions are never mixed.
+
+| Setting | Meaning | vi defaults (also offered) | en defaults (also offered) |
 |---|---|---|---|
-| text on bg | 15.13 | 16.41 | 4.5 |
-| text on surface | 15.98 | 14.78 | 4.5 |
-| muted on bg | 7.32 | 9.23 | 4.5 |
-| muted on surface | 7.73 | 8.31 | 4.5 |
-| on-primary on primary (button) | 6.36 | 8.51 | 4.5 |
-| primary on bg (link, icon) | 6.02 | 8.51 | 3.0 / 4.5 |
-| primary on surface | 6.36 | 7.67 | 4.5 |
-| link on surface | 8.33 | 8.62 | 4.5 |
-| gold-text on surface | 7.27 | 9.69 | 4.5 |
-| gold on surface | 2.35 | 9.69 | decorative only on light |
-| danger on surface | 6.57 | 8.23 | 4.5 |
-| success on surface | 6.10 | 9.66 | 4.5 |
-| warning on surface | 6.33 | 10.72 | 4.5 |
-| border on surface | 3.46 | 4.26 | 3.0 |
-| focus ring on bg | 6.02 | 8.51 | 3.0 |
+| `persona.address_user` | how she addresses the user | "anh yêu", "chồng yêu", "anh ơi" ("ông xã", "mình ơi") | "honey", "darling", "my love" ("hubby", "sweetheart") |
+| `persona.self_reference` | how she refers to herself | "em" ("vợ") | "I" |
+| `persona.wife_label` | how the user addresses her, used in UI labels | "vợ yêu" ("em yêu", "em ơi", "bà xã") | "my wife" ("wifey", "honey", "my love") |
 
-Rule: `--c-gold` is never used for text, a control boundary, a focus ring or a meaningful icon (one that carries information without a text label) in light mode (2.35 fails); use `--c-gold-text`. Gold is decoration only (trim, dividers, ornaments, `aria-hidden` flourishes). A test greps the CSS modules for `--c-gold` outside an allowlist of decorative selectors. The table is reproduced by a unit test in `apps/web` (`contrast.test.ts`) that reads the token table (one TypeScript source, generated into the CSS file at build or checked against it) and fails under 4.5 or 3.0 per pair above. Cards over the background art are opaque (`--c-surface`) or at least 92% opaque; the test also measures text on the worst-case blend of art at its maximum opacity.
+- Conversation text is written by the model from structured facts supplied by code (task, time, amounts, fault points, penalty, state) plus persona context: chosen terms, strictness, locale, time of day, recent conversation and a few reference examples for tone. Examples are context only and are never replayed verbatim; replies vary; in chat the model answers freely. Higher strictness uses fewer sweet words.
+- The number check is code: after generation, every number, time and amount in the text must match the supplied facts. On a mismatch, a timeout or degraded mode, a short fixed fallback sentence from the locale files is sent. The model never computes or decides money, fault points or penalties.
+- Fixed text is UI text only and lives in locale files with placeholders such as `{addressUser}`, `{self}`, `{wifeLabel}`; it follows the user's settings.
+- Tests: both locales, a custom term, a removed default, the number check with a wrong amount, the fallback path.
+- The new settings keys are added to `docs/spec/02-defaults.md` with the same change that implements them.
 
-## 3. Typography
+## 8. In-app sheets and sync (see ADR 0015)
 
-- UI font: Be Vietnam Pro (SIL OFL 1.1), full Vietnamese coverage. Two weights only: 400 and 600. Titles use 600. No display serif (po decision, see `docs/decisions.md`).
-- Files: `apps/web/fonts/be-vietnam-pro-{400,600}.woff2`, subset to Latin plus Vietnamese (U+0000-00FF, U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+1EA0-1EF9, punctuation and currency `U+20AB`). The OFL text is committed beside them (`apps/web/fonts/OFL.txt`) with the source URL and version.
-- Loaded with `next/font/local` (`display: swap`, `preload` on, variable `--font-ui`). No runtime request to any font CDN; a test greps the build output for `fonts.googleapis`.
-- Numbers use tabular figures (`font-variant-numeric: tabular-nums`) for money and countdown.
+- Two sheet views: the timetable sheet (timetable, routines, fault points, weekly review) and the budget sheet (budget categories, bank accounts, weekly plan, transaction ledger, surplus and goals). A week switcher offers last week, this week, next week and history. White cells are editable in place and change the real data through the owning service; grey cells are computed by code and locked; past weeks are read-only. The view shows sync status and a link to the Google Sheet.
+- Two-way Google Sheets sync, calendars as two equal options (Google, Apple through CalDAV), details and rules in ADR 0015 and `docs/spec/41-sync.md`. The spec change comes first; `packages/contracts` changes only through the ADR.
 
-## 4. Navigation information architecture
+## 9. Chat commands (see ADR 0016)
 
-Five areas (labels from locale keys `nav.*`):
+A message starting with `/` from the linked user, in Telegram, Discord or the in-app chat (with autocomplete). Parsed and executed by code; only commands marked AI pass text to the model. Text inside forwarded emails, receipts or sheet cells is never a command.
 
-| Area | Items |
-|---|---|
-| Today | Dashboard `/`, Today `/schedule/today`, Focus/countdown, Inbox `/inbox` |
-| Schedule | `/schedule`, Review `/schedule/review`, Calendar |
-| Budget | Overview `/budget`, Funding `/budget/funding`, Anomalies `/anomalies`, Contract `/contract` |
-| Routines | `/routines`, `/routines/sleep`, Faults `/faults` |
-| More | Settings, Models `/settings/models`, Privacy `/settings/privacy`, Admin (admin only), Language and theme |
+- Control: `/help`, `/model [name]`, `/usage`, `/status`, `/new`, `/stop`, `/lang vi|en`, `/strict 1-5`, `/quiet [until HH:MM|off]`, `/skin [name]`. Capture: `/task`, `/spend`, `/remember`, `/forget`. Summaries (AI, facts from code): `/summary`, `/today`, `/week`, `/budget`. Mood tags: `/happy`, `/sad`, `/tired`, `/stressed`, `/angry` plus a message; the mood is stored with it and never changes money, fault points or penalties. Rules: `/appeal [fault]`, `/reason <text>`.
+- Each command has an English name and a Vietnamese alias and an editable description (one or two sentences) that goes into the model context when the command is used, into `/help` and into the Telegram and Discord command menus. Built-ins ship default descriptions in both locales and can be reset. A description is user context and never a way around code rules.
+- Customisation: switch on or off, rename, aliases, description; custom commands of three kinds (prompt template with `{text}`, mood tag with an expression, shortcut with preset arguments), with try and delete. Names are lowercase letters, digits and underscores, at most 32 characters, unique per user. The enabled list is registered with Telegram and Discord.
+- Tests: parsing, aliases, a disabled command, a custom prompt command, a mood tag, descriptions reaching the model context, the untrusted-text rule, both locales.
 
-There are 22 `page.tsx` routes today. Every one is placed in an area below or marked excluded:
+## 10. Gateway wiring and demo data
 
-| Route | Area |
-|---|---|
-| `/` | Today (dashboard) |
-| `/schedule/today` | Today |
-| `/inbox` | Today |
-| `/schedule` | Schedule |
-| `/schedule/review` | Schedule |
-| `/schedule/calendar` | Schedule |
-| `/budget` | Budget |
-| `/budget/funding` | Budget |
-| `/anomalies` | Budget |
-| `/contract` | Budget |
-| `/penalties` | Budget |
-| `/debts` | Budget |
-| `/cycle-close` | Budget |
-| `/receipts/[id]` | Budget, detail page reached from Anomalies and the budget overview; not a nav item; needs a fixture receipt id in tests |
-| `/routines` | Routines |
-| `/routines/sleep` | Routines |
-| `/faults` | Routines |
-| `/monitor` | Routines (focus monitor, linked from Today and Routines) |
-| `/settings/models` | More |
-| `/settings/privacy` | More |
-| `/admin` | More (admin only) |
-| `/onboarding` | Excluded from the nav (first-run flow, reached by redirect); needs a fixture user at the onboarding step in tests |
+After `/demo-login` the gateway returns 404 for `/api/budget/overview`, `/api/budget/funding`, `/api/weeks/current`, `/api/notify/inbox`, `/api/faults` and `/api/keys`. Each path is reproduced first by a probe script that logs in and records the status per path, then classified and fixed in this order: persistence of demo state, gateway upstreams, service routes, web.
 
-Focus/countdown on the Today area is `/monitor`. The route-to-area test enumerates the filesystem (every `app/**/page.tsx`), maps each to an area or to the exclusion list in one source file, and fails when a route has neither, or when the source lists a route that no longer exists. Dynamic segments use fixture ids from one shared fixture file.
-
-- Desktop (>=640): sticky translucent top bar (logo, greeting, `VI | EN` control, theme control, account menu) with `backdrop-filter` only on the bar itself (small area). Side nav with icons, collapsible (collapsed state in `mw_nav` cookie, same attributes as the theme cookie), active item marked by pill background plus `aria-current="page"`.
-- Phone (<640): bottom tab bar with four items (Today, Schedule, Budget, Routines) plus "More" which opens a sheet listing the remaining items, language and theme. The sheet is a `role="dialog"` with `aria-modal`, focus trap, Escape and backdrop close, focus returned to the opener, safe-area padding. Active tab marked as above.
-- Admin items are not rendered for non-admins (server-side role check; the API still enforces).
-- Home page becomes a dashboard: assistant greeting, today's checklist and next task, countdown, running-cycle budget summary, routine status, recent messages. Each card has a skeleton, an empty state and an error state with retry.
-
-## 5. Component list
-
-Button (primary, secondary, ghost, danger; pill), IconButton, Input, Select, Textarea, Toggle (switch), Checkbox, SegmentedControl (used by language and theme), Card, StatTile, Tabs, Badge/Chip, ProgressBar, Table that collapses to stacked cards under 640, Dialog, Sheet, Toast (region with `aria-live`), Skeleton, EmptyState and ErrorState (mascot mood: `calm`, `thinking`, `oops`, with retry), TopBar, SideNav, BottomBar, MoreSheet, PageHeader (centered heading), Avatar/AccountMenu, BackgroundArt. Every control: minimum 44 px target, visible focus ring (`--c-focus`, 2 px plus 2 px offset), keyboard operable, name from locale keys. Exactly three mascot moods exist: `calm`, `thinking`, `oops` (po decision), small SVG or WebP assets (<=20 KB each, a test fails over the limit), produced under the same provenance rules as section 7.
-
-## 6. Theming mechanism
-
-- Cookie `mw_theme` in `light | dark | system` (missing means `system`). Attributes: not HttpOnly (the client control writes it), `SameSite=Lax`, `Path=/`, `Max-Age` one year, no `Secure` requirement in dev, `Secure` when served over HTTPS.
-- Root layout reads `cookies()` per request and renders `<html lang data-theme>`: `light` or `dark` set the attribute; `system` sets none and the CSS `@media (prefers-color-scheme: dark)` block applies. Because the first paint comes from server HTML plus CSS, there is no flash and no inline script. `<meta name="color-scheme" content="light dark">` and `viewport.themeColor` for both schemes (media-specific entries).
-- The theme control is a three-state SegmentedControl; it sets the cookie in the client and updates `data-theme` immediately (no navigation). Server action alternative rejected: needs a round trip.
-- `force-dynamic` is already in the layout, so the layout is not the freeze. The real freezes are the layout module-level `metadata` (replace with `generateMetadata` using the request locale), `app/manifest.ts` and `app/page.tsx`, which call `defaultLocale(process.env.UI_LANGUAGE)`.
-- Charts and dialogs read the same tokens; no hard-coded color outside the token file (lint rule: a stylelint or grep test fails on hex colors outside `tokens.css`).
-
-## 7. Locale fix design
-
-- A single helper `getRequestLocale()` (cookie `mw_locale`, else `Accept-Language`, else `defaultLocale(UI_LANGUAGE)`) is used by layout, every page, `generateMetadata` and the client provider. Client components receive the locale from the provider and never read `process.env`. `UI_LANGUAGE` may be read in exactly one file; a test greps `apps/web` for other uses.
-- `manifest.ts` cannot see a cookie reliably (it is fetched by the browser without a user context decision), so it uses the default locale (`UI_LANGUAGE`) for `name`, `short_name`, `description`. This is a deliberate deviation from the rule "every page, `generateMetadata` and `manifest.ts` take the request locale" (ADR 0014 point 3); a code comment in `manifest.ts` and a row in `docs/decisions.md` record it; `theme_color` and `background_color` come from the light tokens; icons: 192, 512 and a maskable 512 (navy background, mascot inside the safe zone), generated once and committed.
-- `/locale?lang=xx&next=/path` (route handler): `lang` must be `vi` or `en`, otherwise 400. The cookie is set, then 303 to the target. Target resolution: `next` if valid, else the `Referer` path if same-origin and valid, else `/`. A path is valid only when: it starts with a single `/`; it does not start with `//` or `/\`; it contains no `\`, no control characters, no scheme and no `@` in the first segment; after decoding (up to two passes) it still passes all checks (so `%2F%2Fhost`, `%5Chost`, `/%09/host` are rejected); length <= 512. The redirect `Location` is always the relative path, never an absolute URL built from the Host header. Table-driven test cases (each must resolve to `/` or the safe fallback): `//evil.com`, `/\evil.com`, `https://evil.com`, `javascript:alert(1)`, `%2F%2Fevil.com`, `/%2Fevil.com`, `/%5Cevil.com`, `///evil.com`, `/\t/evil.com`, `evil.com`, empty, 600-char path; `next` absent with a `Referer` from another origin (for example `https://evil.com/budget`) falls back to `/`, and a same-origin `Referer` path that fails the checks also falls back to `/`; valid: `/budget`, `/schedule/today?day=2026-11-28`, `/settings/models#keys`.
-- The segmented `VI | EN` control shows both languages with the active one highlighted and `aria-pressed`; its group name is in the current locale (`locale.switch.label`). Switching sets only the `mw_locale` cookie and never writes the profile (po decision, see `docs/decisions.md`).
-- Tests: a catalog parity test (same keys in `vi` and `en`, same placeholders); a test that no `en` value contains Vietnamese diacritics (an allowlist file `locales/identical-allowlist.json` names strings that may be identical across languages, such as "OK" or proper nouns); a grep test that no `.tsx` has a Vietnamese literal; the e2e (section 9) asserts `html[lang]` and the absence of catalog strings of the other language, honoring the allowlist.
-
-## 8. Background art
-
-One-off, manual, local. The cut-out is produced once by a person or agent on a developer machine and the result is committed; the tool is not a repository dependency and is not run in CI.
-
-1. Source: `docs/image/whale-chan-source.jpg`. The owner's file was named after the vendor and was never committed (it is untracked and excluded by a local rule); it was renamed on disk so the old name never enters git history. The first PR that needs it commits it under the new name only (the owner provided it for this public repository; the local exclude rule for `docs/image/` must be lifted first). Nothing in the repository, UI or assets uses the vendor name. `factory/prompts/milestones.md` still mentions the old file name; it is a local, uncommitted file and is not edited here, and the new name wins. Check that the image has no visible watermark or logo; if one exists, crop or paint it out in the cut-out, and record that in provenance.
-2. Cut-out tool: a local background-remover (for example `rembg` with the `isnet-anime` model, or GIMP and manual masks). The ADR for the actual PR records the exact tool name and version, the model and the commands in `docs/design/art-provenance.md`. Remove poster background, text, swatches.
-3. Export: `apps/web/public/art/whale-chan.webp` (and `.png` fallback), two sizes (about 1200 px and 600 px tall for phones), alpha preserved, metadata (EXIF, XMP, ICC extras) stripped (`exiftool -all=`), each file at most 150 KB (a test fails over the limit). Mascot mood illustrations follow the same rules, except that each is at most 20 KB.
-4. Use: `next.config` sets `images.unoptimized = true`; the art is a CSS `background-image` or plain `<img>` in one `BackgroundArt` component: `position: fixed; inset: 0; pointer-events: none; z-index: -1; aria-hidden="true"`; `image-set()` with the PNG fallback. No blur or filter on a full-viewport layer (GPU and memory cost). Dark mode uses a pre-tinted second asset (`whale-chan-dark.webp`, blue tint baked in, faint glow baked in) instead of a runtime filter; opacity about 0.12 light and 0.18 dark, tuned so the contrast test (section 2) passes with the art at maximum opacity.
-5. Placement: anchored bottom-right on desktop (height about 85 vh), smaller and fainter on phones (opacity 0.08, cropped to the lower right). No animation; a gentle fade-in only, disabled under `prefers-reduced-motion`.
-6. No model weights are committed: the cut-out model (for example the `rembg` `isnet-anime` file) stays in the developer's home cache and is never added to the repository or an image.
-7. Provenance doc: `docs/design/art-provenance.md` lists each shipped asset, its source, tool and version, date, size.
-
-## 9. CSS approach and memory cost
-
-Plain CSS variables plus CSS Modules. Rejected: Tailwind (build-time memory and a new toolchain on a 16 GB machine), CSS-in-JS (runtime cost, hydration cost), animation libraries (bundle size). Costs and limits:
-
-- Added JS: none beyond the small client controls (theme, language, sheet, nav collapse), all hand-written. Estimated first-load JS increase under 15 KB gzip.
-- CSS: one global token file (about 4 KB) plus modules; estimated under 40 KB total.
-- Images pre-generated at build-free time (committed), so no `sharp` image optimization at runtime (`images.unoptimized`), which avoids the optimizer's memory spike.
-- Fonts: two weights, subset, about 60 KB total.
-- `backdrop-filter` only on the top bar and the bottom bar (small areas), never on the page.
-- The web container keeps its 256 MB limit and a 192 MB heap cap (`NODE_OPTIONS=--max-old-space-size=192` in its Dockerfile `CMD`); measured idle and under-e2e-run RSS is recorded in the handoff. If the measurement exceeds the limit, features give way first (drop art layers, defer client controls); raising the limit needs an ADR (po decision, see `docs/decisions.md`).
-- Builders run `pnpm --filter @my-wife/web test|typecheck|lint` only.
-
-## 10. End-to-end plan
-
-- A serial tail: the all-screens test, the locale test and the screenshot run share one fixture and run after builders finish. Playwright: Chromium only, headless, `workers: 1`, against `next build` plus `next start`, CPU delegate. One run at a time, started by `qa` or the lead.
-- All-screens test: sign in through `/demo-login`, visit every route in the navigation table above, including `/penalties`, `/debts`, `/monitor` and `/cycle-close` (and `/receipts/[id]`, `/onboarding` with fixture ids), fail on any 4xx/5xx API response, any `role="alert"` error, any console error, and any horizontal scroll at 360 px.
-- Locale test: switch to English, visit every navigation screen, assert `html[lang="en"]` and no Vietnamese catalog string in visible text; repeat for Vietnamese (with the allowlist).
-- Screenshot matrix: dashboard, budget, schedule today, routines, inbox, settings; phone (360x780) and desktop (1440x900); light and dark; vi and en: 6 x 2 x 2 x 2 = 48 PNGs, written to `factory/handoff/M5-screens/<screen>-<viewport>-<theme>-<lang>.png`, never committed (`factory` is outside git).
-- Unit tests: contrast, locale redirect table, catalog parity, art size limit, token usage.
-
-### Failing gateway paths (first backend issue starts here)
-
-Each row is reproduced by a test (or the probe script) before it is fixed. "Likely missing piece" is the hypothesis to verify, not a verdict.
-
-| Path | Upstream service | Likely missing piece | Test |
-|---|---|---|---|
-| `/api/budget/overview` | budget | demo seed (no cycle after `demo:reset`) or a budget route; confirm which | gateway forwards to budget; budget returns an overview for the seeded demo user |
-| `/api/budget/funding` | budget | demo seed (no funding state) or a budget route | same, funding response parses with its schema |
-| `/api/weeks/current` | schedule | demo seed (no current week) or the gateway prefix `/weeks` | gateway prefix test; schedule returns the seeded week |
-| `/api/notify/inbox` | notify | gateway upstream `NOTIFY_URL` missing and service route `GET /inbox` missing | gateway prefix test; notify route test with the shared fixture |
-| `/api/faults` | rules | gateway prefix and service route `GET /faults` missing | gateway prefix test; rules route test with the shared fixture |
-| `/api/keys` | ai | gateway upstream `AI_URL` missing (falls through to identity, 404) | gateway prefix test; ai `GET /keys` test with the shared fixture |
-
-Also tracked: GitHub issue #273 ("Persist demo cycle, schedule, routines and channel links in demo:reset", closed) was the earlier fix for lost demo state. The probe re-checks it; if state is still lost after `demo:reset` or a restart, a new M5 issue is opened rather than patching silently.
-
-## 11. Audit responses
-
-| # | Finding | Response |
+| Path | Upstream | Hypothesis to verify |
 |---|---|---|
-| 1 | Gateway 404s are mixed in cause | Accepted. The first backend issue is "demo persistence and API probe": a script logs in via `/demo-login`, calls every API path the web uses and records status per path into the issue; each 404 is classified as (a) missing gateway upstream (`ai`, `notify`, `ingest`, `monitor`), (b) missing service route (rules `GET /faults`, notify `GET /inbox`), (c) missing demo data or in-memory state lost. Gateway gets per-prefix tests; new env (`NOTIFY_URL`, `AI_URL`, `INGEST_URL`, `MONITOR_URL`) is recorded in `docs/decisions.md`. Fix order: persistence and probe, upstreams, service routes, web. |
-| 2 | New read routes lack contract schemas | ADR 0014 point 6: local zod in web with a shared fixture; the follow-up contracts ADR is tracked as a GitHub issue in the M5 backlog. Contracts untouched here. |
-| 3 | Where the freeze really is | Section 6: layout `metadata` becomes `generateMetadata`; `manifest.ts` uses the default locale by design; `page.tsx` takes the request locale. `force-dynamic` stays. |
-| 4 | Theme cookie attributes | Section 6: not HttpOnly (client writes), `SameSite=Lax`, one year; `system` by CSS media query. |
-| 5 | `/locale` open redirect | Section 7: single-slash relative paths only, decoded checks, `Referer` fallback, cookie-only switch, table-driven test. |
-| 6 | Catalog drift and mixed languages | Section 7: parity, no Vietnamese in `en`, no inline Vietnamese in tsx, e2e with an allowlist for identical strings. |
-| 7 | Memory | Section 9. |
-| 8 | Asset naming, provenance, metadata, watermark | Section 8 steps 1, 3, 6. |
-| 9 | Cut-out tool as dependency | Section 8: one-off manual, not a dependency, not in CI. |
-| 10 | Contrast with art, gold on light | Section 2: pure-function test, opaque cards, gold decorative on light only. |
-| 11 | e2e resource use | Section 10: serial, one worker. |
-| 12 | Demo persistence and M4 gaps | First backend issue (see 1) also verifies each of the four M4 gaps (rules `incident.*`, runner `cycle.opened` and `fault.detected`, demo persistence, #273) with a reproducing test before fixing. |
-| 13 | 19 nav items, admin, More sheet | Section 4. |
-| 14 | Manifest colors and icons | Section 7. |
-| 15 | Fonts local | Section 3. |
-| 16 | Gate before backlog | Removed: the po decided all five questions (section 12). |
+| `/api/budget/overview` | budget | demo seed or a missing route |
+| `/api/budget/funding` | budget | demo seed or a missing route |
+| `/api/weeks/current` | schedule | demo seed or the gateway prefix `/weeks` |
+| `/api/notify/inbox` | notify | gateway upstream and service route `GET /inbox` |
+| `/api/faults` | rules | gateway prefix and service route `GET /faults` |
+| `/api/keys` | ai | gateway upstream (falls through to identity) |
 
-## 12. Open questions
+- The gateway gets per-prefix routes and upstream variables for `ai`, `notify`, `ingest` and `monitor`, one test per prefix; the variables are recorded in `docs/decisions.md`. A route no service serves yet is built in the owning service first; the gateway never answers it.
+- Known gaps fixed with a reproducing test first: `rules` consuming `incident.*`, the dev runner forwarding `cycle.opened` and `fault.detected`, demo state persistence, issue #273.
+- All-screens end-to-end test: sign in through `/demo-login`, visit every route in section 6 (with fixture ids for `/receipts/[id]` and `/onboarding`), fail on any 4xx or 5xx API response, any `role="alert"` error, any console error and any horizontal scroll at 360 px.
+- Serial tail, one run at a time: Chromium only, headless, `workers: 1`, against `next build` plus `next start`, CPU delegate. Screenshots (phone and desktop, light and dark, both languages, one per skin at least) go to a local directory outside git and are never committed.
 
-None. The five owner questions were decided by the po; see the rows dated 2026-11-28 in `docs/decisions.md` ("M5 plan: ...").
+## 11. Repository hygiene
+
+- Commits follow Conventional Commits with a short natural subject and a body only when it explains why; no bullet dumps and no internal ids (use `Refs: #123`). PR descriptions: a few lines for what, why and how to verify, plus the issue link. Issues are concise with acceptance criteria. Code comments only where they explain intent. The standard attribution trailer and PR footer stay.
+- `docs/decisions.md` becomes a neutral decision log (date, topic, decision, reason). Remove tool, process and role wording from `README.md`, `CONTRIBUTING.md` and `docs/`.
+- Enable automatic deletion of head branches and delete remote branches whose PR is merged or closed. Never rewrite or force-push `main`.
+
+## 12. Quality and performance
+
+Backend: no N+1 queries (batch or join); indexes for the queries the new read routes use; pagination on every list; idempotent event handlers; timeouts and bounded retries on every outbound call (model, Google, CalDAV, chat channels); one place per rule, with no duplicated money or penalty logic; input validated at the edge with contract schemas; errors that name what failed.
+
+Frontend: server components by default and client components only for interaction; data fetched once per screen and shared; skeletons to avoid layout shift; images sized per viewport and lazy-loaded; transform and opacity animation only; the dashboard stays responsive on a mid-range phone.
+
+Tests stay first. Measured things (query count, bundle size, a slow route) get a cheap regression check. Builders run package-scoped commands only.
+
+### Memory and size cost
+
+| Item | Cost | Note |
+|---|---|---|
+| CSS tokens, skins, modules | about 40 KB CSS, no JS | plain CSS variables and CSS Modules |
+| Hand-written client controls (mode, skin, locale, sheets, nav) | under 20 KB gzip | no library |
+| Fonts (two families, subset) | about 150 KB on disk, loaded on demand | `next/font/local` |
+| Art route handler | streams files, one small in-memory file-list cache | sizes chosen per viewport; no `sharp` at run time |
+| Companion and speech text | no dependency | uses the existing `ai` service |
+| Google Sheets client (`sync`) | one HTTP client, no SDK if REST is enough; otherwise record the SDK size here | outbound timeouts and retries |
+| CalDAV client (`sync`) | a small client library or hand-written PROPFIND and PUT; the chosen option and its size are recorded in ADR 0015 | no background process |
+| Command parser | pure functions, no dependency | |
+
+The web container keeps its 256 MB limit and a 192 MB heap cap. Idle and end-to-end RSS is measured and recorded; if too high, features give way first and raising the limit needs an ADR. A dependency that is added without a line in this table or its ADR is rejected in review.
+
+## 13. Issue outline
+
+Order: locale bugs and gateway wiring, design system and skins, screens, sheets and sync, chat commands, hygiene. Risk is low unless stated. Owners: web, service (gateway, notify, ai, schedule, sync, infra), core (budget, rules, ingest). Each issue is one vertical slice and one PR, with tests first. The architect's follow-up writes these into the backlog file.
+
+**A. Locale bugs and gateway wiring**
+
+1. Request locale everywhere. Area: web. Depends on: none.
+   - Given English is chosen, when any page renders, then `html[lang="en"]` and no `vi` string appears.
+   - Given `/locale?next=...`, when the path is unsafe, then it redirects to `/`; when valid, back to that page (table test).
+   - The segmented `VI | EN` control highlights the active language; `UI_LANGUAGE` is read in one file.
+2. Demo state persistence and API probe. Area: service (infra). Depends on: none. Risk: medium.
+   - Given `pnpm demo:reset`, when the stack restarts, then the cycle, ten blocks and two routines remain.
+   - The probe logs in via `/demo-login` and records the status of every API path the web uses.
+3. Gateway upstreams for `ai`, `notify`, `ingest`, `monitor` and the `/weeks` prefix. Area: gateway. Depends on: 2.
+   - Given each prefix, when called through the gateway, then the upstream answers (one test per prefix).
+4. Service read routes: notify `GET /inbox`, rules `GET /faults`, ai `GET /keys`. Area: notify, rules, ai. Depends on: 3. Risk: medium.
+   - Given the demo user, when each route is called, then the body parses with the shared fixture schema.
+   - Lists are paginated.
+5. Budget overview and funding for the demo user; `rules` consuming `incident.*`; dev runner forwarding `cycle.opened` and `fault.detected`. Area: core, infra. Depends on: 2. Risk: medium.
+   - Given the demo user, when overview and funding are requested, then a running cycle and transfer list return.
+   - Given an `incident.*` event, then `rules` waives overlapping faults.
+6. All-screens end-to-end test. Area: e2e. Depends on: 1, 3, 4, 5, and the shell from 9.
+   - Given a demo login, when every route is visited, then there is no 4xx or 5xx API response and no error alert.
+
+**B. Design system and skins**
+
+7. Tokens, skins, modes and contrast test. Area: web. Depends on: 1.
+   - Given any of 4 skins x 2 modes, then every pair meets WCAG AA (unit test).
+   - Given cookies `mw_skin` and `mw_mode`, then the server renders the right `data-` attributes with no flash.
+8. Fonts and base components (Button through ErrorState). Area: web. Depends on: 7.
+   - Given the build, then no font CDN request exists; controls are at least 44 px with visible focus.
+9. App shell: top bar, pill nav, bottom bar, More sheet, route-to-area test. Area: web. Depends on: 8.
+   - Given 360 and 1440 px, then no horizontal scroll; admin items are hidden for non-admins.
+10. Private art loader, fallback theme and credits screen. Area: web. Depends on: 8.
+    - Given `MASCOT_ART_DIR` is unset, then the fallback theme renders and CI passes.
+    - Given a signed-out request for an art file, then 401; path traversal is refused.
+11. Expression sets, mapping setting and settings screen. Area: web, identity (profile fields). Depends on: 10. Risk: medium (contract change in ADR).
+    - Given a set switch, then the per-state mapping is kept.
+12. Appearance settings: skin, mode, persisted to cookie and profile. Area: web. Depends on: 7, 9.
+    - Given a skin change, then every screen uses it at once.
+
+**C. Screens**
+
+13. Dashboard and mascot animation. Area: web. Depends on: 4, 5, 10, 14.
+    - Given a task tick, then the check pop plays, the bar advances and a `role="status"` reaction is announced.
+    - Given `prefers-reduced-motion`, then no animation runs.
+14. Voice: address terms settings, LLM-written text with the number check and the fixed fallback. Area: ai, web. Depends on: 4. Risk: high (principle 4).
+    - Given a wrong amount in the generated text, then the fallback sentence is sent.
+    - Given a removed default or a custom term, then it is honoured in both locales.
+15. Schedule screens with block details, calendar tabs and weekly review. Area: web. Depends on: 9.
+16. Focus session screen. Area: web (realtime). Depends on: 9. Risk: medium.
+    - Given a session, then the ring follows the server clock and the privacy note shows; video is never sent.
+17. Budget screens with the transfer list wording. Area: web. Depends on: 9, 5.
+    - Given either catalog, then the banned wording is absent.
+18. Routines and Messages screens with stickers and companion panel. Area: web. Depends on: 9, 11.
+19. Skeletons, empty and error states on all screens. Area: web. Depends on: 18.
+
+**D. Sheets and sync**
+
+20. ADR 0015 contracts and spec text (sync). Area: contracts. Depends on: none. Risk: high.
+21. In-app timetable sheet with editable and locked cells. Area: web, schedule. Depends on: 15, 20.
+    - Given a past week, then every cell is read-only; computed cells cannot be edited.
+22. In-app budget sheet (five tabs). Area: web, budget. Depends on: 17, 20. Risk: high.
+    - Given an edit, then only plan data changes; booked transactions, faults and penalties cannot be edited.
+23. Two-way Google Sheets sync: protected ranges, read-back validation, last-write conflicts with audit and notice, malformed sheet pause, read-back switch. Area: sync. Depends on: 20, 21, 22. Risk: high.
+    - Given an edit to a locked cell in the Google Sheet, then it is reverted at the next sync.
+    - Given a malformed sheet, then read-back pauses and the user is asked.
+    - Given sheet text that looks like an instruction, then it is treated as data.
+24. Calendar choice and Apple Calendar through CalDAV. Area: sync. Depends on: 20. Risk: high.
+    - Given Google, Apple, both or none, then only the chosen calendars receive events, with the Google mirror's acceptance tests.
+    - Given revoked consent, then no further calls are made; the password is encrypted at rest.
+
+**E. Chat commands**
+
+25. ADR 0016 contracts for commands. Area: contracts. Depends on: none. Risk: high.
+26. Command parser, registry and built-in control and capture commands. Area: ai, notify. Depends on: 25.
+    - Given `/spend 50000 coffee` from a linked user, then a spend is recorded; given the same text in a forwarded email, then nothing runs.
+27. Summary, mood and rules commands with descriptions in model context. Area: ai, rules. Depends on: 26.
+    - Given `/angry` plus a message, then the mood is stored and money, faults and penalties are unchanged.
+28. Command settings screen and custom commands; Telegram and Discord menu registration; in-app autocomplete. Area: web, notify. Depends on: 26, 19.
+    - Given a disabled command, then it is refused and removed from the menu.
+
+**F. Hygiene**
+
+29. Ignore rules for private art directories. Area: infra. Depends on: none.
+30. Neutral decision log and docs wording cleanup. Area: docs. Depends on: none.
+31. Repository settings: delete head branches; remove stale remote branches. Area: infra. Depends on: none.
+32. Quality pass: N+1 and index review, pagination, timeouts and retries on outbound calls, memory measurement. Area: service, core, web. Depends on: A to E. Risk: medium.
+33. Locale and all-screens suites across skins, modes and widths; local screenshots. Area: e2e. Depends on: A to E.
