@@ -61,6 +61,8 @@ Ctrl+C. Set `WEB_URL` if the web app runs on another origin.
 Known gap: the budget and schedule read routes the screens call are not all in place yet, so some
 screens show empty states (see issues #244, #247, #271, #273).
 
+Step-by-step verification of the four demo scenarios: `docs/acceptance-guide.md`.
+
 ## Contributing
 
 See `CONTRIBUTING.md`.
