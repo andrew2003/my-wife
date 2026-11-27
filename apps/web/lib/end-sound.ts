@@ -130,6 +130,8 @@ export function createEndSound(opts: {
     },
     schedule(endsAtMs, clock = { now: () => Date.now() }) {
       if (!settings.enabled || !ctx || ctx.state !== "running") return;
+      // The tone for this end already started: never replay it, whatever a resync says.
+      if (scheduled && scheduled.endsAtMs === endsAtMs && scheduled.at <= ctx.currentTime) return;
       const remainingMs = endsAtMs - clock.now();
       if (remainingMs < -settings.maxLatenessMs) {
         cancel();

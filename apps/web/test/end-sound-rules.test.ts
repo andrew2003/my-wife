@@ -80,6 +80,19 @@ describe("end sound rescheduling", () => {
     expect(a.starts).toEqual([70, 68]);
   });
 
+  it("does not replay when a resync arrives after the tone has started", async () => {
+    const a = fakeAudio();
+    const sound = createEndSound({ createContext: () => a.ctx });
+    await sound.unlock();
+    sound.schedule(5000, { now: () => 0 });
+    expect(a.starts).toEqual([15]);
+    a.ctx.currentTime = 15.5;
+    sound.schedule(5000, { now: () => 4000 });
+    sound.schedule(5000, { now: () => 6000 });
+    expect(a.osc.start).toHaveBeenCalledTimes(1);
+    expect(a.osc.stop).not.toHaveBeenCalledWith(0);
+  });
+
   it("cancel before schedule is harmless and a cancelled tone never starts", async () => {
     const a = fakeAudio();
     const sound = createEndSound({ createContext: () => a.ctx });
