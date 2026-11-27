@@ -12,6 +12,46 @@ import {
   type VisibilitySource,
 } from "../lib/countdown";
 import { translate, type Locale } from "../lib/i18n";
+import { browserPipApi, isPipSupported, openCountdownPip, type CountdownPip } from "../lib/pip";
+
+/** Button that moves the countdown into a floating window; shows a hint where unsupported. */
+export function PipToggle({ locale, text }: { locale: Locale; text: string }) {
+  const pipRef = useRef<CountdownPip | null>(null);
+  const [open, setOpen] = useState(false);
+  const [supported, setSupported] = useState(true);
+  useEffect(() => {
+    setSupported(isPipSupported(browserPipApi()));
+    return () => pipRef.current?.close();
+  }, []);
+  useEffect(() => {
+    pipRef.current?.update(text);
+  }, [text]);
+  if (!supported) {
+    return <span className="pip-hint">{translate(locale, "pip.unsupported")}</span>;
+  }
+  const toggle = async () => {
+    if (pipRef.current) {
+      pipRef.current.close();
+      return;
+    }
+    const pip = await openCountdownPip(browserPipApi(), {
+      title: translate(locale, "countdown.label"),
+      onClose: () => {
+        pipRef.current = null;
+        setOpen(false);
+      },
+    });
+    if (!pip) return;
+    pipRef.current = pip;
+    pip.update(text);
+    setOpen(true);
+  };
+  return (
+    <button type="button" className="pip-toggle" onClick={() => void toggle()}>
+      {translate(locale, open ? "pip.close" : "pip.open")}
+    </button>
+  );
+}
 
 export function SessionCountdownView({ locale, remaining }: { locale: Locale; remaining: number }) {
   return (
@@ -74,5 +114,10 @@ export function SessionCountdown(props: {
     return c.stop;
   }, [endsAtMs, serverOffsetMs, clock, ticker, visibility]);
   if (remaining === null) return null;
-  return <SessionCountdownView locale={locale} remaining={remaining} />;
+  return (
+    <>
+      <SessionCountdownView locale={locale} remaining={remaining} />
+      <PipToggle locale={locale} text={formatRemaining(remaining)} />
+    </>
+  );
 }
