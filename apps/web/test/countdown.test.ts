@@ -4,7 +4,13 @@ import { describe, expect, it } from "vitest";
 import en from "../locales/en.json";
 import vi from "../locales/vi.json";
 import { SessionCountdownView } from "../components/session-countdown";
-import { createCountdown, formatRemaining, remainingSeconds, type Ticker } from "../lib/countdown";
+import {
+  createCountdown,
+  formatRemaining,
+  remainingSeconds,
+  type Ticker,
+  type VisibilitySource,
+} from "../lib/countdown";
 
 const END = Date.parse("2026-11-26T08:50:00.000Z");
 
@@ -24,6 +30,9 @@ function fake(startMs: number) {
         now += 1000;
         cb?.();
       }
+    },
+    skip(ms: number) {
+      now += ms;
     },
     jump(ms: number) {
       now += ms;
@@ -124,5 +133,80 @@ describe("SessionCountdownView", () => {
     expect(html).toContain("02:05");
     expect(html).toContain(en["countdown.label"]);
     expect(vi["countdown.label"]).toBeTruthy();
+  });
+});
+
+describe("hidden tab", () => {
+  function fakeVisibility() {
+    let cb: (() => void) | null = null;
+    let unsubscribed = false;
+    const source: VisibilitySource = {
+      subscribe: (fn) => {
+        cb = fn;
+        return () => void (unsubscribed = true);
+      },
+    };
+    return { source, show: () => cb?.(), isUnsubscribed: () => unsubscribed };
+  }
+
+  it("is within one second of server time after 5 hidden minutes with no ticks", () => {
+    const f = fake(END - 600_000);
+    const v = fakeVisibility();
+    const seen: number[] = [];
+    createCountdown({
+      endsAtMs: END,
+      clock: f.clock,
+      ticker: f.ticker,
+      visibility: v.source,
+      onTick: (s) => seen.push(s),
+    });
+    // five minutes pass while the tab is hidden and the ticker is throttled: no callbacks
+    const before = seen.length;
+    f.skip(300_000);
+    expect(seen.length).toBe(before);
+    v.show();
+    expect(seen.at(-1)).toBe(300);
+  });
+
+  it("resyncs the server offset on becoming visible when the client clock drifted", async () => {
+    const f = fake(END - 600_000);
+    const v = fakeVisibility();
+    const seen: number[] = [];
+    createCountdown({
+      endsAtMs: END,
+      clock: f.clock,
+      ticker: f.ticker,
+      visibility: v.source,
+      // the client clock slipped 4s ahead of the server while hidden
+      resync: async () => -4000,
+      onTick: (s) => seen.push(s),
+    });
+    f.skip(304_000); // client now = server + 4s; server remaining = 300s
+    v.show();
+    expect(seen.at(-1)).toBe(296); // immediate refresh from the stale offset
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(seen.at(-1)).toBe(300);
+  });
+
+  it("ignores a failed resync and unsubscribes on stop", async () => {
+    const f = fake(END - 600_000);
+    const v = fakeVisibility();
+    const seen: number[] = [];
+    const c = createCountdown({
+      endsAtMs: END,
+      clock: f.clock,
+      ticker: f.ticker,
+      visibility: v.source,
+      resync: async () => null,
+      onTick: (s) => seen.push(s),
+    });
+    f.skip(300_000);
+    v.show();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(seen.at(-1)).toBe(300);
+    c.stop();
+    expect(v.isUnsubscribed()).toBe(true);
   });
 });
