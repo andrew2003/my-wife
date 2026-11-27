@@ -1,0 +1,6 @@
+{
+  "sync.error.consent_required": "Google sync needs your consent first.",
+  "sync.error.invalid_state": "The authorization request is invalid or expired. Please start again.",
+  "sync.error.link_failed": "Linking your Google account failed. Please try again.",
+  "sync.error.bad_request": "The request is invalid."
+}
