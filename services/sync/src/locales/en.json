@@ -2,5 +2,11 @@
   "sync.error.consent_required": "Google sync needs your consent first.",
   "sync.error.invalid_state": "The authorization request is invalid or expired. Please start again.",
   "sync.error.link_failed": "Linking your Google account failed. Please try again.",
-  "sync.error.bad_request": "The request is invalid."
+  "sync.error.bad_request": "The request is invalid.",
+  "sync.sheet.banner": "This sheet is a read-only mirror. Edits are overwritten from the app on the next sync.",
+  "sync.tab.categories": "Budget categories",
+  "sync.tab.accounts": "Bank accounts",
+  "sync.tab.weeklyPlan": "Weekly plan",
+  "sync.tab.ledger": "Transaction ledger",
+  "sync.tab.surplusGoals": "Surplus and goals"
 }
