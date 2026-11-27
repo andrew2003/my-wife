@@ -239,6 +239,24 @@ describe("gateway session proxy", () => {
     });
   });
 
+  it("forwards weeks and templates routes to schedule with the user id", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good` };
+    const week = await (
+      await app
+    ).inject({ method: "GET", url: "/api/weeks/2026-11-23?x=1", headers });
+    expect(week.statusCode).toBe(200);
+    expect(calls[1]).toMatchObject({
+      url: "http://schedule/weeks/2026-11-23?x=1",
+      headers: { "x-user-id": "u1" },
+    });
+    await (await app).inject({ method: "GET", url: "/api/templates", headers });
+    expect(calls.at(-1)).toMatchObject({
+      url: "http://schedule/templates",
+      headers: { "x-user-id": "u1" },
+    });
+  });
+
   it("keeps invitation accept public", async () => {
     const { app, calls } = setup();
     const payload = AcceptInvitationRequestSchema.parse({ token: "t" });
