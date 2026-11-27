@@ -19,3 +19,5 @@ step(join(here, "reset-db.sh"), [db]);
 // The page is prerendered, so the locale is fixed at build time.
 step("pnpm", ["--filter", "@my-wife/web", "build"], root, { UI_LANGUAGE: "en" });
 step("pnpm", ["exec", "playwright", "test", ...process.argv.slice(2)], pkg);
+// The money scenario drives the services in process on simulated time; it needs no web build.
+step("pnpm", ["exec", "vitest", "run"], pkg);

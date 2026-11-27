@@ -1,5 +1,5 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "tsBuildInfoFile": "./node_modules/.cache/tsbuildinfo" },
-  "include": ["support", "tests", "scripts/*.ts", "playwright.config.ts"]
+  "include": ["support", "tests", "vitest.config.ts", "scripts/*.ts", "playwright.config.ts"]
 }

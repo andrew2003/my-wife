@@ -9,12 +9,17 @@
     "test": "node scripts/run.mjs"
   },
   "dependencies": {
+    "@my-wife/budget": "workspace:*",
+    "@my-wife/config": "workspace:*",
     "@my-wife/contracts": "workspace:*",
+    "@my-wife/ingest": "workspace:*",
+    "@my-wife/rules": "workspace:*",
     "@my-wife/test-kit": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",
     "@types/pg": "^8.11.0",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "vitest": "^3.0.0"
   }
 }
