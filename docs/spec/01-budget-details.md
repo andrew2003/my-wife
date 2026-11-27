@@ -55,7 +55,7 @@ Each transaction gets exactly one result:
 
 ## Sheet per cycle
 
-The bot creates a new spreadsheet for each cycle from a template the user approved, in a folder the user granted access to. Tabs: budget categories, bank accounts, weekly plan, transaction ledger, surplus and goals. Data is pushed one way from the database; the user edits in the web app.
+The bot creates a new spreadsheet for each cycle from a template the user approved, in a folder the user granted access to. Tabs: budget categories, bank accounts, weekly plan, transaction ledger, surplus and goals. Data is written from the database; the user edits in the web app or in the editable cells of the sheet, which are read back for plan data only (see `41-sync.md`).
 
 ## Weekly plan and menu
 

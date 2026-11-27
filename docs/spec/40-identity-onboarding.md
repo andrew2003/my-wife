@@ -28,7 +28,7 @@ Settings include: time zone, locale (`vi`, `en`, default from `UI_LANGUAGE`), ch
 
 ## 3. Consents
 
-Separate, revocable, versioned consents with a text version: `camera` (face analysis in the browser), `vision_frame` (single frame to a vision model on appeal or ambiguity), `wake_photo` (photo through chat and an LLM provider), `email` (forwarded bank mail), `bank` (reading transaction facts), `google_sync` (Sheets and Calendar). A feature that needs a consent is unavailable until granted, and revoking it stops the feature immediately. Changing the consent text means requesting consent again.
+Separate, revocable, versioned consents with a text version: `camera` (face analysis in the browser), `vision_frame` (single frame to a vision model on appeal or ambiguity), `wake_photo` (photo through chat and an LLM provider), `email` (forwarded bank mail), `bank` (reading transaction facts), `google_sync` (Sheets and Google Calendar), `apple_calendar_sync` (Apple Calendar through CalDAV, with an app-specific password stored encrypted). A feature that needs a consent is unavailable until granted, and revoking it stops the feature immediately. Changing the consent text means requesting consent again.
 
 ## 4. Keys and tokens
 

@@ -44,3 +44,7 @@ next-env.d.ts
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Private character art: never committed
+docs/image/
+.private-assets/

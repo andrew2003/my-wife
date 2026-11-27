@@ -66,7 +66,7 @@ Sick, travel and holiday modes pause monitoring and penalties for the period, li
 
 ## 7. Recurrence and calendar
 
-Recurrences use the solar or the lunar calendar (death anniversary, 1st and 15th of the lunar month). The lunar conversion uses the Ho Ngoc Duc algorithm in a pure function `solarToLunar`/`lunarToSolar` with a fixture table, including leap months. The calendar tab shows both calendars. Pushing the schedule to Google Calendar is one way and belongs to `sync`.
+Recurrences use the solar or the lunar calendar (death anniversary, 1st and 15th of the lunar month). The lunar conversion uses the Ho Ngoc Duc algorithm in a pure function `solarToLunar`/`lunarToSolar` with a fixture table, including leap months. The calendar tab shows both calendars. Pushing the schedule to Google Calendar or Apple Calendar is one way and belongs to `sync`.
 
 ## 8. Offline tasks
 
