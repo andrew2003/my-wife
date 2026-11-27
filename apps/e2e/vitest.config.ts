@@ -4,7 +4,12 @@ import { defineConfig } from "vitest/config";
 // locale files. Playwright ignores this file (see playwright.config.ts).
 export default defineConfig({
   test: {
-    include: ["tests/money.spec.ts", "tests/time.spec.ts", "tests/routines.spec.ts"],
+    include: [
+      "tests/money.spec.ts",
+      "tests/money-extended.spec.ts",
+      "tests/time.spec.ts",
+      "tests/routines.spec.ts",
+    ],
     maxWorkers: 1,
     fileParallelism: false,
     testTimeout: 60_000,

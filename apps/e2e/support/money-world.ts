@@ -54,6 +54,8 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
   let pendingUnknown: UnknownFacts | undefined;
 
   const bankKey = createDkimKey("e2e");
+  // A second key nobody published in DNS: mail signed with it fails DKIM.
+  const attackerKey = createDkimKey("e2e");
   const budgetStore = new MemorySampleBudgetStore();
   const penaltyStore = new InMemoryPenaltyStore();
   const trialStore = new InMemoryTrialStore();
@@ -196,6 +198,8 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
       events.filter((e) => e.type === type) as EventEnvelope<T>[],
     /** The budget record of the user. */
     record: async () => (await budgetStore.find(MONEY_USER))!,
+    /** Routes a complete event envelope as the bus would (for services driven directly). */
+    publish: (event: EventEnvelope) => runner.publish(event),
     /** Publishes an event as the owning service would. */
     emit: (type: EventEnvelope["type"], payload: unknown) =>
       runner.publish(envelope(type, payload)),
@@ -208,6 +212,29 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
       const fixture = await buildLabelledEmail(m, { bankKey, toAddress: TO_ADDRESS });
       const [result] = await injectEmails([fixture], { url: ingestUrl, secret: INGEST_SECRET });
       return result!;
+    },
+    /** Posts a mail signed by a key the attacker controls, claiming the bank's sender and domain. */
+    sendForgedMail: async (m: LabelledMail) => {
+      const fixture = await buildLabelledEmail(m, { bankKey: attackerKey, toAddress: TO_ADDRESS });
+      const [result] = await injectEmails([fixture], { url: ingestUrl, secret: INGEST_SECRET });
+      return result!;
+    },
+    /** Calls a service route as the gateway would: the verified user id arrives in a header. */
+    call: async (
+      service: "budget" | "rules",
+      method: "GET" | "POST",
+      path: string,
+      body?: unknown,
+    ) => {
+      const res = await fetch(`${runner.urls[service]}${path}`, {
+        method,
+        headers: { "content-type": "application/json", "x-user-id": MONEY_USER },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      return {
+        status: res.status,
+        body: (await res.json()) as { ok: boolean; data?: unknown; error?: { code: string } },
+      };
     },
     signContract: async (cycleId: string) => {
       const res = await postJson(`${runner.urls.rules}/contracts/sign`, { cycleId });
