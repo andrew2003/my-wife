@@ -9,6 +9,7 @@ import {
   parseEvent,
   RecurrencePatternSchema,
   SETTINGS,
+  SpecialModeKindSchema,
   StartTaskRequestSchema,
   SubtaskSchema,
   WeekPlannedItemSchema,
@@ -69,6 +70,15 @@ import {
 } from "./wake";
 import { buildSampleDay, type SampleAnswers, type SampleBlock } from "./sample-schedule";
 import { addDays } from "./week-plan";
+import {
+  covers,
+  endedEvent,
+  newPeriodId,
+  planPeriod,
+  resolveSpecialModeSettings,
+  startedEvent,
+  type SpecialModePeriod,
+} from "./special-mode";
 
 export const SERVICE_NAME = "schedule";
 
@@ -147,6 +157,19 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     cycleFirstDays: (userId) => ledgers.cycleFirstDays(userId),
   };
   const samples = new Map<string, SampleSchedule>();
+  const periods: SpecialModePeriod[] = [];
+  /** Faults waived because they fall in a special-mode period: `userId:faultId` -> period id. */
+  const specialWaivers = new Map<string, string>();
+  const waiveInPeriods = (userId: string) => {
+    for (const f of ledgers.faults(userId)) {
+      const k = `${userId}:${f.faultId}`;
+      if (specialWaivers.has(k)) continue;
+      const p = periods.find((x) => x.userId === userId && covers(x, f.occurredAt));
+      if (!p) continue;
+      specialWaivers.set(k, p.id);
+      ledgers.waiveFault(userId, f.faultId);
+    }
+  };
 
   /** Internal entry for the bus bridge: `onboarding.step_completed` with step `qa_templates`. */
   app.post("/events/onboarding-step-completed", async (req, reply) => {
@@ -688,7 +711,88 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
   app.post("/events/ledger", async (req, reply) => {
     const parsed = parseEvent(req.body);
     if (!parsed.success) return fail(reply, 400, "schedule.invalid_event");
-    return { ok: true, data: { recorded: recordLedgerEvent(ledgers, parsed.data) } };
+    const recorded = recordLedgerEvent(ledgers, parsed.data);
+    // A fault that arrives after its period was activated is waived on arrival.
+    if (parsed.data.type === "fault.recorded") waiveInPeriods(parsed.data.userId);
+    return { ok: true, data: { recorded } };
+  });
+
+  const periodView = ({ userId, endedAnnounced: _e, ...p }: SpecialModePeriod) => ({
+    ...p,
+    waivedFaults: [...specialWaivers]
+      .filter(([k, id]) => id === p.id && k.startsWith(`${userId}:`))
+      .map(([k]) => ({ faultId: k.slice(userId.length + 1), reason: "special_mode" as const })),
+  });
+
+  /** Activates sick, travel or holiday mode for whole local days (spec 20 section 6). */
+  app.post("/special-modes", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const kind = SpecialModeKindSchema.safeParse(b.kind);
+    const fromDay = IsoDateSchema.safeParse(b.fromDay);
+    const toDay = IsoDateSchema.safeParse(b.toDay);
+    const reasonOk =
+      b.reason === undefined || (typeof b.reason === "string" && b.reason.length <= 500);
+    if (!kind.success || !fromDay.success || !toDay.success || !reasonOk) {
+      return fail(reply, 400, "schedule.invalid_request");
+    }
+    const parsed = {
+      data: {
+        kind: kind.data,
+        fromDay: fromDay.data,
+        toDay: toDay.data,
+        reason: b.reason as string | undefined,
+      },
+    };
+    const settings = resolveSpecialModeSettings(await readSettings(userId));
+    const planned = planPeriod({
+      ...parsed.data,
+      now: now(),
+      settings,
+      cycleFirstDays: ledgers.cycleFirstDays(userId),
+      existing: periods.filter((p) => p.userId === userId),
+    });
+    if (!planned.ok)
+      return fail(reply, planned.code.endsWith("invalid_range") ? 400 : 409, planned.code);
+    const period: SpecialModePeriod = {
+      ...planned.period,
+      id: newPeriodId(),
+      userId,
+      endedAnnounced: false,
+    };
+    await (deps.publish ?? (() => undefined))(startedEvent(period));
+    periods.push(period);
+    waiveInPeriods(userId);
+    reply.code(201);
+    return { ok: true, data: { period: periodView(period) } };
+  });
+
+  app.get("/special-modes", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    return {
+      ok: true,
+      data: { periods: periods.filter((p) => p.userId === userId).map(periodView) },
+    };
+  });
+
+  /** Internal job: announces `special_mode.ended` once for every period whose window passed. */
+  app.post("/jobs/special-modes", async () => {
+    const ended: string[] = [];
+    const failed: string[] = [];
+    for (const p of periods) {
+      if (p.endedAnnounced || Date.parse(p.to) > now().getTime()) continue;
+      p.endedAnnounced = true;
+      try {
+        await (deps.publish ?? (() => undefined))(endedEvent(p, now()));
+        ended.push(p.id);
+      } catch {
+        p.endedAnnounced = false;
+        failed.push(p.id);
+      }
+    }
+    return { ok: true, data: { ended, failed } };
   });
 
   app.get("/weeks/:id/review", async (req, reply) => {
