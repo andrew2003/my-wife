@@ -137,7 +137,7 @@ Conventions: `key` is `<domain>.<name>` in `snake_case`. Money is integer VND. D
 | Key | Default | Scope | Used by |
 | --- | --- | --- | --- |
 | `notify.channel` | `telegram` | user | notify |
-| `notify.quiet_hours` | `23:00-06:30` | user | notify |
+| `notify.quiet_hours` | `{from: "23:00", to: "06:30"}` | user | notify |
 | `notify.morning_digest_time` | `07:00` | user | notify |
 | `notify.evening_digest_time` | `21:30` | user | notify |
 | `notify.question_expiry_hours` | 24 | user | notify |
