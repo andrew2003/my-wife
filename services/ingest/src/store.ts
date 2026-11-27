@@ -21,6 +21,14 @@ export type ReceiptRecord = {
   pairKey?: string;
   /** Set on a consumed authorization: the debit receipt it was paired with. */
   pairedReceiptId?: string;
+  /**
+   * Subject and text body, kept only for a mail with an unknown layout so the ai service can
+   * read it (template.read_requested). Never set for parsed or rejected receipts.
+   * TODO(encryption): spec 11 requires the body encrypted at rest with retention; this
+   * plaintext field is for the in-memory store only. A persistent store must encrypt it and
+   * purge it on a retention schedule first.
+   */
+  mail?: { subject: string; body: string };
 };
 
 /**
@@ -36,6 +44,8 @@ export interface IngestStore {
   findHeldByPairKey(userId: string, pairKey: string): Promise<ReceiptRecord | null>;
   /** Latest `parsed` receipt carrying the purchase key, if any. */
   findParsedByPairKey(userId: string, pairKey: string): Promise<ReceiptRecord | null>;
+  /** Receipt by id, whoever owns it; callers must check `userId`. */
+  findById(receiptId: string): Promise<ReceiptRecord | null>;
   /** Inserts the record, or replaces the one with the same id. */
   save(record: ReceiptRecord): Promise<void>;
 }
@@ -77,6 +87,10 @@ export class MemoryIngestStore implements IngestStore {
 
   async findParsedByPairKey(userId: string, pairKey: string) {
     return this.latest(userId, pairKey, "parsed");
+  }
+
+  async findById(receiptId: string) {
+    return this.records.find((r) => r.id === receiptId) ?? null;
   }
 
   async save(record: ReceiptRecord) {

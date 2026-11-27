@@ -9,6 +9,7 @@ export const SECRET_HEADER = "x-ingest-secret";
 export const WEBHOOK_PATH = "/webhook/inbound-email";
 
 export const USER_HEADER = "x-user-id";
+export const RAW_EMAIL_PATH = "/receipts/:receiptId/raw-email";
 export const FORWARDING_PENDING_PATH = "/forwarding/pending";
 
 export type IngestDeps = Omit<PipelineDeps, "newId"> & {
@@ -78,6 +79,25 @@ export function createApp(config: AppConfig, deps: ServiceDeps & { ingest?: Inge
           confirmationLink: pending?.link ?? null,
           confirmationExpiresAt: pending?.expiresAt ?? null,
         },
+      };
+    });
+  }
+
+  if (ingest) {
+    // Read by the ai service for an unknown layout. A receipt of another user looks like a
+    // missing one, so ids cannot be probed.
+    app.get<{ Params: { receiptId: string } }>(RAW_EMAIL_PATH, async (req, reply) => {
+      const userId = req.headers[USER_HEADER];
+      if (typeof userId !== "string" || userId.length === 0) {
+        return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+      }
+      const record = await ingest.store.findById(req.params.receiptId);
+      if (!record || record.userId !== userId || !record.mail) {
+        return reply.code(404).send({ ok: false, error: { code: "not_found" } });
+      }
+      return {
+        ok: true,
+        data: { sender: record.sender, subject: record.mail.subject, body: record.mail.body },
       };
     });
   }
