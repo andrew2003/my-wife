@@ -79,12 +79,22 @@ export type PenaltyLedgerEntry = {
   contractId: string | null;
   /** Receipt that paid the entry; set when `status` becomes `paid`. */
   paymentTransactionId?: string;
+  /** Open appeal that holds the entry: it cannot become due or paid until decided. */
+  appealId?: string;
+  /** Set when an accepted appeal removed the entry; reversed entries count nowhere. */
+  reversedAt?: string;
 };
 
 export type PenaltyAuditRecord = {
   id: string;
   penaltyId: string;
-  action: "penalty.created" | "penalty.due" | "penalty.paid";
+  action:
+    | "penalty.created"
+    | "penalty.due"
+    | "penalty.paid"
+    | "penalty.appeal_hold"
+    | "penalty.appeal_released"
+    | "penalty.reversed";
   at: string;
   detail: Record<string, unknown>;
 };
@@ -129,6 +139,28 @@ export interface PenaltyStore {
     userId: string,
     penaltyId: string,
     dueDate: string,
+    audit: PenaltyAuditRecord,
+  ): PenaltyLedgerEntry | undefined;
+  /** Holds an entry for an open appeal; undefined when missing, reversed or already held. */
+  holdForAppeal(
+    userId: string,
+    penaltyId: string,
+    appealId: string,
+    audit: PenaltyAuditRecord,
+  ): PenaltyLedgerEntry | undefined;
+  /** Lifts the hold of the appeal (appeal upheld). */
+  releaseAppealHold(
+    userId: string,
+    penaltyId: string,
+    appealId: string,
+    audit: PenaltyAuditRecord,
+  ): PenaltyLedgerEntry | undefined;
+  /** Removes the entry held by the appeal (appeal accepted); the entry stays for the audit. */
+  reverse(
+    userId: string,
+    penaltyId: string,
+    appealId: string,
+    at: string,
     audit: PenaltyAuditRecord,
   ): PenaltyLedgerEntry | undefined;
   claimPaidEvent(userId: string, penaltyId: string): PenaltyLedgerEntry | undefined;
@@ -178,7 +210,13 @@ export class InMemoryPenaltyStore implements PenaltyStore {
   markPaid(userId: string, penaltyId: string, payment: PenaltyPayment, audit: PenaltyAuditRecord) {
     const row = this.rows.get(userId)?.find((r) => r.entry.id === penaltyId);
     const refs = this.paidRefs.get(userId) ?? new Set<string>();
-    if (!row || row.entry.status !== "due" || refs.has(payment.bankTransactionRef))
+    if (
+      !row ||
+      row.entry.status !== "due" ||
+      row.entry.appealId ||
+      row.entry.reversedAt ||
+      refs.has(payment.bankTransactionRef)
+    )
       return undefined;
     refs.add(payment.bankTransactionRef);
     this.paidRefs.set(userId, refs);
@@ -193,7 +231,8 @@ export class InMemoryPenaltyStore implements PenaltyStore {
   }
   markDue(userId: string, penaltyId: string, dueDate: string, audit: PenaltyAuditRecord) {
     const row = this.rows.get(userId)?.find((r) => r.entry.id === penaltyId);
-    if (!row || row.entry.status !== "suspended") return undefined;
+    if (!row || row.entry.status !== "suspended" || row.entry.appealId || row.entry.reversedAt)
+      return undefined;
     row.entry = Object.freeze({
       ...row.entry,
       status: "due" as const,
@@ -205,6 +244,60 @@ export class InMemoryPenaltyStore implements PenaltyStore {
     row.eventClaimed = false;
     this.audits.set(userId, [...(this.audits.get(userId) ?? []), Object.freeze(audit)]);
     return row.entry;
+  }
+  private change(
+    userId: string,
+    penaltyId: string,
+    audit: PenaltyAuditRecord,
+    guard: (e: PenaltyLedgerEntry) => boolean,
+    patch: (e: PenaltyLedgerEntry) => PenaltyLedgerEntry,
+  ) {
+    const row = this.rows.get(userId)?.find((r) => r.entry.id === penaltyId);
+    if (!row || !guard(row.entry)) return undefined;
+    row.entry = Object.freeze({
+      ...patch(row.entry),
+      auditRefs: [...row.entry.auditRefs, audit.id],
+    });
+    this.audits.set(userId, [...(this.audits.get(userId) ?? []), Object.freeze(audit)]);
+    return row.entry;
+  }
+  holdForAppeal(userId: string, penaltyId: string, appealId: string, audit: PenaltyAuditRecord) {
+    return this.change(
+      userId,
+      penaltyId,
+      audit,
+      (e) => !e.appealId && !e.reversedAt,
+      (e) => ({ ...e, appealId }),
+    );
+  }
+  releaseAppealHold(
+    userId: string,
+    penaltyId: string,
+    appealId: string,
+    audit: PenaltyAuditRecord,
+  ) {
+    return this.change(
+      userId,
+      penaltyId,
+      audit,
+      (e) => e.appealId === appealId,
+      ({ appealId: _held, ...rest }) => rest,
+    );
+  }
+  reverse(
+    userId: string,
+    penaltyId: string,
+    appealId: string,
+    at: string,
+    audit: PenaltyAuditRecord,
+  ) {
+    return this.change(
+      userId,
+      penaltyId,
+      audit,
+      (e) => e.appealId === appealId,
+      ({ appealId: _held, ...rest }) => ({ ...rest, reversedAt: at }),
+    );
   }
   claimPaidEvent(userId: string, penaltyId: string) {
     const row = this.rows.get(userId)?.find((r) => r.entry.id === penaltyId);
@@ -367,6 +460,8 @@ export function createPenaltyService(deps: PenaltyServiceDeps) {
           const code = normalizeMemo(e.transferCode);
           if (
             e.status === "due" &&
+            !e.appealId &&
+            !e.reversedAt &&
             code !== "" &&
             p.amountVnd >= e.amountVnd &&
             memo.includes(code) &&

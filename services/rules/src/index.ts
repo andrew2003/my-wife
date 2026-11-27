@@ -3,3 +3,4 @@ export * from "./trial";
 export * from "./fault";
 export * from "./penalty";
 export * from "./weekly-penalty";
+export * from "./appeal";
