@@ -40,6 +40,12 @@ describe("secret encryption (AES-256-GCM)", () => {
     expect(encryptSecret("y", rotated, "b").keyId).toBe("k2");
   });
 
+  it("rejects a malformed previous-keys entry with a clear message", () => {
+    expect(() => parseKeyring({ currentKeyId: "k2", masterKey: K2, previousKeys: K1 })).toThrow(
+      /id:base64/,
+    );
+  });
+
   it("rejects a master key that is not 32 bytes", () => {
     expect(() => parseKeyring({ currentKeyId: "k1", masterKey: "c2hvcnQ=" })).toThrow();
   });

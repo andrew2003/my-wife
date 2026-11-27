@@ -17,7 +17,17 @@ BEGIN
     CREATE ROLE identity_app NOLOGIN;
   END IF;
 EXCEPTION WHEN duplicate_object THEN
-  NULL;
+  NULL; -- another migration run created it first
+END
+$$;
+-- PostgreSQL 16+ needs membership for SET ROLE; a superuser already has it. Skipped
+-- (not fatal) when the migrating user may not grant it; SET ROLE then fails loudly.
+DO $$
+BEGIN
+  GRANT identity_app TO CURRENT_USER;
+EXCEPTION
+  WHEN insufficient_privilege OR invalid_grant_operation THEN
+    RAISE WARNING 'could not grant identity_app to %: %', CURRENT_USER, SQLERRM;
 END
 $$;
 GRANT USAGE ON SCHEMA "identity" TO identity_app;

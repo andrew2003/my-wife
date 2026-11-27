@@ -35,7 +35,11 @@ describe("encrypted secrets", () => {
     const put = await putSecret(app, { value: SECRET });
     expect(put.statusCode).toBe(200);
     const list = await app.inject({ method: "GET", url: "/secrets", headers: A });
-    const del = await app.inject({ method: "DELETE", url: "/secrets/llm_key", headers: B });
+    const row = await store.findSecret("ua", "llm_key");
+    expect(row).toBeDefined();
+    expect(JSON.stringify(row)).not.toContain(SECRET);
+    const del = await app.inject({ method: "DELETE", url: "/secrets/llm_key", headers: A });
+    expect(del.statusCode).toBe(200);
     const bad = await putSecret(app, { nope: SECRET });
     for (const res of [put, list, del, bad]) {
       expect(res.body).not.toContain(SECRET);
@@ -44,8 +48,6 @@ describe("encrypted secrets", () => {
     expect(JSON.parse(list.body).data).toEqual([
       { kind: "llm_key", keyId: "k1", updatedAt: "2026-01-01T00:00:00.000Z" },
     ]);
-    const row = await store.findSecret("ua", "llm_key");
-    expect(JSON.stringify(row)).not.toContain(SECRET);
     expect(logs.length).toBeGreaterThan(0);
     expect(logs.join("")).not.toContain(SECRET);
   });

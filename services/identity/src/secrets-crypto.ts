@@ -27,6 +27,7 @@ export function parseKeyring(input: {
   const keys = new Map<string, Buffer>();
   for (const entry of (input.previousKeys ?? "").split(",").filter(Boolean)) {
     const at = entry.indexOf(":");
+    if (at <= 0) throw new Error("secrets previous keys must look like id:base64,id:base64");
     const id = entry.slice(0, at);
     keys.set(id, decodeKey(id, entry.slice(at + 1)));
   }
