@@ -38,6 +38,29 @@ pnpm generate:service <name>        # new service from templates/service
 
 Prefer package-scoped commands. Repository-wide runs use `turbo run <task> --concurrency=2`.
 
+## Manual demo
+
+Click through the web app by hand as the demo account. Not for production: `DEMO_LOGIN=1` makes
+the dev runner throw at startup when `NODE_ENV=production`. Run each step in its own terminal from
+the repository root, in this order:
+
+```sh
+pnpm install
+pnpm demo:reset                                       # 1. build and print the demo state
+pnpm --filter @my-wife/web build                      # 2. production build of the web app (once)
+DEMO_LOGIN=1 DEV_RUNNER_NO_NATS=1 pnpm dev            # 3. run all services (ports 4000-4009, sign-in helper on 4100)
+pnpm --filter @my-wife/web start                      # 4. run the web app on http://localhost:3000
+xdg-open http://localhost:4100/demo-login             # 5. sign in as the demo account and land on the web app
+```
+
+Use `localhost`, not `127.0.0.1`, in the browser: the session cookie is set for the host you open.
+The runner resets the demo user in its own in-memory store at startup, so step 1 only previews the
+state (and writes it to the identity schema when `DATABASE_URL` is set). Stop steps 3 and 4 with
+Ctrl+C. Set `WEB_URL` if the web app runs on another origin.
+
+Known gap: the budget and schedule read routes the screens call are not all in place yet, so some
+screens show empty states (see issues #244, #247, #271, #273).
+
 ## Contributing
 
 See `CONTRIBUTING.md`.

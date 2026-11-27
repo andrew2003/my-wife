@@ -12,7 +12,7 @@ const SESSION_DAYS = 30;
  * Identity exports no signer, and identity code is out of scope here; the gateway test
  * proves identity accepts what this produces.
  */
-function sign(payload: { sub: string; sid: string; exp: number }, secret: string): string {
+export function sign(payload: { sub: string; sid: string; exp: number }, secret: string): string {
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${body}.${createHmac("sha256", secret).update(body).digest("base64url")}`;
 }
