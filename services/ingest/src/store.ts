@@ -24,6 +24,9 @@ export type ReceiptRecord = {
   /**
    * Subject and text body, kept only for a mail with an unknown layout so the ai service can
    * read it (template.read_requested). Never set for parsed or rejected receipts.
+   * TODO(encryption): spec 11 requires the body encrypted at rest with retention; this
+   * plaintext field is for the in-memory store only. A persistent store must encrypt it and
+   * purge it on a retention schedule first.
    */
   mail?: { subject: string; body: string };
 };

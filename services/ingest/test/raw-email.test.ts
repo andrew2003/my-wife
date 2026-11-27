@@ -3,10 +3,13 @@ import { loadConfig } from "@my-wife/config";
 import { createApp } from "../src/index";
 import { MemoryIngestStore } from "../src/store";
 import { createMailauthVerifier } from "../src/dkim";
+import { BASIC_BANK_TEMPLATE, fingerprintTemplate } from "../src/templates";
 import {
   BANK_ADDRESS,
   BANK_DOMAIN,
   buildMail,
+  DEBIT_BODY,
+  type MailOptions,
   SUBJECT,
   testResolver,
 } from "./fixtures";
@@ -14,7 +17,7 @@ import {
 const config = loadConfig({ SESSION_SECRET: "x".repeat(32), LOG_LEVEL: "silent" });
 const SECRET = "test-ingest-secret";
 
-async function setup() {
+async function setup(opts: { template?: boolean; mail?: MailOptions } = {}) {
   const store = new MemoryIngestStore();
   let n = 0;
   const app = await createApp(config, {
@@ -24,15 +27,27 @@ async function setup() {
       verifyDkim: createMailauthVerifier(testResolver),
       users: { resolve: async () => ({ userId: "user-1", emailConsent: true }) },
       senderMap: [{ senderKey: "bank", senderAddress: BANK_ADDRESS, dkimDomain: BANK_DOMAIN }],
-      // No template is registered, so the mail waits for confirmation (unknown layout).
-      templates: [],
+      // Without a template the mail waits for confirmation (unknown layout).
+      templates: opts.template
+        ? [
+            {
+              ...BASIC_BANK_TEMPLATE,
+              senderKey: "bank",
+              fingerprint: fingerprintTemplate({
+                sender: BANK_ADDRESS,
+                subject: SUBJECT,
+                body: DEBIT_BODY,
+              }),
+            },
+          ]
+        : [],
       publish: async () => {},
       newId: () => `id-${++n}`,
       settings: { maxEmailBytes: 1048576, holdMatchWindowHours: 72 },
       now: () => new Date("2026-11-26T04:00:00.000Z"),
     },
   });
-  const raw = await buildMail();
+  const raw = await buildMail(opts.mail);
   const res = await app.inject({
     method: "POST",
     url: "/webhook/inbound-email",
@@ -43,7 +58,8 @@ async function setup() {
       sizeBytes: raw.length,
     },
   });
-  const receiptId = res.json().data.receiptId as string;
+  // A rejected mail answers 422 without an id; the first generated id is the receipt id.
+  const receiptId = (res.json().data?.receiptId as string | undefined) ?? "id-1";
   return { app, store, receiptId };
 }
 
@@ -81,5 +97,21 @@ describe("GET /receipts/:receiptId/raw-email", () => {
   it("answers 404 for an unknown receipt", async () => {
     const { app } = await setup();
     expect((await get(app, "nope", "user-1")).statusCode).toBe(404);
+  });
+
+  it("keeps no mail for a parsed receipt and answers 404", async () => {
+    const { app, store, receiptId } = await setup({ template: true });
+    const record = await store.findById(receiptId);
+    expect(record?.state).toBe("parsed");
+    expect(record?.mail).toBeUndefined();
+    expect((await get(app, receiptId, "user-1")).statusCode).toBe(404);
+  });
+
+  it("keeps no mail for a rejected receipt and answers 404", async () => {
+    const { app, store, receiptId } = await setup({ mail: { sign: "none" } });
+    const record = await store.findById(receiptId);
+    expect(record?.state).toBe("rejected");
+    expect(record?.mail).toBeUndefined();
+    expect((await get(app, receiptId, "user-1")).statusCode).toBe(404);
   });
 });
