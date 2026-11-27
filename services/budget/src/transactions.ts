@@ -31,6 +31,8 @@ export interface TransactionRecord {
   refundOfTransactionId?: string;
   /** Refund only: the part returned to the category limit (see `bookRefund`). */
   restoredVnd?: number;
+  /** Cash withdrawal only: when it must be allocated to categories (spec 10 section 5). */
+  allocationDeadlineAt?: string;
   /** False until `txn.recorded` was published, so a failed publish is retried. */
   announced: boolean;
 }

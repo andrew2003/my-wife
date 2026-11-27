@@ -33,6 +33,7 @@ export interface AuditRecord {
     | "cycle_opened"
     | "transaction_recorded"
     | "income_recorded"
+    | "category_created"
     | "week_closed"
     | "weekly_plan_published"
     | "anomaly_opened"
@@ -181,6 +182,8 @@ export interface SampleBudgetStore {
     txn: TransactionRecord,
     at: Date,
     income?: IncomePoolEntry,
+    /** A system category created together with the transaction (the bank fees category). */
+    newCategory?: BudgetCategory,
   ): Promise<"recorded" | "duplicate" | "not_running">;
   markTransactionAnnounced(userId: string, transactionId: string): Promise<void>;
   markIncomeAnnounced(userId: string, entryId: string): Promise<void>;
@@ -397,6 +400,7 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     txn: TransactionRecord,
     at: Date,
     income?: IncomePoolEntry,
+    newCategory?: BudgetCategory,
   ) {
     const r = this.records.get(userId);
     if (!r || r.cycle.id !== cycleId || r.cycle.state !== "running") {
@@ -404,6 +408,15 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     }
     if (r.transactions.some((t) => t.bankTransactionRef === txn.bankTransactionRef)) {
       return "duplicate" as const;
+    }
+    if (newCategory && !r.categories.some((c) => c.shortCode === newCategory.shortCode)) {
+      r.categories.push({ ...newCategory });
+      r.audit.push({
+        at: at.toISOString(),
+        userId,
+        action: "category_created",
+        detail: { cycleId, categoryId: newCategory.id, shortCode: newCategory.shortCode },
+      });
     }
     r.transactions.push({ ...txn });
     const item = txn.plannedItemId
