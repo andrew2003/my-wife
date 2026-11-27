@@ -11,6 +11,7 @@ import {
   type Ticker,
   type VisibilitySource,
 } from "../lib/countdown";
+import { createEndSound, loadEndSoundSettings, type EndSound } from "../lib/end-sound";
 import { translate, type Locale } from "../lib/i18n";
 import { browserPipApi, isPipSupported, openCountdownPip, type CountdownPip } from "../lib/pip";
 
@@ -57,6 +58,45 @@ export function PipToggle({ locale, text }: { locale: Locale; text: string }) {
   return (
     <button type="button" className="pip-toggle" onClick={() => void toggle()}>
       {translate(locale, open ? "pip.close" : "pip.open")}
+    </button>
+  );
+}
+
+/** One user click unlocks audio; the sound is then scheduled at the end time with Web Audio. */
+export function EndSoundToggle({
+  locale,
+  endsAtMs,
+  serverOffsetMs,
+  clock,
+}: {
+  locale: Locale;
+  endsAtMs: number;
+  serverOffsetMs?: number;
+  clock?: Clock;
+}) {
+  const soundRef = useRef<EndSound | null>(null);
+  const [on, setOn] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    const settings = loadEndSoundSettings();
+    setEnabled(settings.enabled);
+    soundRef.current = createEndSound({ settings });
+    return () => soundRef.current?.cancel();
+  }, []);
+  useEffect(() => {
+    if (!on) return;
+    const c = clock ?? { now: () => Date.now() };
+    soundRef.current?.schedule(endsAtMs, { now: () => c.now() + (serverOffsetMs ?? 0) });
+  }, [on, endsAtMs, serverOffsetMs, clock]);
+  if (!enabled) return null;
+  if (on) return <span className="sound-on">{translate(locale, "sound.enabled")}</span>;
+  return (
+    <button
+      type="button"
+      className="sound-toggle"
+      onClick={() => void soundRef.current?.unlock().then(() => setOn(true))}
+    >
+      {translate(locale, "sound.enable")}
     </button>
   );
 }
@@ -126,6 +166,12 @@ export function SessionCountdown(props: {
     <>
       <SessionCountdownView locale={locale} remaining={remaining} />
       <PipToggle locale={locale} text={formatRemaining(remaining)} />
+      <EndSoundToggle
+        locale={locale}
+        endsAtMs={endsAtMs}
+        serverOffsetMs={serverOffsetMs}
+        clock={clock}
+      />
     </>
   );
 }
