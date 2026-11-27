@@ -6,6 +6,7 @@ import {
 } from "@my-wife/contracts";
 import type { SampleBudgetRecord, SampleBudgetStore } from "./onboarding";
 import { buildWeeklyLimitPlan } from "./weekly-plan";
+import { writeOffOverdueReceivables } from "./debts";
 
 /** An overspend found when a week closed (spec 10 section 8). Integer VND. */
 export interface OverspendRecord {
@@ -108,6 +109,8 @@ export interface WeekClosedDeps {
   publish: (event: EventEnvelope) => void | Promise<void>;
   /** Reads the user's settings (identity); missing or invalid keys fall back to registry defaults. */
   readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
+  /** Ids for the transactions of written-off debts; defaults to random UUIDs. */
+  newId?: () => string;
 }
 
 /**
@@ -214,6 +217,8 @@ export function createWeekClosedHandler(deps: WeekClosedDeps) {
     };
   };
 
+  const newId = deps.newId ?? (() => globalThis.crypto.randomUUID());
+
   return async function onWeekClosed(event: EventEnvelope): Promise<void> {
     if (event.type !== "week.closed") return;
     const { payload } = event as EventEnvelope<"week.closed">;
@@ -226,10 +231,19 @@ export function createWeekClosedHandler(deps: WeekClosedDeps) {
     const cycleId = record.cycle.id;
 
     const settings = (await deps.readSettings?.(event.userId)) ?? {};
+    // Overdue receivables become expenses before the week is compared with its limits (spec 10
+    // section 6); booked at the end of the closing week so they count in it.
+    await writeOffOverdueReceivables(
+      { store: deps.store, now: deps.now, newId, publish: deps.publish, settings },
+      event.userId,
+      deps.now(),
+      new Date(dayStart(payload.firstDay) + WEEK_DAYS * DAY_MS - 1),
+    );
+    const fresh = (await deps.store.find(event.userId)) ?? record;
     const rounding = settings["budget.weekly_limit_rounding_vnd"];
     const mode = settings["penalty.need_overspend_mode"];
     const outcome = compute(
-      record,
+      fresh,
       weekIndex,
       payload.firstDay,
       Number.isSafeInteger(rounding) && (rounding as number) > 0
