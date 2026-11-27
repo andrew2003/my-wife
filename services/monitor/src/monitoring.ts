@@ -171,7 +171,72 @@ export function createMemoryBreakStore(): BreakStore {
   };
 }
 
+/**
+ * A platform outage or an admin-declared incident that can waive a gap. The platform detects
+ * server and network outages itself (internal health log); browser-reported values are never used.
+ */
+export interface Outage {
+  id: string;
+  source: "incident" | "platform";
+  startedAt: string;
+  /** `null` while it is still going on. */
+  endedAt: string | null;
+}
+
+/** Audit record: this gap was waived because it overlaps this outage. One per signal. */
+export interface OutageWaiver {
+  signalRef: string;
+  userId: string;
+  sessionId: string;
+  outageId: string;
+  source: Outage["source"];
+  gapStartedAt: string;
+  gapEndedAt: string;
+  marginSeconds: number;
+  recordedAt: string;
+}
+export interface WaiverStore {
+  add(w: OutageWaiver): void;
+  all(): OutageWaiver[];
+}
+export function createMemoryWaiverStore(): WaiverStore {
+  const waivers = new Map<string, OutageWaiver>();
+  return {
+    add: (w) => void waivers.set(w.signalRef, w),
+    all: () => [...waivers.values()],
+  };
+}
+
+/** Server-side heartbeat history: server times only, never the browser clock. */
+export interface HeartbeatStore {
+  add(sessionId: string, at: string): void;
+  list(sessionId: string): string[];
+}
+export function createMemoryHeartbeatStore(): HeartbeatStore {
+  const bySession = new Map<string, string[]>();
+  return {
+    add: (id, at) => void bySession.set(id, [...(bySession.get(id) ?? []), at]),
+    list: (id) => [...(bySession.get(id) ?? [])],
+  };
+}
+
+/** Aggregates heartbeat times into presence intervals; a pause of `gapMs` or more starts a new one. */
+export function presenceIntervals(
+  times: readonly string[],
+  gapMs: number,
+): { from: string; to: string }[] {
+  const out: { from: string; to: string }[] = [];
+  for (const t of [...times].sort()) {
+    const last = out[out.length - 1];
+    if (last && Date.parse(t) - Date.parse(last.to) < gapMs) last.to = t;
+    else out.push({ from: t, to: t });
+  }
+  return out;
+}
+
 export interface MonitorState {
+  heartbeats: HeartbeatStore;
+  waivers: WaiverStore;
   breaks: BreakStore;
   nudges: NudgeStore;
   sessions: SessionStore;
@@ -189,6 +254,8 @@ export interface MonitorDeps {
   locale: Locale;
   /** Hands an urgent message to notify (`POST /messages`); throws when it was not accepted. */
   sendUrgent: (message: OutboundMessage) => Promise<void>;
+  /** Declared incidents and platform outages that apply to the user; none until wired. */
+  listOutages: (userId: string) => Promise<readonly Outage[]>;
 }
 
 function envelope(
@@ -232,6 +299,7 @@ export async function startMonitoring(
     lastHeartbeatAt: now.toISOString(),
   };
   deps.state.sessions.add(session);
+  deps.state.heartbeats.add(session.id, session.startedAt);
   await deps.publish(
     envelope(now, `monitor-session-started-${session.id}`, "monitor.session_started", userId, {
       sessionId: session.id,
@@ -251,6 +319,7 @@ export function recordHeartbeat(
   if (!s) return "not_found";
   if (s.endedAt !== null) return "ended";
   s.lastHeartbeatAt = deps.now().toISOString();
+  deps.state.heartbeats.add(s.id, s.lastHeartbeatAt);
   return "ok";
 }
 
@@ -328,6 +397,47 @@ type PositiveKey =
   | "monitor.urgent_chat_after_seconds"
   | "monitor.urgent_silent_fault_after_seconds"
   | "monitor.urgent_min_gap_minutes";
+
+/** `monitor.outage_gap_margin_seconds`: zero is allowed; invalid answers fall back to the default. */
+async function outageMarginSeconds(deps: MonitorDeps, userId: string): Promise<number> {
+  const answer = (await deps.readSettings(userId))["monitor.outage_gap_margin_seconds"];
+  return typeof answer === "number" && Number.isInteger(answer) && answer >= 0
+    ? answer
+    : SETTINGS["monitor.outage_gap_margin_seconds"].default;
+}
+
+/**
+ * True when the gap [start, end] overlaps an outage widened by the margin on both sides (edges
+ * inclusive; an open outage lasts until now). The first overlapping outage is recorded as the
+ * audit cause, once per signal. Rules turns the flag into `waived_system`.
+ */
+async function overlapsOutage(
+  deps: MonitorDeps,
+  t: ReasonTicket,
+  gapEnd: Date,
+): Promise<boolean> {
+  const margin = await outageMarginSeconds(deps, t.userId);
+  const marginMs = margin * SECOND_MS;
+  const gapStart = Date.parse(t.occurredAt);
+  const hit = (await deps.listOutages(t.userId)).find(
+    (o) =>
+      Date.parse(o.startedAt) - marginMs <= gapEnd.getTime() &&
+      (o.endedAt === null || Date.parse(o.endedAt) + marginMs >= gapStart),
+  );
+  if (!hit) return false;
+  deps.state.waivers.add({
+    signalRef: t.signalRef,
+    userId: t.userId,
+    sessionId: t.sessionId,
+    outageId: hit.id,
+    source: hit.source,
+    gapStartedAt: t.occurredAt,
+    gapEndedAt: gapEnd.toISOString(),
+    marginSeconds: margin,
+    recordedAt: gapEnd.toISOString(),
+  });
+  return true;
+}
 
 /** A positive integer setting, or the registry default when the answer is missing or invalid. */
 async function positiveSetting(
@@ -441,6 +551,7 @@ export async function endBreak(
   );
   b.endedAt = now.toISOString();
   s.lastHeartbeatAt = now.toISOString();
+  deps.state.heartbeats.add(s.id, s.lastHeartbeatAt);
   return { ok: true, break: b };
 }
 
@@ -556,6 +667,7 @@ export async function giveReason(
     await reasonQuota(deps, userId),
     await honestReasonsUsed(deps, t, input.kind),
   );
+  const overlapsOutageNow = await overlapsOutage(deps, t, now);
   const previous = { ...t };
   t.state = "answered";
   t.answeredAt = now.toISOString();
@@ -581,7 +693,7 @@ export async function giveReason(
         reason: outcome === "honest" ? "given" : "none",
         reasonRef: outcome === "honest" ? t.id : null,
         reasonKind: input.kind,
-        overlapsOutage: false,
+        overlapsOutage: overlapsOutageNow,
       }),
     );
   } catch (err) {
@@ -659,6 +771,7 @@ export async function runUrgentJob(deps: MonitorDeps, now: Date): Promise<{ fail
         msg?.delivered &&
         now.getTime() - Date.parse(msg.sentAt ?? msg.createdAt) >= silent * SECOND_MS
       ) {
+        const overlaps = await overlapsOutage(deps, t, now);
         await deps.publish(
           envelope(now, `reason-expired-${t.id}`, "reason.expired", t.userId, {
             ticketId: t.id,
@@ -673,7 +786,7 @@ export async function runUrgentJob(deps: MonitorDeps, now: Date): Promise<{ fail
             reason: "none",
             reasonRef: null,
             reasonKind: null,
-            overlapsOutage: false,
+            overlapsOutage: overlaps,
           }),
         );
         t.state = "expired";

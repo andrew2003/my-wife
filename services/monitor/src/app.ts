@@ -11,6 +11,9 @@ import {
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
   createMemoryBreakStore,
+  createMemoryHeartbeatStore,
+  createMemoryWaiverStore,
+  type Outage,
   type BreakResult,
   endBreak,
   startBreak,
@@ -40,6 +43,8 @@ export type MonitorServiceDeps = ServiceDeps & {
   publish?: (event: EventEnvelope) => void | Promise<void>;
   /** Hands an urgent message to notify (`POST /messages`); the default throws, so nothing counts as delivered until notify is wired. */
   sendUrgent?: (message: OutboundMessage) => Promise<void>;
+  /** Declared incidents and platform outages for a user (admin incidents plus the internal health log). */
+  listOutages?: (userId: string) => Promise<readonly Outage[]>;
   /** Storage ports; in memory until the Drizzle stores land. */
   state?: Partial<MonitorState>;
 };
@@ -68,6 +73,8 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     nats: deps.nats,
   });
   const state: MonitorState = {
+    heartbeats: deps.state?.heartbeats ?? createMemoryHeartbeatStore(),
+    waivers: deps.state?.waivers ?? createMemoryWaiverStore(),
     breaks: deps.state?.breaks ?? createMemoryBreakStore(),
     nudges: deps.state?.nudges ?? createMemoryNudgeStore(),
     sessions: deps.state?.sessions ?? createMemorySessionStore(),
@@ -80,6 +87,7 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     publish: deps.publish ?? (() => undefined),
     readSettings: deps.readSettings ?? (async () => ({})),
     locale: config.uiLanguage,
+    listOutages: deps.listOutages ?? (async () => []),
     sendUrgent:
       deps.sendUrgent ??
       (async () => {
