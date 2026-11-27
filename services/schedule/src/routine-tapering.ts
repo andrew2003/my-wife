@@ -38,7 +38,12 @@ export function createMemoryHabitStore(): HabitStore {
   };
 }
 
+/** How long a proposal stays open when no option is injected: one week (ADR pending for a setting). */
+export const DEFAULT_TAPER_ASK_EXPIRY_MS = 7 * DAY_MS;
+
 export interface TaperDeps extends RoutineDeps {
+  /** Proposal lifetime in milliseconds from the review time. */
+  askExpiryMs?: number;
   habits: HabitStore;
 }
 
@@ -103,7 +108,9 @@ export async function runTaperingReviewForUser(
           value,
           labelKey: `routine.taper.option.${value}`,
         })),
-        expiresAt: new Date(today + 8 * DAY_MS).toISOString(),
+        expiresAt: new Date(
+          now.getTime() + (deps.askExpiryMs ?? DEFAULT_TAPER_ASK_EXPIRY_MS),
+        ).toISOString(),
         params: {
           routineId: r.id,
           from,

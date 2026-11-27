@@ -58,11 +58,7 @@ import {
   runReviewJob,
   type LedgerStore,
 } from "./review";
-import {
-  createMemoryHabitStore,
-  runTaperingReview,
-  type HabitStore,
-} from "./routine-tapering";
+import { createMemoryHabitStore, runTaperingReview, type HabitStore } from "./routine-tapering";
 import {
   buildStarterRoutines,
   changeRoutineLevel,
@@ -121,6 +117,8 @@ export type ScheduleDeps = ServiceDeps & {
   routineStore?: RoutineStore;
   /** Regular-day flags for routine tapering; in memory for now. */
   habitStore?: HabitStore;
+  /** How long a routine tapering proposal stays open; defaults to one week. */
+  taperAskExpiryMs?: number;
   /** Today's dish from the budget menu (internal REST in production); none without budget. */
   menuSource?: MenuSource;
   /** `wake` challenge storage port; in memory until the Drizzle store lands. */
@@ -700,7 +698,11 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     ...(deps.menuSource ? { menuSource: deps.menuSource } : {}),
     readSettings: readSettings as (userId: string) => Promise<Record<string, unknown>>,
   };
-  const taperDeps = { ...routineDeps, habits: deps.habitStore ?? createMemoryHabitStore() };
+  const taperDeps = {
+    ...routineDeps,
+    habits: deps.habitStore ?? createMemoryHabitStore(),
+    ...(deps.taperAskExpiryMs ? { askExpiryMs: deps.taperAskExpiryMs } : {}),
+  };
   app.decorate("runTaperingReview", (at: Date) => runTaperingReview(taperDeps, at));
   /** Records whether a routine was kept regularly on one local day (check-in sources feed it). */
   app.post("/routines/habit-days", async (req, reply) => {
