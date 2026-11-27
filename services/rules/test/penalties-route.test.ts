@@ -25,7 +25,7 @@ function entry(n: number, status: PenaltyLedgerEntry["status"], amountVnd: numbe
   return { e, audit: { id: `audit-${n}` } as never };
 }
 
-function setup() {
+function setup(contractId: string | null = null) {
   const store = new InMemoryPenaltyStore();
   for (const [u, n, s, a] of [
     [USER, 1, "suspended", 30_000],
@@ -34,7 +34,7 @@ function setup() {
     [OTHER, 4, "suspended", 999_000],
   ] as const) {
     const { e, audit } = entry(n, s, a);
-    store.insertOnce(u, { ...e, sourceKey: `k${n}` } as never, audit);
+    store.insertOnce(u, { ...e, contractId, sourceKey: `k${n}` } as never, audit);
   }
   return createApp(config, { penaltyStore: store });
 }
@@ -53,6 +53,20 @@ describe("GET /penalties", () => {
     if (!body.ok) return;
     expect(body.data.penalties.map((p) => p.amountVnd)).toEqual([30_000, 50_000, 20_000]);
     expect(body.data.suspendedTotalVnd).toBe(50_000);
+  });
+
+  it("returns the contract id of the entry, null when none exists", async () => {
+    const CONTRACT = "44444444-4444-4444-8444-444444444444";
+    for (const contractId of [CONTRACT, null]) {
+      const res = await setup(contractId).inject({
+        method: "GET",
+        url: "/penalties",
+        headers: { "x-user-id": USER },
+      });
+      const body = ListPenaltiesResponseSchema.parse(res.json());
+      if (!body.ok) throw new Error("expected ok");
+      expect(new Set(body.data.penalties.map((p) => p.contractId))).toEqual(new Set([contractId]));
+    }
   });
 
   it("does not return another user's penalties", async () => {

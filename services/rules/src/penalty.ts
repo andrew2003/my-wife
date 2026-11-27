@@ -5,6 +5,7 @@ import {
   type EventEnvelope,
   type EventPayload,
 } from "@my-wife/contracts";
+import type { ContractStore } from "./contract";
 import type { SettlementLine, TrialStore } from "./trial";
 
 const DAY_MS = 86_400_000;
@@ -74,6 +75,8 @@ export type PenaltyLedgerEntry = {
   sourceKey: string;
   auditRefs: string[];
   issuedAt: string;
+  /** Signed commitment contract in force for the cycle at issuance; null when none exists. */
+  contractId: string | null;
   /** Receipt that paid the entry; set when `status` becomes `paid`. */
   paymentTransactionId?: string;
 };
@@ -229,6 +232,8 @@ export class InMemoryPenaltyStore implements PenaltyStore {
 export type PenaltyServiceDeps = {
   store: PenaltyStore;
   trialStore: Pick<TrialStore, "find" | "addSuspended">;
+  /** Source of the signed contract carried by new entries; entries get null when absent. */
+  contractStore?: Pick<ContractStore, "findSigned">;
   publish?: (event: EventEnvelope) => void | Promise<void>;
   /** Penalty settings in force for the user; registry defaults when absent. */
   readSettings?: (userId: string) => Promise<PenaltySettings>;
@@ -486,6 +491,7 @@ export function createPenaltyService(deps: PenaltyServiceDeps) {
         sourceKey,
         auditRefs: [],
         issuedAt: now.toISOString(),
+        contractId: deps.contractStore?.findSigned(userId, p.cycleId)?.id ?? null,
       };
       const audit: PenaltyAuditRecord = {
         id: newId(),
