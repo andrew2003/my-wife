@@ -39,6 +39,12 @@ export {
   type OverspendFinding,
   type OverspendRecord,
 } from "./overspend";
+export {
+  reconcilePlannedTransfer,
+  toleranceVnd,
+  type PlannedTransferInput,
+  type ToleranceSettings,
+} from "./reconciliation";
 export { buildWeeklyLimitPlan, type WeeklyLimitPlanInput } from "./weekly-plan";
 export {
   classifyCodedTransfer,
