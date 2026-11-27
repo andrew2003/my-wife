@@ -221,18 +221,26 @@ export function createWeekClosedHandler(deps: WeekClosedDeps) {
         weeks: record.cycle.weeks,
         roundingVnd,
       })[weekIndex - 1]!;
-      const spentVnd = record.transactions
-        .filter((t) => {
-          const at = Date.parse(t.occurredAt);
-          return (
-            t.cycleId === record.cycle.id &&
-            t.categoryId === c.id &&
-            t.direction === "out" &&
-            at >= start &&
-            at < end
-          );
-        })
+      const inWeek = record.transactions.filter((t) => {
+        const at = Date.parse(t.occurredAt);
+        return t.cycleId === record.cycle.id && t.categoryId === c.id && at >= start && at < end;
+      });
+      const inCategory = record.transactions.filter(
+        (t) => t.cycleId === record.cycle.id && t.categoryId === c.id,
+      );
+      const outVnd = inWeek
+        .filter((t) => t.direction === "out")
         .reduce((sum, t) => sum + t.amountVnd, 0);
+      // A refund restores the category by `restoredVnd` (spec 10 section 5); one linked to an
+      // original outside this cycle restores nothing, as in `getCategoryBalances`.
+      const restoredVnd = inWeek
+        .filter(
+          (t) =>
+            t.transactionType === "refund" &&
+            (!t.refundOfTransactionId || inCategory.some((o) => o.id === t.refundOfTransactionId)),
+        )
+        .reduce((sum, t) => sum + (t.restoredVnd ?? 0), 0);
+      const spentVnd = Math.max(0, outVnd - restoredVnd);
       return {
         categoryId: c.id,
         priority: c.priority,

@@ -300,3 +300,72 @@ describe("criterion 2: week.closed consumed twice", () => {
     );
   });
 });
+
+describe("refunds in the week close (spec 10 acceptance 7)", () => {
+  const cases = [
+    { name: "full restore of 200,000", out: 200_000, restored: 200_000, excess: 0, spent: 0 },
+    {
+      name: "partial restore of 50,000",
+      out: 200_000,
+      restored: 50_000,
+      excess: 50_000,
+      spent: 150_000,
+    },
+    {
+      name: "restore down to the limit",
+      out: 200_000,
+      restored: 100_000,
+      excess: 0,
+      spent: 100_000,
+    },
+    {
+      name: "no restore keeps the overspend",
+      out: 150_000,
+      restored: 0,
+      excess: 50_000,
+      spent: 150_000,
+    },
+  ];
+  it.each(cases)("$name", async ({ out, restored, excess, spent }) => {
+    const s = await seeded();
+    await s.book(out);
+    const record = s.store.get("u1")!;
+    const original = record.transactions.at(-1)!;
+    record.transactions.push({
+      ...original,
+      id: "refund-1",
+      receiptId: "r-refund",
+      bankTransactionRef: "ref-refund",
+      direction: "in",
+      amountVnd: 300_000,
+      transactionType: "refund",
+      refundOfTransactionId: original.id,
+      restoredVnd: restored,
+    });
+    await s.handle(s.weekClosed(1));
+    const events = overspends(s.published);
+    if (excess === 0) {
+      expect(events).toHaveLength(0);
+      expect(s.store.get("u1")!.limitAdjustments).toEqual([]);
+    } else {
+      expect(events).toHaveLength(1);
+      expect(events[0]!.payload).toMatchObject({ spentVnd: spent, excessVnd: excess });
+    }
+  });
+
+  it("ignores a refund linked to a transaction outside the cycle", async () => {
+    const s = await seeded();
+    await s.book(150_000);
+    const record = s.store.get("u1")!;
+    record.transactions.push({
+      ...record.transactions.at(-1)!,
+      id: "refund-2",
+      direction: "in",
+      transactionType: "refund",
+      refundOfTransactionId: "older-cycle-txn",
+      restoredVnd: 150_000,
+    });
+    await s.handle(s.weekClosed(1));
+    expect(overspends(s.published)[0]!.payload.spentVnd).toBe(150_000);
+  });
+});
