@@ -1,6 +1,6 @@
 # M5 design plan: visual system, navigation, theming, locale
 
-Status: draft for review (2026-11-28). Owner brief: M5 in `factory/prompts/milestones.md`. Decisions: ADR 0014. Source of truth for conflicts: `docs/spec/00-final-decisions.md`. No application code is part of this plan.
+Status: revised after po and reviewer review (2026-11-28). Owner brief: M5 in `factory/prompts/milestones.md`. Decisions: ADR 0014. Source of truth for conflicts: `docs/spec/00-final-decisions.md`. No application code is part of this plan.
 
 ## 1. Principles
 
@@ -66,11 +66,11 @@ Brand anchors: navy `#1B2559`, royal blue `#2F5BB7`, gold `#C9A45C`, ocean light
 | border on surface | 3.46 | 4.26 | 3.0 |
 | focus ring on bg | 6.02 | 8.51 | 3.0 |
 
-Rule: `--c-gold` is never used for text or a control boundary in light mode (2.35 fails); use `--c-gold-text`. The table is reproduced by a unit test in `apps/web` (`contrast.test.ts`) that reads the token table (one TypeScript source, generated into the CSS file at build or checked against it) and fails under 4.5 or 3.0 per pair above. Cards over the background art are opaque (`--c-surface`) or at least 92% opaque; the test also measures text on the worst-case blend of art at its maximum opacity.
+Rule: `--c-gold` is never used for text, a control boundary, a focus ring or a meaningful icon (one that carries information without a text label) in light mode (2.35 fails); use `--c-gold-text`. Gold is decoration only (trim, dividers, ornaments, `aria-hidden` flourishes). A test greps the CSS modules for `--c-gold` outside an allowlist of decorative selectors. The table is reproduced by a unit test in `apps/web` (`contrast.test.ts`) that reads the token table (one TypeScript source, generated into the CSS file at build or checked against it) and fails under 4.5 or 3.0 per pair above. Cards over the background art are opaque (`--c-surface`) or at least 92% opaque; the test also measures text on the worst-case blend of art at its maximum opacity.
 
 ## 3. Typography
 
-- UI font: Be Vietnam Pro (SIL OFL 1.1), full Vietnamese coverage. Two weights only: 400 and 600. Titles use 600; no display serif in v1 (optional in the brief; saves a file and memory). Revisit only if the owner asks.
+- UI font: Be Vietnam Pro (SIL OFL 1.1), full Vietnamese coverage. Two weights only: 400 and 600. Titles use 600. No display serif (po decision, see `docs/decisions.md`).
 - Files: `apps/web/fonts/be-vietnam-pro-{400,600}.woff2`, subset to Latin plus Vietnamese (U+0000-00FF, U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+1EA0-1EF9, punctuation and currency `U+20AB`). The OFL text is committed beside them (`apps/web/fonts/OFL.txt`) with the source URL and version.
 - Loaded with `next/font/local` (`display: swap`, `preload` on, variable `--font-ui`). No runtime request to any font CDN; a test greps the build output for `fonts.googleapis`.
 - Numbers use tabular figures (`font-variant-numeric: tabular-nums`) for money and countdown.
@@ -87,7 +87,34 @@ Five areas (labels from locale keys `nav.*`):
 | Routines | `/routines`, `/routines/sleep`, Faults `/faults` |
 | More | Settings, Models `/settings/models`, Privacy `/settings/privacy`, Admin (admin only), Language and theme |
 
-There are 19 current routes; the table is the target mapping and the first M5 issue lists each route under exactly one area (a test fails when a route has no area).
+There are 22 `page.tsx` routes today. Every one is placed in an area below or marked excluded:
+
+| Route | Area |
+|---|---|
+| `/` | Today (dashboard) |
+| `/schedule/today` | Today |
+| `/inbox` | Today |
+| `/schedule` | Schedule |
+| `/schedule/review` | Schedule |
+| `/schedule/calendar` | Schedule |
+| `/budget` | Budget |
+| `/budget/funding` | Budget |
+| `/anomalies` | Budget |
+| `/contract` | Budget |
+| `/penalties` | Budget |
+| `/debts` | Budget |
+| `/cycle-close` | Budget |
+| `/receipts/[id]` | Budget, detail page reached from Anomalies and the budget overview; not a nav item; needs a fixture receipt id in tests |
+| `/routines` | Routines |
+| `/routines/sleep` | Routines |
+| `/faults` | Routines |
+| `/monitor` | Routines (focus monitor, linked from Today and Routines) |
+| `/settings/models` | More |
+| `/settings/privacy` | More |
+| `/admin` | More (admin only) |
+| `/onboarding` | Excluded from the nav (first-run flow, reached by redirect); needs a fixture user at the onboarding step in tests |
+
+Focus/countdown on the Today area is `/monitor`. The route-to-area test enumerates the filesystem (every `app/**/page.tsx`), maps each to an area or to the exclusion list in one source file, and fails when a route has neither, or when the source lists a route that no longer exists. Dynamic segments use fixture ids from one shared fixture file.
 
 - Desktop (>=640): sticky translucent top bar (logo, greeting, `VI | EN` control, theme control, account menu) with `backdrop-filter` only on the bar itself (small area). Side nav with icons, collapsible (collapsed state in `mw_nav` cookie, same attributes as the theme cookie), active item marked by pill background plus `aria-current="page"`.
 - Phone (<640): bottom tab bar with four items (Today, Schedule, Budget, Routines) plus "More" which opens a sheet listing the remaining items, language and theme. The sheet is a `role="dialog"` with `aria-modal`, focus trap, Escape and backdrop close, focus returned to the opener, safe-area padding. Active tab marked as above.
@@ -96,7 +123,7 @@ There are 19 current routes; the table is the target mapping and the first M5 is
 
 ## 5. Component list
 
-Button (primary, secondary, ghost, danger; pill), IconButton, Input, Select, Textarea, Toggle (switch), Checkbox, SegmentedControl (used by language and theme), Card, StatTile, Tabs, Badge/Chip, ProgressBar, Table that collapses to stacked cards under 640, Dialog, Sheet, Toast (region with `aria-live`), Skeleton, EmptyState and ErrorState (mascot mood: `calm`, `thinking`, `oops`, with retry), TopBar, SideNav, BottomBar, MoreSheet, PageHeader (centered heading), Avatar/AccountMenu, BackgroundArt. Every control: minimum 44 px target, visible focus ring (`--c-focus`, 2 px plus 2 px offset), keyboard operable, name from locale keys. Mascot moods are small SVG or WebP assets (<=20 KB each), produced under the same provenance rules as section 7.
+Button (primary, secondary, ghost, danger; pill), IconButton, Input, Select, Textarea, Toggle (switch), Checkbox, SegmentedControl (used by language and theme), Card, StatTile, Tabs, Badge/Chip, ProgressBar, Table that collapses to stacked cards under 640, Dialog, Sheet, Toast (region with `aria-live`), Skeleton, EmptyState and ErrorState (mascot mood: `calm`, `thinking`, `oops`, with retry), TopBar, SideNav, BottomBar, MoreSheet, PageHeader (centered heading), Avatar/AccountMenu, BackgroundArt. Every control: minimum 44 px target, visible focus ring (`--c-focus`, 2 px plus 2 px offset), keyboard operable, name from locale keys. Exactly three mascot moods exist: `calm`, `thinking`, `oops` (po decision), small SVG or WebP assets (<=20 KB each, a test fails over the limit), produced under the same provenance rules as section 7.
 
 ## 6. Theming mechanism
 
@@ -109,21 +136,22 @@ Button (primary, secondary, ghost, danger; pill), IconButton, Input, Select, Tex
 ## 7. Locale fix design
 
 - A single helper `getRequestLocale()` (cookie `mw_locale`, else `Accept-Language`, else `defaultLocale(UI_LANGUAGE)`) is used by layout, every page, `generateMetadata` and the client provider. Client components receive the locale from the provider and never read `process.env`. `UI_LANGUAGE` may be read in exactly one file; a test greps `apps/web` for other uses.
-- `manifest.ts` cannot see a cookie reliably (it is fetched by the browser without a user context decision), so it uses the default locale (`UI_LANGUAGE`) for `name`, `short_name`, `description`; `theme_color` and `background_color` come from the light tokens; icons: 192, 512 and a maskable 512 (navy background, mascot inside the safe zone), generated once and committed.
-- `/locale?lang=xx&next=/path` (route handler): `lang` must be `vi` or `en`, otherwise 400. The cookie is set, then 303 to the target. Target resolution: `next` if valid, else the `Referer` path if same-origin and valid, else `/`. A path is valid only when: it starts with a single `/`; it does not start with `//` or `/\`; it contains no `\`, no control characters, no scheme and no `@` in the first segment; after decoding (up to two passes) it still passes all checks (so `%2F%2Fhost`, `%5Chost`, `/%09/host` are rejected); length <= 512. The redirect `Location` is always the relative path, never an absolute URL built from the Host header. Table-driven test cases (each must resolve to `/` or the safe fallback): `//evil.com`, `/\evil.com`, `https://evil.com`, `javascript:alert(1)`, `%2F%2Fevil.com`, `/%2Fevil.com`, `/%5Cevil.com`, `///evil.com`, `/\t/evil.com`, `evil.com`, empty, 600-char path; valid: `/budget`, `/schedule/today?day=2026-11-28`, `/settings/models#keys`.
-- The segmented `VI | EN` control shows both languages with the active one highlighted and `aria-pressed`; its group name is in the current locale (`locale.switch.label`). Switching sets the cookie only (no profile write) by default; persisting to the user profile is out of scope and listed as an owner question.
+- `manifest.ts` cannot see a cookie reliably (it is fetched by the browser without a user context decision), so it uses the default locale (`UI_LANGUAGE`) for `name`, `short_name`, `description`. This is a deliberate deviation from the rule "every page, `generateMetadata` and `manifest.ts` take the request locale" (ADR 0014 point 3); a code comment in `manifest.ts` and a row in `docs/decisions.md` record it; `theme_color` and `background_color` come from the light tokens; icons: 192, 512 and a maskable 512 (navy background, mascot inside the safe zone), generated once and committed.
+- `/locale?lang=xx&next=/path` (route handler): `lang` must be `vi` or `en`, otherwise 400. The cookie is set, then 303 to the target. Target resolution: `next` if valid, else the `Referer` path if same-origin and valid, else `/`. A path is valid only when: it starts with a single `/`; it does not start with `//` or `/\`; it contains no `\`, no control characters, no scheme and no `@` in the first segment; after decoding (up to two passes) it still passes all checks (so `%2F%2Fhost`, `%5Chost`, `/%09/host` are rejected); length <= 512. The redirect `Location` is always the relative path, never an absolute URL built from the Host header. Table-driven test cases (each must resolve to `/` or the safe fallback): `//evil.com`, `/\evil.com`, `https://evil.com`, `javascript:alert(1)`, `%2F%2Fevil.com`, `/%2Fevil.com`, `/%5Cevil.com`, `///evil.com`, `/\t/evil.com`, `evil.com`, empty, 600-char path; `next` absent with a `Referer` from another origin (for example `https://evil.com/budget`) falls back to `/`, and a same-origin `Referer` path that fails the checks also falls back to `/`; valid: `/budget`, `/schedule/today?day=2026-11-28`, `/settings/models#keys`.
+- The segmented `VI | EN` control shows both languages with the active one highlighted and `aria-pressed`; its group name is in the current locale (`locale.switch.label`). Switching sets only the `mw_locale` cookie and never writes the profile (po decision, see `docs/decisions.md`).
 - Tests: a catalog parity test (same keys in `vi` and `en`, same placeholders); a test that no `en` value contains Vietnamese diacritics (an allowlist file `locales/identical-allowlist.json` names strings that may be identical across languages, such as "OK" or proper nouns); a grep test that no `.tsx` has a Vietnamese literal; the e2e (section 9) asserts `html[lang]` and the absence of catalog strings of the other language, honoring the allowlist.
 
 ## 8. Background art
 
 One-off, manual, local. The cut-out is produced once by a person or agent on a developer machine and the result is committed; the tool is not a repository dependency and is not run in CI.
 
-1. Source: `docs/image/deepseek_maid.jpg` (committed by the first PR that needs it; the owner provided it for this public repository). The original keeps its place; the filename contains the vendor name, so a copy is renamed to `whale-chan-source.jpg` in `docs/image/` in the same PR (git rename of the original is allowed because the owner file is new in git), and the UI never uses the word "deepseek". Check that the image has no visible watermark or logo; if one exists, crop or paint it out in the cut-out, and record that in provenance.
+1. Source: `docs/image/whale-chan-source.jpg`. The owner's file was named after the vendor and was never committed (it is untracked and excluded by a local rule); it was renamed on disk so the old name never enters git history. The first PR that needs it commits it under the new name only (the owner provided it for this public repository; the local exclude rule for `docs/image/` must be lifted first). Nothing in the repository, UI or assets uses the vendor name. `factory/prompts/milestones.md` still mentions the old file name; it is a local, uncommitted file and is not edited here, and the new name wins. Check that the image has no visible watermark or logo; if one exists, crop or paint it out in the cut-out, and record that in provenance.
 2. Cut-out tool: a local background-remover (for example `rembg` with the `isnet-anime` model, or GIMP and manual masks). The ADR for the actual PR records the exact tool name and version, the model and the commands in `docs/design/art-provenance.md`. Remove poster background, text, swatches.
-3. Export: `apps/web/public/art/whale-chan.webp` (and `.png` fallback), two sizes (about 1200 px and 600 px tall for phones), alpha preserved, metadata (EXIF, XMP, ICC extras) stripped (`exiftool -all=`), each file at most 150 KB (a test fails over the limit). Mascot mood illustrations follow the same rules.
+3. Export: `apps/web/public/art/whale-chan.webp` (and `.png` fallback), two sizes (about 1200 px and 600 px tall for phones), alpha preserved, metadata (EXIF, XMP, ICC extras) stripped (`exiftool -all=`), each file at most 150 KB (a test fails over the limit). Mascot mood illustrations follow the same rules, except that each is at most 20 KB.
 4. Use: `next.config` sets `images.unoptimized = true`; the art is a CSS `background-image` or plain `<img>` in one `BackgroundArt` component: `position: fixed; inset: 0; pointer-events: none; z-index: -1; aria-hidden="true"`; `image-set()` with the PNG fallback. No blur or filter on a full-viewport layer (GPU and memory cost). Dark mode uses a pre-tinted second asset (`whale-chan-dark.webp`, blue tint baked in, faint glow baked in) instead of a runtime filter; opacity about 0.12 light and 0.18 dark, tuned so the contrast test (section 2) passes with the art at maximum opacity.
 5. Placement: anchored bottom-right on desktop (height about 85 vh), smaller and fainter on phones (opacity 0.08, cropped to the lower right). No animation; a gentle fade-in only, disabled under `prefers-reduced-motion`.
-6. Provenance doc: `docs/design/art-provenance.md` lists each shipped asset, its source, tool and version, date, size.
+6. No model weights are committed: the cut-out model (for example the `rembg` `isnet-anime` file) stays in the developer's home cache and is never added to the repository or an image.
+7. Provenance doc: `docs/design/art-provenance.md` lists each shipped asset, its source, tool and version, date, size.
 
 ## 9. CSS approach and memory cost
 
@@ -134,23 +162,38 @@ Plain CSS variables plus CSS Modules. Rejected: Tailwind (build-time memory and 
 - Images pre-generated at build-free time (committed), so no `sharp` image optimization at runtime (`images.unoptimized`), which avoids the optimizer's memory spike.
 - Fonts: two weights, subset, about 60 KB total.
 - `backdrop-filter` only on the top bar and the bottom bar (small areas), never on the page.
-- The web container keeps its 256 MB limit and a 192 MB heap cap (`NODE_OPTIONS=--max-old-space-size=192` in its Dockerfile `CMD`); measured idle and under the e2e run RSS is recorded in the handoff. If the measurement exceeds the limit, the owner decides (see questions).
+- The web container keeps its 256 MB limit and a 192 MB heap cap (`NODE_OPTIONS=--max-old-space-size=192` in its Dockerfile `CMD`); measured idle and under-e2e-run RSS is recorded in the handoff. If the measurement exceeds the limit, features give way first (drop art layers, defer client controls); raising the limit needs an ADR (po decision, see `docs/decisions.md`).
 - Builders run `pnpm --filter @my-wife/web test|typecheck|lint` only.
 
 ## 10. End-to-end plan
 
 - A serial tail: the all-screens test, the locale test and the screenshot run share one fixture and run after builders finish. Playwright: Chromium only, headless, `workers: 1`, against `next build` plus `next start`, CPU delegate. One run at a time, started by `qa` or the lead.
-- All-screens test: sign in through `/demo-login`, visit every route in the navigation table, fail on any 4xx/5xx API response, any `role="alert"` error, any console error, and any horizontal scroll at 360 px.
+- All-screens test: sign in through `/demo-login`, visit every route in the navigation table above, including `/penalties`, `/debts`, `/monitor` and `/cycle-close` (and `/receipts/[id]`, `/onboarding` with fixture ids), fail on any 4xx/5xx API response, any `role="alert"` error, any console error, and any horizontal scroll at 360 px.
 - Locale test: switch to English, visit every navigation screen, assert `html[lang="en"]` and no Vietnamese catalog string in visible text; repeat for Vietnamese (with the allowlist).
 - Screenshot matrix: dashboard, budget, schedule today, routines, inbox, settings; phone (360x780) and desktop (1440x900); light and dark; vi and en: 6 x 2 x 2 x 2 = 48 PNGs, written to `factory/handoff/M5-screens/<screen>-<viewport>-<theme>-<lang>.png`, never committed (`factory` is outside git).
 - Unit tests: contrast, locale redirect table, catalog parity, art size limit, token usage.
+
+### Failing gateway paths (first backend issue starts here)
+
+Each row is reproduced by a test (or the probe script) before it is fixed. "Likely missing piece" is the hypothesis to verify, not a verdict.
+
+| Path | Upstream service | Likely missing piece | Test |
+|---|---|---|---|
+| `/api/budget/overview` | budget | demo seed (no cycle after `demo:reset`) or a budget route; confirm which | gateway forwards to budget; budget returns an overview for the seeded demo user |
+| `/api/budget/funding` | budget | demo seed (no funding state) or a budget route | same, funding response parses with its schema |
+| `/api/weeks/current` | schedule | demo seed (no current week) or the gateway prefix `/weeks` | gateway prefix test; schedule returns the seeded week |
+| `/api/notify/inbox` | notify | gateway upstream `NOTIFY_URL` missing and service route `GET /inbox` missing | gateway prefix test; notify route test with the shared fixture |
+| `/api/faults` | rules | gateway prefix and service route `GET /faults` missing | gateway prefix test; rules route test with the shared fixture |
+| `/api/keys` | ai | gateway upstream `AI_URL` missing (falls through to identity, 404) | gateway prefix test; ai `GET /keys` test with the shared fixture |
+
+Also tracked: GitHub issue #273 ("Persist demo cycle, schedule, routines and channel links in demo:reset", closed) was the earlier fix for lost demo state. The probe re-checks it; if state is still lost after `demo:reset` or a restart, a new M5 issue is opened rather than patching silently.
 
 ## 11. Audit responses
 
 | # | Finding | Response |
 |---|---|---|
 | 1 | Gateway 404s are mixed in cause | Accepted. The first backend issue is "demo persistence and API probe": a script logs in via `/demo-login`, calls every API path the web uses and records status per path into the issue; each 404 is classified as (a) missing gateway upstream (`ai`, `notify`, `ingest`, `monitor`), (b) missing service route (rules `GET /faults`, notify `GET /inbox`), (c) missing demo data or in-memory state lost. Gateway gets per-prefix tests; new env (`NOTIFY_URL`, `AI_URL`, `INGEST_URL`, `MONITOR_URL`) is recorded in `docs/decisions.md`. Fix order: persistence and probe, upstreams, service routes, web. |
-| 2 | New read routes lack contract schemas | ADR 0014 point 6: local zod in web with a shared fixture; follow-up ADR moves them to contracts. Contracts untouched here. |
+| 2 | New read routes lack contract schemas | ADR 0014 point 6: local zod in web with a shared fixture; the follow-up contracts ADR is tracked as a GitHub issue in the M5 backlog. Contracts untouched here. |
 | 3 | Where the freeze really is | Section 6: layout `metadata` becomes `generateMetadata`; `manifest.ts` uses the default locale by design; `page.tsx` takes the request locale. `force-dynamic` stays. |
 | 4 | Theme cookie attributes | Section 6: not HttpOnly (client writes), `SameSite=Lax`, one year; `system` by CSS media query. |
 | 5 | `/locale` open redirect | Section 7: single-slash relative paths only, decoded checks, `Referer` fallback, cookie-only switch, table-driven test. |
@@ -164,12 +207,8 @@ Plain CSS variables plus CSS Modules. Rejected: Tailwind (build-time memory and 
 | 13 | 19 nav items, admin, More sheet | Section 4. |
 | 14 | Manifest colors and icons | Section 7. |
 | 15 | Fonts local | Section 3. |
-| 16 | Gate before backlog | ADR 0014 point 8; the questions below must be answered first. |
+| 16 | Gate before backlog | Removed: the po decided all five questions (section 12). |
 
-## 12. Questions for the owner (block the backlog)
+## 12. Open questions
 
-1. Is a cookie-only language switch acceptable, or should it also save to the user profile?
-2. Display serif for page titles: skip in v1 (this plan) or add one (about 30 KB more)?
-3. Should the mascot mood set be limited to three moods (`calm`, `thinking`, `oops`) for v1?
-4. If the web container exceeds 256 MB under the e2e run, raise its limit or cut features?
-5. Confirm renaming the committed copy of the poster away from the `deepseek` filename.
+None. The five owner questions were decided by the po; see the rows dated 2026-11-28 in `docs/decisions.md` ("M5 plan: ...").
