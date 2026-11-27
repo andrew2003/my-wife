@@ -441,14 +441,12 @@ export type LabelledMail =
       memo: string;
     };
 
-const stampWithSeconds = (d: Date) => `${localStamp(d)}:${pad(d.getUTCSeconds())}`;
-
 /** The body of a labelled mail as plain text (one "Label: value" per line). */
 export function labelledMailBody(m: LabelledMail): string {
   const common = (account: string, ref: string, at: Date): Array<[string, string]> => [
     ["Account", `****${account}`],
     ["Ref", ref],
-    ["Time", stampWithSeconds(at)],
+    ["Time", localStamp(at)],
   ];
   let rows: Array<[string, string]>;
   if (m.kind === "debit" || m.kind === "credit") {

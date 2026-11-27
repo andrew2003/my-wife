@@ -94,7 +94,7 @@ it("money: funding, coded spend, unknown spend, card payment, overspend, suspend
       const record = await world.record();
       const signed = await world.signContract(record.cycle.id);
       expect(signed.statusCode).toBe(200);
-      const contractId = signed.json().data.contract.id as string;
+      const contractId = (await signed.json()).data.contract.id;
       expect(world.types()).toContain("trial.started");
       const trial = world.trialStore.find(MONEY_USER)!;
       expect(Date.parse(trial.endsAt) - Date.parse(trial.startedAt)).toBe(7 * DAY_MS);

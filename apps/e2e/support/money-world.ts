@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
-import type { AddressInfo } from "node:net";
-import { createApp as createBudget, MemorySampleBudgetStore } from "@my-wife/budget";
+import { MemorySampleBudgetStore } from "@my-wife/budget";
 import { loadConfig } from "@my-wife/config";
 import type { EventEnvelope } from "@my-wife/contracts";
-import { createApp as createIngest } from "@my-wife/ingest";
 import {
-  createApp as createRules,
-  InMemoryPenaltyStore,
-  InMemoryTrialStore,
-  type TrialSettings,
-} from "@my-wife/rules";
+  BASIC_BANK_TEMPLATE,
+  FOREIGN_CARD_TEMPLATE,
+  MemoryIngestStore,
+  createMailauthVerifier,
+  fingerprintOfMail,
+  type RegisteredTemplate,
+} from "@my-wife/ingest";
+import { InMemoryPenaltyStore, InMemoryTrialStore, type TrialSettings } from "@my-wife/rules";
 import {
   BANK_DKIM_DOMAIN,
   BANK_SENDER,
@@ -17,25 +18,17 @@ import {
   createDkimKey,
   dkimDnsResolver,
   injectEmails,
-  labelledMailBody,
-  labelledMailSubject,
   SimClock,
   type LabelledMail,
 } from "@my-wife/test-kit";
-import {
-  BASIC_BANK_TEMPLATE,
-  FOREIGN_CARD_TEMPLATE,
-  MemoryIngestStore,
-  createMailauthVerifier,
-  fingerprintTemplate,
-} from "./ingest-internals";
+// The dev runner exports no package entry point; the scenario mounts it from its sources.
+import { mountTrialJob, startAll } from "../../dev-runner/src/runner";
 
 export const MONEY_USER = "0190a0a0-0000-7000-8000-0000000000f1";
 export const INGEST_SECRET = "e2e-ingest-secret-e2e-ingest-secret";
-const TO_ADDRESS = "u-money@in.example.test";
+const TOKEN = "money";
+const TO_ADDRESS = `u-${TOKEN}@in.example.test`;
 const HOUR_MS = 3_600_000;
-
-type Handler = (event: EventEnvelope) => Promise<void>;
 
 /** What a mail is expected to do, as the unknown-spend flow needs its facts from ingest (#233). */
 export type UnknownFacts = {
@@ -47,9 +40,11 @@ export type UnknownFacts = {
 };
 
 /**
- * The services of the money flow (budget, ingest, rules) in one process, joined by an in-process
- * bus that routes events the way the NATS consumers do. Time comes from one `SimClock`.
- * Chat is emulated: the answer to a question is published as `notify.reply_received`.
+ * The ten services of the money flow in one process through the dev runner: signed bank mails
+ * enter the real ingest webhook and the runner routes every event to its consumers. Time comes
+ * from one `SimClock`. Chat is emulated: the answer to a question is published as
+ * `notify.reply_received`. Stubs remain only where product code is missing: `readReceipt`
+ * (#233) and the budget overview and penalties read routes (#247).
  */
 export async function startMoneyWorld(opts: { start: string; trial: TrialSettings }) {
   const config = loadConfig({ SESSION_SECRET: "x".repeat(32), LOG_LEVEL: "silent" });
@@ -63,37 +58,11 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
   const penaltyStore = new InMemoryPenaltyStore();
   const trialStore = new InMemoryTrialStore();
 
-  const publish = async (event: EventEnvelope): Promise<void> => {
-    events.push(event);
-    await route(event);
-  };
-
-  const budget = await createBudget(config, {
-    store: budgetStore,
-    now,
-    publish,
-    readReceipt: async (_userId, _receiptId) =>
-      pendingUnknown ? { ...pendingUnknown, direction: "out", counterparty: null } : undefined,
-  });
-  const rules = await createRules(config, {
-    now,
-    publish,
-    penaltyStore,
-    trialStore,
-    readTrialSettings: async () => opts.trial,
-  });
-
-  // Fingerprints of the layouts the user's bank mails use, taken from sample mails.
-  const sample = (m: LabelledMail) =>
-    fingerprintTemplate({
-      sender: BANK_SENDER,
-      subject: labelledMailSubject(m.kind),
-      body: labelledMailBody(m),
-    });
+  // Register the layouts of the user's bank mails, fingerprinted from sample mails.
   const at = new Date(opts.start);
-  const registered = [
-    {
-      m: {
+  const layouts: [LabelledMail, typeof BASIC_BANK_TEMPLATE][] = [
+    [
+      {
         kind: "debit",
         id: "s1",
         amountVnd: 1,
@@ -102,10 +71,10 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
         accountTail: "1",
         memo: "AN",
       },
-      t: BASIC_BANK_TEMPLATE,
-    },
-    {
-      m: {
+      BASIC_BANK_TEMPLATE,
+    ],
+    [
+      {
         kind: "credit",
         id: "s2",
         amountVnd: 1,
@@ -114,10 +83,10 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
         accountTail: "1",
         memo: "x",
       },
-      t: BASIC_BANK_TEMPLATE,
-    },
-    {
-      m: {
+      BASIC_BANK_TEMPLATE,
+    ],
+    [
+      {
         kind: "card_authorization",
         id: "s3",
         foreignAmount: "9.99 USD",
@@ -127,10 +96,10 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
         authCode: "A1",
         merchant: "M",
       },
-      t: FOREIGN_CARD_TEMPLATE,
-    },
-    {
-      m: {
+      FOREIGN_CARD_TEMPLATE,
+    ],
+    [
+      {
         kind: "card_debit",
         id: "s4",
         amountVnd: 1,
@@ -142,52 +111,61 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
         merchant: "M",
         memo: "AN",
       },
-      t: FOREIGN_CARD_TEMPLATE,
-    },
-  ] satisfies { m: LabelledMail; t: typeof BASIC_BANK_TEMPLATE }[];
+      FOREIGN_CARD_TEMPLATE,
+    ],
+  ];
+  const templates: RegisteredTemplate[] = [];
+  for (const [m, parser] of layouts) {
+    const sample = await buildLabelledEmail(m, { bankKey, toAddress: TO_ADDRESS });
+    templates.push({
+      ...parser,
+      senderKey: "bank",
+      fingerprint: await fingerprintOfMail(Buffer.from(sample.raw)),
+    });
+  }
 
-  const ingest = await createIngest(config, {
+  const runner = await startAll(config, {
+    ephemeralPorts: true,
+    onEvent: (e) => void events.push(e),
+    budget: {
+      store: budgetStore,
+      now,
+      // Until #233 the unknown-spend flow cannot read the receipt itself.
+      readReceipt: async () =>
+        pendingUnknown ? { ...pendingUnknown, direction: "out", counterparty: null } : undefined,
+    },
+    rules: {
+      now,
+      penaltyStore,
+      trialStore,
+      readTrialSettings: async () => opts.trial,
+      // The penalty account lives in budget; resolve it from the budget store.
+      isPenaltySavingsAccount: async (userId, hint) => {
+        const record = await budgetStore.find(userId);
+        const account = record?.accounts.find(
+          (a) => a.code?.toUpperCase() === hint.trim().toUpperCase(),
+        );
+        return account?.kind === "penalty_savings";
+      },
+    },
     ingest: {
       secret: INGEST_SECRET,
       store: new MemoryIngestStore(),
       verifyDkim: createMailauthVerifier(
         dkimDnsResolver([{ domain: BANK_DKIM_DOMAIN, selector: bankKey.selector, key: bankKey }]),
       ),
-      users: { resolve: async () => ({ userId: MONEY_USER, emailConsent: true }) },
+      users: {
+        resolve: async (token) =>
+          token === TOKEN ? { userId: MONEY_USER, emailConsent: true } : null,
+      },
       senderMap: [{ senderKey: "bank", senderAddress: BANK_SENDER, dkimDomain: BANK_DKIM_DOMAIN }],
-      templates: registered.map(({ m, t }) => ({
-        ...t,
-        senderKey: "bank",
-        fingerprint: sample(m),
-      })),
-      publish,
+      templates,
       settings: { maxEmailBytes: 1_048_576, holdMatchWindowHours: 72 },
       now,
     },
   });
-  await ingest.listen({ host: "127.0.0.1", port: 0 });
-  const ingestUrl = `http://127.0.0.1:${(ingest.server.address() as AddressInfo).port}/webhook/inbound-email`;
-
-  const post = (url: string, payload: unknown) =>
-    rules.inject({ method: "POST", url, payload: payload as object });
-  const rulesEvent =
-    (path: string): Handler =>
-    async (event) => {
-      const res = await post(path, event);
-      if (res.statusCode !== 200) throw new Error(`rules ${path} answered ${res.statusCode}`);
-    };
-  const handlers: Partial<Record<EventEnvelope["type"], Handler[]>> = {
-    "onboarding.step_completed": [budget.onOnboardingStepCompleted],
-    "contract.signed": [budget.onContractSigned, rulesEvent("/events/contract-signed")],
-    "receipt.parsed": [budget.onReceiptParsed, rulesEvent("/events/receipt-parsed")],
-    "receipt.unknown": [budget.onReceiptUnknown],
-    "notify.reply_received": [budget.onReplyReceived],
-    "week.closed": [budget.onWeekClosed],
-    "overspend.detected": [rulesEvent("/events/overspend-detected")],
-  };
-  async function route(event: EventEnvelope): Promise<void> {
-    for (const handler of handlers[event.type] ?? []) await handler(event);
-  }
+  const ingestUrl = `${runner.urls.ingest}/webhook/inbound-email`;
+  mountTrialJob(runner, clock, HOUR_MS);
 
   const envelope = (type: EventEnvelope["type"], payload: unknown): EventEnvelope =>
     ({
@@ -199,7 +177,13 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
       payload,
     }) as EventEnvelope;
 
-  clock.scheduleEvery(HOUR_MS, () => rules.runTrialJob!(clock.now()));
+  /** Posts as the gateway does: the verified user id arrives in a header. */
+  const postJson = (url: string, payload: unknown) =>
+    fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": MONEY_USER },
+      body: JSON.stringify(payload),
+    });
 
   return {
     clock,
@@ -213,7 +197,8 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
     /** The budget record of the user. */
     record: async () => (await budgetStore.find(MONEY_USER))!,
     /** Publishes an event as the owning service would. */
-    emit: (type: EventEnvelope["type"], payload: unknown) => publish(envelope(type, payload)),
+    emit: (type: EventEnvelope["type"], payload: unknown) =>
+      runner.publish(envelope(type, payload)),
     /** Facts the unknown-spend flow reads for the next unknown mail (see #233). */
     expectUnknown: (facts: UnknownFacts) => {
       pendingUnknown = facts;
@@ -224,24 +209,18 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
       const [result] = await injectEmails([fixture], { url: ingestUrl, secret: INGEST_SECRET });
       return result!;
     },
-    /** Rules and budget routes the gateway forwards with the verified user id. */
-    signContract: (cycleId: string) =>
-      rules.inject({
-        method: "POST",
-        url: "/contracts/sign",
-        headers: { "x-user-id": MONEY_USER },
-        payload: { cycleId },
-      }),
-    approveCycle: (cycleId: string, commitmentId: string) =>
-      budget.inject({
-        method: "POST",
-        url: "/cycles/approve",
-        headers: { "x-user-id": MONEY_USER },
-        payload: { cycleId, commitmentId },
-      }),
-    stop: async () => {
-      await Promise.all([budget.close(), rules.close(), ingest.close()]);
+    signContract: async (cycleId: string) => {
+      const res = await postJson(`${runner.urls.rules}/contracts/sign`, { cycleId });
+      return {
+        statusCode: res.status,
+        json: () => res.json() as Promise<{ data: { contract: { id: string } } }>,
+      };
     },
+    approveCycle: async (cycleId: string, commitmentId: string) => {
+      const res = await postJson(`${runner.urls.budget}/cycles/approve`, { cycleId, commitmentId });
+      return { statusCode: res.status };
+    },
+    stop: () => runner.stop(),
   };
 }
 
