@@ -151,3 +151,94 @@ describe("account deletion", () => {
     expect((await del(c)).body).not.toContain(SECRET);
   });
 });
+
+describe("account deletion failure modes", () => {
+  const user = {
+    id: "ua",
+    email: "ua@example.com",
+    state: "active" as const,
+    role: "user" as const,
+    locale: "vi" as const,
+    lastSeenAt: null,
+    activatedEventAt: null,
+  };
+  const config = () => loadConfig({ SESSION_SECRET: "s".repeat(32), SECRETS_MASTER_KEY: KEY });
+
+  it("fails closed when no penalty port is configured", async () => {
+    const store = createMemoryStore();
+    await store.insertUser(user);
+    const events: EventEnvelope[] = [];
+    const app = createApp(config(), { store, publish: (e) => void events.push(e) });
+    await app.inject({
+      method: "PUT",
+      url: "/secrets/llm_key",
+      headers: A,
+      payload: { value: SECRET },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/account/deletion",
+      headers: A,
+      payload: { confirmation: "ua@example.com" },
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().error.code).toBe("identity.penalties_unavailable");
+    expect((await store.findUserById("ua"))?.state).toBe("active");
+    expect(await store.listSecrets("ua")).toHaveLength(1);
+    expect(events).toEqual([]);
+  });
+
+  it("the closing job skips accounts while no penalty port is configured", async () => {
+    const store = createMemoryStore();
+    await store.insertUser({ ...user, state: "closing" });
+    const app = createApp(config(), { store });
+    const res = await app.inject({ method: "POST", url: "/jobs/closing" });
+    expect(res.json().data).toEqual({ closed: 0 });
+    expect((await store.findUserById("ua"))?.state).toBe("closing");
+  });
+
+  it("a repeat after a half-failed request finishes the deletion", async () => {
+    const store = createMemoryStore();
+    await store.insertUser(user);
+    const realErase = store.eraseUserData.bind(store);
+    let failOnce = true;
+    store.eraseUserData = async (id, email) => {
+      if (failOnce) {
+        failOnce = false;
+        throw new Error("db down");
+      }
+      return realErase(id, email);
+    };
+    const events: EventEnvelope[] = [];
+    const app = createApp(config(), {
+      store,
+      publish: (e) => void events.push(e),
+      penalties: { listOpen: async () => [] },
+    });
+    await app.inject({
+      method: "PUT",
+      url: "/secrets/llm_key",
+      headers: A,
+      payload: { value: SECRET },
+    });
+    const body = { confirmation: "ua@example.com" };
+    const first = await app.inject({
+      method: "POST",
+      url: "/account/deletion",
+      headers: A,
+      payload: body,
+    });
+    expect(first.statusCode).toBe(500);
+    expect((await store.findUserById("ua"))?.state).toBe("closing");
+    const again = await app.inject({
+      method: "POST",
+      url: "/account/deletion",
+      headers: A,
+      payload: body,
+    });
+    expect(again.json().data).toEqual({ state: "closed", exportOffered: true });
+    expect(await store.listSecrets("ua")).toEqual([]);
+    expect((await store.findUserById("ua"))?.email).not.toContain("example.com");
+    expect(events.map((e) => e.type)).toEqual(["user.closing", "user.closed"]);
+  });
+});

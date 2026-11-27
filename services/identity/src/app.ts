@@ -660,7 +660,9 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
 
   /** Penalty state comes through a port (rules owns it); a failure means "unknown", never "none". */
   async function openPenalties(userId: string) {
-    return deps.penalties ? await deps.penalties.listOpen(userId) : [];
+    // Fail closed: without a port the ledger is unknown, so nothing may be erased or closed.
+    if (!deps.penalties) throw new Error("penalty port is not configured");
+    return deps.penalties.listOpen(userId);
   }
 
   /** Marks an already anonymised account closed and announces it. */
@@ -678,9 +680,16 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     if (!userId) return fail(reply, 401, "identity.unauthenticated");
     const user = await store.findUserById(userId);
     if (!user) return fail(reply, 404, "identity.user_not_found");
-    if (user.state !== "active") return fail(reply, 409, "identity.deletion_not_allowed");
+    // A request that failed half-way leaves the account `closing`; the repeat finishes the work
+    // (already confirmed, and the email may be anonymised by now). Erasing is idempotent.
+    const resume = user.state === "closing";
+    if (user.state !== "active" && !resume)
+      return fail(reply, 409, "identity.deletion_not_allowed");
     const typed = (req.body as { confirmation?: unknown } | undefined)?.confirmation;
-    if (typeof typed !== "string" || typed.trim().toLowerCase() !== user.email.toLowerCase())
+    if (
+      !resume &&
+      (typeof typed !== "string" || typed.trim().toLowerCase() !== user.email.toLowerCase())
+    )
       return fail(reply, 400, "identity.deletion_not_confirmed");
     let open;
     try {
@@ -693,7 +702,7 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       return fail(reply, 503, "identity.penalties_unavailable");
     }
     const closing = { ...user, state: "closing" as const };
-    await store.saveUser(closing);
+    if (!resume) await store.saveUser(closing);
     await store.eraseUserData(userId, anonymisedEmail(userId));
     await consents.deleteAll(userId);
     await exportStore.deleteByUser(userId);
