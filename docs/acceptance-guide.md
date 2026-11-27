@@ -194,6 +194,13 @@ Automated: `apps/e2e/tests/routines.spec.ts`. Steps and expected results:
 7. Telegram: a photo two minutes later is confirmed with the lateness.
 8. A graded day stays closed and adds no fault and no urgent message.
 
+Extended: `apps/e2e/tests/routines-extended.spec.ts` covers levels (a meal at `off` never appears,
+`remind` only sends a message, raising wake to `commit` is immediate, lowering waits for next
+week), the late-night label (one reminder, no fault), quiet hours (the reminder is held back, the
+wake challenge still arrives, a normal reminder passes at 06:30), an unclear photo (another photo
+is requested, nothing recorded) and a late wake (14 minutes is recorded, 16 minutes with a
+15 minute grace emits `routine.late_detected`).
+
 Manual, in the web app (screens: `/routines`, `/routines/sleep`):
 
 1. Open `/routines`. Expect: "Routine levels".
