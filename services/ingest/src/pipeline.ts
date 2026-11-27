@@ -205,7 +205,12 @@ export async function processInbound(
       templateFingerprint: fingerprint,
       sender: entry?.senderKey ?? from,
     });
-    return finish({ ...authed, state: "needs_confirmation", fingerprint });
+    return finish({
+      ...authed,
+      state: "needs_confirmation",
+      fingerprint,
+      mail: { subject, body },
+    });
   }
 
   // 4. Parse and verify: evidence must appear verbatim in the email.
