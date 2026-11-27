@@ -1,6 +1,13 @@
-import type { EventEnvelope, TransactionType } from "@my-wife/contracts";
+import {
+  SETTINGS,
+  type EventEnvelope,
+  type ReconciliationResult,
+  type SettingKey,
+  type TransactionType,
+} from "@my-wife/contracts";
 import type { SampleBudgetRecord, SampleBudgetStore } from "./onboarding";
-import { normalizeMemo } from "./transfer-codes";
+import { reconcilePlannedTransfer, type ToleranceSettings } from "./reconciliation";
+import { matchTransferCode, normalizeMemo } from "./transfer-codes";
 
 /** A transaction booked by `budget` (spec 10 section 5). Integer VND only. */
 export interface TransactionRecord {
@@ -15,8 +22,10 @@ export interface TransactionRecord {
   memo: string;
   counterparty: string | null;
   transactionType: TransactionType;
-  reconciliationResult: "unplanned" | "unknown";
+  reconciliationResult: ReconciliationResult;
   categoryId: string;
+  /** Set when the receipt carried the code of a planned item. */
+  plannedItemId?: string;
   /** False until `txn.recorded` was published, so a failed publish is retried. */
   announced: boolean;
 }
@@ -93,6 +102,25 @@ export interface TransactionDeps {
   now: () => Date;
   newId: () => string;
   publish: (event: EventEnvelope) => void | Promise<void>;
+  readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
+}
+
+/** Tolerance from the user's settings; an invalid or missing value falls back to the default. */
+export function toleranceFromSettings(
+  settings: Partial<Record<SettingKey, unknown>>,
+): ToleranceSettings {
+  const percent = settings["budget.tolerance_percent"];
+  const minVnd = settings["budget.tolerance_min_vnd"];
+  return {
+    percent:
+      typeof percent === "number" && Number.isFinite(percent) && percent >= 0 && percent <= 100
+        ? percent
+        : SETTINGS["budget.tolerance_percent"].default,
+    minVnd:
+      typeof minVnd === "number" && Number.isSafeInteger(minVnd) && minVnd >= 0
+        ? minVnd
+        : SETTINGS["budget.tolerance_min_vnd"].default,
+  };
 }
 
 /**
@@ -124,6 +152,42 @@ export function createTransactionHandler(deps: TransactionDeps) {
     await deps.store.markTransactionAnnounced(userId, txn.id);
   };
 
+  /**
+   * A receipt whose memo holds the code of a not yet matched planned item is reconciled with the
+   * tolerance settings. The paying account must resolve from the hint, otherwise undefined.
+   */
+  async function matchPlannedItem(
+    userId: string,
+    record: SampleBudgetRecord,
+    receipt: CodedTransferReceipt,
+  ) {
+    if (receipt.direction !== "out" || receipt.amountVnd <= 0) return undefined;
+    const open = record.plannedItems.filter((i) => i.status !== "matched");
+    const code = matchTransferCode(
+      receipt.memo,
+      open.map((i) => i.transferCode),
+    );
+    const item = open.find((i) => i.transferCode === code);
+    const category = item && record.categories.find((c) => c.id === item.categoryId);
+    const hint = receipt.bankAccountHint.trim().toUpperCase();
+    const account = record.accounts.find((a) => a.code.toUpperCase() === hint);
+    if (!item || !category || !account) return undefined;
+    const settings = (await deps.readSettings?.(userId)) ?? {};
+    return {
+      transactionType: "planned_transfer" as const,
+      reconciliationResult: reconcilePlannedTransfer({
+        plannedVnd: item.amountVnd,
+        amountVnd: receipt.amountVnd,
+        tolerance: toleranceFromSettings(settings),
+        payingAccountId: account.id,
+        categoryAccountId: category.bankAccountId,
+      }),
+      categoryId: category.id,
+      bankAccountId: account.id,
+      plannedItemId: item.id,
+    };
+  }
+
   return async function onTransactionReceipt(event: EventEnvelope): Promise<void> {
     if (event.type !== "receipt.parsed") return;
     const { payload } = event as EventEnvelope<"receipt.parsed">;
@@ -138,7 +202,9 @@ export function createTransactionHandler(deps: TransactionDeps) {
       return;
     }
 
-    const found = classifyCodedTransfer(payload, record.categories, record.accounts);
+    const found =
+      (await matchPlannedItem(event.userId, record, payload)) ??
+      classifyCodedTransfer(payload, record.categories, record.accounts);
     if (!found) return;
 
     const txn: TransactionRecord = {
@@ -155,6 +221,7 @@ export function createTransactionHandler(deps: TransactionDeps) {
       transactionType: found.transactionType,
       reconciliationResult: found.reconciliationResult,
       categoryId: found.categoryId,
+      ...("plannedItemId" in found ? { plannedItemId: found.plannedItemId } : {}),
       announced: false,
     };
     const result = await deps.store.recordTransaction(

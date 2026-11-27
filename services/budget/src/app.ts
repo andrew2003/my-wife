@@ -59,6 +59,7 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     now,
     newId: randomUUID,
     publish: deps.publish ?? (() => undefined),
+    readSettings: deps.readSettings,
   });
   app.decorate("onReceiptParsed", async (event: EventEnvelope) => {
     await confirmAccount(event);

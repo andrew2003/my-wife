@@ -5,6 +5,7 @@ import {
   type BudgetCycle,
   type EventEnvelope,
   type Locale,
+  type PlannedItem,
   type SettingKey,
 } from "@my-wife/contracts";
 import { t } from "./i18n";
@@ -65,6 +66,8 @@ export interface SampleBudgetRecord {
   penaltyDebts: PenaltyDebt[];
   /** Unknown spend waiting for a category, or resolved by the user's answer (MW-025). */
   anomalies: AnomalyRecord[];
+  /** Planned items of the weekly plan with their issued transfer codes (#304). */
+  plannedItems: PlannedItem[];
 }
 
 export interface FundingRecord {
@@ -342,6 +345,10 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
       return "duplicate" as const;
     }
     r.transactions.push({ ...txn });
+    const item = txn.plannedItemId
+      ? r.plannedItems.find((i) => i.id === txn.plannedItemId)
+      : undefined;
+    if (item) item.status = txn.reconciliationResult === "matched" ? "matched" : "mismatch";
     r.audit.push({
       at: at.toISOString(),
       userId,
@@ -353,6 +360,8 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
         bankTransactionRef: txn.bankTransactionRef,
         categoryId: txn.categoryId,
         amountVnd: txn.amountVnd,
+        reconciliationResult: txn.reconciliationResult,
+        ...(txn.plannedItemId ? { plannedItemId: txn.plannedItemId } : {}),
       },
     });
     return "recorded" as const;
@@ -648,6 +657,7 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       limitAdjustments: [],
       penaltyDebts: [],
       anomalies: [],
+      plannedItems: [],
       transactions: [],
     };
   }
