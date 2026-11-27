@@ -52,7 +52,12 @@ export type PipelineDeps = {
   forwardingSenders?: ForwardingSender[];
 };
 
-export type InboundMail = { toAddress: string; raw: Buffer };
+export type InboundMail = {
+  toAddress: string;
+  raw: Buffer;
+  /** Size the sender declared; only an optimisation, the decoded size is still checked. */
+  declaredSizeBytes?: number;
+};
 
 export type InboundOutcome =
   { state: "unknown_address" } | { state: ReceiptState; receiptId: string; reason?: string };
@@ -111,7 +116,7 @@ export async function processInbound(
   // Rejected before anything is read or stored.
   const early = !user.emailConsent
     ? "no_consent"
-    : mail.raw.length > deps.settings.maxEmailBytes
+    : Math.max(mail.raw.length, mail.declaredSizeBytes ?? 0) > deps.settings.maxEmailBytes
       ? "too_large"
       : null;
   if (early) {

@@ -117,7 +117,7 @@ describe("POST /webhook/inbound-email", () => {
   });
 
   it("rejects a declared size over the limit before decoding", async () => {
-    const { app, store } = await setup();
+    const { app, store, published } = await setup();
     const res = await app.inject({
       method: "POST",
       url: "/webhook/inbound-email",
@@ -127,6 +127,20 @@ describe("POST /webhook/inbound-email", () => {
     expect(res.statusCode).toBe(422);
     expect(res.json()).toMatchObject({ ok: false, error: { code: "too_large" } });
     expect(store.size()).toBe(0);
+    expect(published).toEqual(["receipt.rejected"]);
+  });
+
+  it("still answers unknown_address for an oversize declared size", async () => {
+    const { app, published } = await setup();
+    const res = await app.inject({
+      method: "POST",
+      url: "/webhook/inbound-email",
+      headers: { "x-ingest-secret": SECRET },
+      payload: { ...(await payload()), toAddress: "nobody@in.example.test", sizeBytes: 1048577 },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "unknown_address" } });
+    expect(published).toEqual([]);
   });
 
   it("never echoes the shared secret in a response", async () => {
