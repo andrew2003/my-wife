@@ -140,6 +140,14 @@ function nextWeekStart(now: Date, timeZone: string, weekStartDay: Weekday): Date
   return new Date(localMidnightAsUtc - offsetMs(guess, timeZone));
 }
 
+/** Local midnight (in `timeZone`) of the calendar day `isoDate` plus `addDays`, as an instant. */
+export function localMidnight(isoDate: string, timeZone: string, addDays = 0): Date {
+  const [y, m, d] = isoDate.split("-").map(Number) as [number, number, number];
+  const asUtc = Date.UTC(y, m - 1, d + addDays);
+  const guess = new Date(asUtc - offsetMs(new Date(asUtc), timeZone));
+  return new Date(asUtc - offsetMs(guess, timeZone));
+}
+
 export type EffectiveFromInput = {
   direction: RuleChangeDirection;
   /** From `loosening.effective_from`. */
@@ -148,11 +156,19 @@ export type EffectiveFromInput = {
   weekStartDay: Weekday;
   /** Start of the next cycle; used when scope is `next_cycle`. */
   nextCycleStartsAt?: string;
+  /** While a cycle is locked, loosening cannot take effect before this instant. */
+  looseningLockedUntil?: string;
 };
 
 /** Tightening is effective at `now`; loosening waits for the next week (or cycle) start. */
 export function computeEffectiveFrom(input: EffectiveFromInput, now: Date): Date {
   if (input.direction === "tightening") return now;
+  const base = looseningStart(input, now);
+  const lock = input.looseningLockedUntil ? new Date(input.looseningLockedUntil) : undefined;
+  return lock && lock.getTime() > base.getTime() ? lock : base;
+}
+
+function looseningStart(input: EffectiveFromInput, now: Date): Date {
   if (input.scope === "next_cycle" && input.nextCycleStartsAt) {
     const cycle = new Date(input.nextCycleStartsAt);
     if (cycle.getTime() > now.getTime()) return cycle;
@@ -193,6 +209,8 @@ export type RuleChangeServiceDeps = {
   readSettings: (userId: string) => Record<string, unknown>;
   newId?: () => string;
   nextCycleStartsAt?: (userId: string, now: Date) => string | undefined;
+  /** Instant until which loosening is locked (the next cycle start), if a cycle is open. */
+  looseningLockedUntil?: (userId: string, now: Date) => string | undefined;
 };
 
 function setting<K extends SettingKey>(values: Record<string, unknown>, key: K) {
@@ -214,6 +232,7 @@ export function createRuleChangeService(deps: RuleChangeServiceDeps) {
           timeZone: setting(values, "calendar.time_zone"),
           weekStartDay: setting(values, "calendar.week_start_day"),
           nextCycleStartsAt: deps.nextCycleStartsAt?.(userId, now),
+          looseningLockedUntil: deps.looseningLockedUntil?.(userId, now),
         },
         now,
       ).toISOString();

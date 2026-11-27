@@ -7,3 +7,4 @@ export * from "./weekly-fault-penalty";
 export * from "./appeal";
 export * from "./penalty-source";
 export * from "./rule-change";
+export * from "./cycle-contract";
