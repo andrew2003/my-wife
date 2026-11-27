@@ -65,6 +65,8 @@ export type RunnerOptions = {
   monitor?: MonitorServiceDeps;
   /** Extra dependencies for the budget service (store, settings reader, receipt reader). */
   budget?: BudgetDeps;
+  /** Extra dependencies for the ai service (publisher, clock, vision model, settings reader). */
+  ai?: Parameters<typeof ai>[1];
   /**
    * The ingest webhook is always mounted. Everything is in memory unless given here: an empty
    * sender map and template list, a user resolver that knows nobody, the real DKIM verifier and
@@ -164,7 +166,9 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
                 ? opts.monitor
                 : name === "budget"
                   ? opts.budget
-                  : undefined;
+                  : name === "ai"
+                    ? opts.ai
+                    : undefined;
       let deps: ServiceDeps | undefined = extra ? { ...opts.deps, ...extra } : opts.deps;
       if (name === "schedule") {
         // Identity starts before schedule; its URL is read lazily, per request.
