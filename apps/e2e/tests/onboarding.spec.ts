@@ -39,7 +39,7 @@ test("onboarding: sign-in, tour, questions, sample schedule and budget, contract
     await expect(page.getByText(text("onboarding.review.intro"))).toBeVisible({ timeout: 30_000 });
     const schedule = page.getByRole("region", { name: text("onboarding.review.schedule") });
     await expect(schedule.getByText(text("schedule.sample.wake"))).toBeVisible();
-    await expect(schedule.getByText("06:30")).toBeVisible();
+    await expect(schedule.getByText("06:30", { exact: true })).toBeVisible();
     const budget = page.getByRole("region", { name: text("onboarding.review.budget") });
     await expect(budget.getByText(text("onboarding.review.budget_empty"))).toHaveCount(0);
     await expect(budget.getByRole("listitem").first()).toBeVisible();
