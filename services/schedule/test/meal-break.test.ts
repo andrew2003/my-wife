@@ -98,9 +98,7 @@ describe("meal break prompt", () => {
     ]);
     await worked.app.runRoutineJob(new Date("2026-11-24T06:30:00.000Z"));
     expect(breaks(worked.events)).toHaveLength(1);
-    const none = await setup([
-      session("2026-11-24T02:00:00.000Z", 60, "2026-11-24T03:00:00.000Z"),
-    ]);
+    const none = await setup([session("2026-11-24T02:00:00.000Z", 60, "2026-11-24T03:00:00.000Z")]);
     await none.app.runRoutineJob(new Date("2026-11-24T06:30:00.000Z"));
     expect(breaks(none.events)).toHaveLength(0);
   });
