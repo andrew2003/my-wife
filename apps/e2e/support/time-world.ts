@@ -31,7 +31,7 @@ const MINUTE_MS = 60_000;
  * Chat is emulated: urgent messages handed to notify are collected, not delivered.
  *
  * The dev runner does not route `fault.detected` (monitor to rules) nor `fault.recorded`
- * (rules to the schedule ledger), so this file bridges them the way the bus would.
+ * and `fault.waived` (rules to the schedule ledger), so this file bridges them the way the bus would.
  */
 export async function startTimeWorld(opts: {
   start: string;
@@ -104,7 +104,8 @@ export async function startTimeWorld(opts: {
       now,
       publish: async (e) => {
         events.push(e);
-        if (e.type === "fault.recorded") await post(`${runner.urls.schedule}/events/ledger`, e);
+        if (e.type === "fault.recorded" || e.type === "fault.waived")
+          await post(`${runner.urls.schedule}/events/ledger`, e);
       },
     },
   });
