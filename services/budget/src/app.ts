@@ -3,7 +3,7 @@ import type { AppConfig } from "@my-wife/config";
 import { ApprovePlanRequestSchema, type EventEnvelope, type SettingKey } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { createReceiptHandler } from "./accounts";
-import { createContractSignedHandler, createCycleApprover } from "./approval";
+import { buildFundRequests, createContractSignedHandler, createCycleApprover } from "./approval";
 import { createFundingHandler } from "./funding";
 import { createTransactionHandler } from "./transactions";
 import { createWeekClosedHandler } from "./overspend";
@@ -98,7 +98,7 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     "budget.account_unconfirmed": 409,
   };
   // The gateway has verified the session and forwards the user id (see decisions.md).
-  app.post("/cycles/approve", async (req, reply) => {
+  app.post("/budget/cycles/approve", async (req, reply) => {
     const userId = req.headers["x-user-id"];
     if (typeof userId !== "string" || userId === "") {
       return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
@@ -123,7 +123,56 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     }
     return { ok: true, data: { cycle: record.cycle, categories: record.categories } };
   });
+  // Read route for the funding screen. There is no contract response schema yet (ADR needed),
+  // so the shape is defined locally; it follows the web's expectation (decisions.md, MW-022).
+  app.get("/budget/funding", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const record = await store.find(userId);
+    if (!record) {
+      return reply.code(404).send({ ok: false, error: { code: "budget.cycle_not_found" } });
+    }
+    if (record.cycle.state !== "awaiting_funds") {
+      return reply
+        .code(409)
+        .send({ ok: false, error: { code: "budget.cycle_not_awaiting_funds" } });
+    }
+    const transfers = buildFundRequests({
+      sequence: record.cycle.sequence,
+      accounts: record.accounts,
+      categories: record.categories,
+    });
+    const accounts: FundingAccountView[] = transfers.map((t) => {
+      const account = record.accounts.find((a) => a.id === t.bankAccountId)!;
+      return {
+        bankAccountId: t.bankAccountId,
+        name: account.name,
+        code: account.code,
+        requiredVnd: t.requiredVnd,
+        memo: t.memo,
+        // Same rule as the cycle opening: nothing to transfer, or a receipt covering the amount.
+        funded:
+          t.requiredVnd === 0 ||
+          record.fundings.some(
+            (f) => f.bankAccountId === t.bankAccountId && f.amountVnd >= t.requiredVnd,
+          ),
+      };
+    });
+    return { ok: true, data: { cycle: record.cycle, accounts } };
+  });
   return app;
+}
+
+/** Local response type of `GET /budget/funding`; contracts have none yet. */
+export interface FundingAccountView {
+  bankAccountId: string;
+  name: string;
+  code: string;
+  requiredVnd: number;
+  memo: string;
+  funded: boolean;
 }
 
 declare module "fastify" {

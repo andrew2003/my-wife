@@ -217,7 +217,10 @@ export async function startMoneyWorld(opts: { start: string; trial: TrialSetting
       };
     },
     approveCycle: async (cycleId: string, commitmentId: string) => {
-      const res = await postJson(`${runner.urls.budget}/cycles/approve`, { cycleId, commitmentId });
+      const res = await postJson(`${runner.urls.budget}/budget/cycles/approve`, {
+        cycleId,
+        commitmentId,
+      });
       return { statusCode: res.status };
     },
     stop: () => runner.stop(),
