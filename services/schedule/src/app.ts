@@ -73,6 +73,8 @@ export type ScheduleDeps = ServiceDeps & {
   readSettings?: (userId: string) => Promise<SampleAnswers>;
   /** Announces events on the bus; a no-op without NATS. */
   publish?: (event: EventEnvelope) => void | Promise<void>;
+  /** How long a carry-over question stays open; defaults to 24 hours (ADR pending for a setting). */
+  carryOverAskExpiryMs?: number;
   /** Plan storage port; in memory until the Drizzle store lands. */
   planStore?: PlanStore;
   /** Session storage port; in memory until the Drizzle store lands. */
@@ -246,7 +248,14 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     const questionId = IdSchema.safeParse(b.questionId);
     if (!taskId.success || !questionId.success || typeof b.value !== "string")
       return fail(reply, 400, "schedule.invalid_request");
-    const res = await answerCarryOver(plan, userId, taskId.data, questionId.data, b.value);
+    const res = await answerCarryOver(
+      plan,
+      userId,
+      taskId.data,
+      questionId.data,
+      b.value,
+      readSettings,
+    );
     if (res.ok) return { ok: true, data: { task: taskView(res.task) } };
     if (res.error === "not_in_plan") return fail(reply, 404, "schedule.task_not_in_plan");
     if (res.error === "invalid_answer") return fail(reply, 400, "schedule.invalid_request");
@@ -256,7 +265,7 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
   /** Internal entry for the scheduler; safe to run any number of times. */
   app.post("/jobs/day-end", async () => ({
     ok: true,
-    data: await runDayEndJob(plan, readSettings),
+    data: await runDayEndJob(plan, readSettings, { askExpiryMs: deps.carryOverAskExpiryMs }),
   }));
 
   app.post("/tasks/check-in", async (req, reply) => {
