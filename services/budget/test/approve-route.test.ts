@@ -14,7 +14,12 @@ describe("POST /budget/cycles/approve", () => {
   it("rejects an invalid body and an unknown cycle", async () => {
     const app = await createApp(config);
     const headers = { "x-user-id": "u1" };
-    const bad = await app.inject({ method: "POST", url: "/budget/cycles/approve", headers, payload: {} });
+    const bad = await app.inject({
+      method: "POST",
+      url: "/budget/cycles/approve",
+      headers,
+      payload: {},
+    });
     expect(bad.statusCode).toBe(400);
     const missing = await app.inject({
       method: "POST",
