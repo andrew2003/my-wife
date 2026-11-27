@@ -46,6 +46,23 @@ export const workerTicker: Ticker = (fn) => {
   return () => clearInterval(id);
 };
 
+/** Notifies when the page becomes visible again. */
+export interface VisibilitySource {
+  subscribe(onVisible: () => void): () => void;
+}
+
+/** Real source: the document `visibilitychange` event, only when the tab turns visible. */
+export const documentVisibility: VisibilitySource = {
+  subscribe(onVisible) {
+    if (typeof document === "undefined") return () => {};
+    const handler = () => {
+      if (document.visibilityState === "visible") onVisible();
+    };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  },
+};
+
 export interface CountdownOptions {
   /** Stored end time (UTC ms) from the server. */
   endsAtMs: number;
@@ -53,6 +70,10 @@ export interface CountdownOptions {
   ticker?: Ticker;
   /** Server time minus client time, measured when the session was fetched. */
   serverOffsetMs?: number;
+  /** When set, the display is refreshed at once whenever the tab becomes visible. */
+  visibility?: VisibilitySource;
+  /** Returns a fresh server offset (or null on failure); called when the tab becomes visible. */
+  resync?: () => Promise<number | null>;
   onTick: (remainingSeconds: number) => void;
   /** Called once when the remaining time reaches zero. */
   onEnd?: () => void;
@@ -61,7 +82,7 @@ export interface CountdownOptions {
 /** Computes the display from the end time on every tick, so a late or missed tick never drifts. */
 export function createCountdown(opts: CountdownOptions): { stop: () => void } {
   const clock = opts.clock ?? systemClock;
-  const offset = opts.serverOffsetMs ?? 0;
+  let offset = opts.serverOffsetMs ?? 0;
   let ended = false;
   let stopTicker: (() => void) | null = null;
   const refresh = () => {
@@ -75,7 +96,26 @@ export function createCountdown(opts: CountdownOptions): { stop: () => void } {
   };
   stopTicker = (opts.ticker ?? workerTicker)(refresh);
   refresh();
-  return { stop: () => stopTicker?.() };
+  let stopped = false;
+  const unsubscribe = opts.visibility?.subscribe(() => {
+    refresh();
+    const resync = opts.resync;
+    if (!resync) return;
+    void resync()
+      .then((fresh) => {
+        if (stopped || fresh === null) return;
+        offset = fresh;
+        refresh();
+      })
+      .catch(() => {});
+  });
+  return {
+    stop: () => {
+      stopped = true;
+      unsubscribe?.();
+      stopTicker?.();
+    },
+  };
 }
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;

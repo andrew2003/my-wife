@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createCountdown,
+  documentVisibility,
   formatRemaining,
   loadActiveSession,
   type ActiveSession,
   type Clock,
   type Ticker,
+  type VisibilitySource,
 } from "../lib/countdown";
 import { translate, type Locale } from "../lib/i18n";
 
@@ -39,6 +41,7 @@ export function TaskCountdown({ locale, taskId }: { locale: Locale; taskId: stri
       locale={locale}
       endsAtMs={session.endsAtMs}
       serverOffsetMs={session.serverOffsetMs}
+      resync={() => loadActiveSession(taskId).then((s) => s?.serverOffsetMs ?? null)}
     />
   );
 }
@@ -50,13 +53,26 @@ export function SessionCountdown(props: {
   serverOffsetMs?: number;
   clock?: Clock;
   ticker?: Ticker;
+  visibility?: VisibilitySource;
+  resync?: () => Promise<number | null>;
 }) {
-  const { locale, endsAtMs, serverOffsetMs, clock, ticker } = props;
+  const { locale, endsAtMs, serverOffsetMs, clock, ticker, resync } = props;
+  const visibility = props.visibility ?? documentVisibility;
+  const resyncRef = useRef(resync);
+  resyncRef.current = resync;
   const [remaining, setRemaining] = useState<number | null>(null);
   useEffect(() => {
-    const c = createCountdown({ endsAtMs, serverOffsetMs, clock, ticker, onTick: setRemaining });
+    const c = createCountdown({
+      endsAtMs,
+      serverOffsetMs,
+      clock,
+      ticker,
+      visibility,
+      resync: () => resyncRef.current?.() ?? Promise.resolve(null),
+      onTick: setRemaining,
+    });
     return c.stop;
-  }, [endsAtMs, serverOffsetMs, clock, ticker]);
+  }, [endsAtMs, serverOffsetMs, clock, ticker, visibility]);
   if (remaining === null) return null;
   return <SessionCountdownView locale={locale} remaining={remaining} />;
 }
