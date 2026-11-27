@@ -2,6 +2,7 @@ import { servicePort, type AppConfig } from "@my-wife/config";
 import {
   ChatMessageRequestSchema,
   ChatMessageResponseSchema,
+  DegradedStatusSchema,
   SaveLlmKeyRequestSchema,
   SETTINGS,
 } from "@my-wife/contracts";
@@ -44,6 +45,8 @@ const WAKE_PHOTO_BODY_LIMIT = 10 * 1024 * 1024;
 
 export interface AiDeps extends ServiceDeps {
   provider?: LlmProvider;
+  /** Second model for failover; none until a fallback key has a real adapter. */
+  fallbackProvider?: LlmProvider;
   publish?: (event: {
     name:
       | "ai.message_sent"
@@ -53,7 +56,9 @@ export interface AiDeps extends ServiceDeps {
       | "llm_key.invalid"
       | "ai.handover_passed"
       | "ai.handover_failed"
-      | "ai.model_changed";
+      | "ai.model_changed"
+      | "ai.degraded_entered"
+      | "ai.degraded_exited";
     payload: unknown;
   }) => Promise<void>;
   memoryStore?: MemoryStore;
@@ -111,6 +116,8 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     provider: deps.provider ?? createProvider(),
     publish,
     memory,
+    fallback: deps.fallbackProvider,
+    readSettings,
     warn: (fields, message) => app.log.warn(fields, message),
   });
   const now = deps.now ?? (() => new Date());
@@ -272,6 +279,18 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     return removed
       ? { ok: true, data: {} }
       : reply.code(404).send({ ok: false, error: "not_found" });
+  });
+  // Banner signal for the web: true when no model answers. Rules, buttons and the inbox live in
+  // other services and keep working.
+  app.get("/status/degraded", async (req) => {
+    const state = chat.statusOf(userOf(req.headers["x-user-id"]));
+    return {
+      ok: true,
+      data: DegradedStatusSchema.parse({
+        degraded: state.degraded,
+        reason: state.degraded ? state.reason : null,
+      }),
+    };
   });
   app.post("/chat/message", async (req, reply) => {
     const parsed = ChatMessageRequestSchema.safeParse(req.body);
