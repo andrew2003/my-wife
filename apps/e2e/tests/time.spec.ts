@@ -145,7 +145,8 @@ it("time: checklist, countdown, monitoring, urgent reason, faults, weekly review
     ticketId = (sent("web")[0]!.payload as { ticketId: string }).ticketId;
   });
 
-  await step("an honest reason within the delay answers the ticket without a fault", async () => {
+  let honestPoints = 0;
+  await step("an honest reason within the delay answers the ticket at a lower score", async () => {
     const res = await json(
       await world.post(`${monitor}/reasons`, { ticketId, kind: "network_problem" }),
     );
@@ -154,7 +155,18 @@ it("time: checklist, countdown, monitoring, urgent reason, faults, weekly review
     await world.clock.advanceBy(10 * MIN);
     expect(sent("chat")).toHaveLength(0);
     expect(world.types()).not.toContain("reason.expired");
-    expect(world.types()).not.toContain("fault.detected");
+    // Rules scores every answered ticket: an honest reason weighs less than silence (spec 21 section 4).
+    const detected = world.ofType("fault.detected");
+    expect(detected).toHaveLength(1);
+    expect(detected[0]!.payload).toMatchObject({
+      type: "heartbeat_lost",
+      reason: "given",
+      reasonKind: "network_problem",
+    });
+    const recorded = world.ofType("fault.recorded");
+    expect(recorded).toHaveLength(1);
+    honestPoints = (recorded[0]!.payload as { points: number }).points;
+    expect(honestPoints).toBeLessThan(SETTINGS["fault.weight.heartbeat_lost"].default);
   });
 
   await step("a silent loss escalates to chat and becomes one scored fault", async () => {
@@ -166,24 +178,24 @@ it("time: checklist, countdown, monitoring, urgent reason, faults, weekly review
     const chatAfter = SETTINGS["monitor.urgent_chat_after_seconds"].default;
     await world.clock.advanceBy((chatAfter + 10) * SEC);
     expect(sent("chat")).toHaveLength(1);
-    expect(world.types()).not.toContain("fault.detected");
+    expect(world.ofType("fault.detected")).toHaveLength(1);
 
     const silent = SETTINGS["monitor.urgent_silent_fault_after_seconds"].default;
     await world.clock.advanceBy(silent * SEC);
     expect(world.ofType("reason.expired")).toHaveLength(1);
     const detected = world.ofType("fault.detected");
-    expect(detected).toHaveLength(1);
-    expect(detected[0]!.payload).toMatchObject({ type: "heartbeat_lost", reason: "none" });
+    expect(detected).toHaveLength(2);
+    expect(detected[1]!.payload).toMatchObject({ type: "heartbeat_lost", reason: "none" });
     const recorded = world.ofType("fault.recorded");
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]!.payload).toMatchObject({
+    expect(recorded).toHaveLength(2);
+    expect(recorded[1]!.payload).toMatchObject({
       type: "heartbeat_lost",
       points: SETTINGS["fault.weight.heartbeat_lost"].default,
     });
     // Later runs of the jobs add nothing.
     await world.clock.advanceBy(10 * MIN);
-    expect(world.ofType("fault.detected")).toHaveLength(1);
-    expect(world.ofType("fault.recorded")).toHaveLength(1);
+    expect(world.ofType("fault.detected")).toHaveLength(2);
+    expect(world.ofType("fault.recorded")).toHaveLength(2);
   });
 
   await step("ending monitoring closes the session", async () => {
@@ -204,9 +216,9 @@ it("time: checklist, countdown, monitoring, urgent reason, faults, weekly review
     const review = await json(await world.get(`${schedule}/weeks/${weekId}/review`));
     expect(review.data.review.tasks).toMatchObject({ planned: 3, completed: 1 });
     expect(review.data.review.faults.totalPoints).toBe(
-      SETTINGS["fault.weight.heartbeat_lost"].default,
+      honestPoints + SETTINGS["fault.weight.heartbeat_lost"].default,
     );
-    expect(review.data.review.faults.items).toHaveLength(1);
+    expect(review.data.review.faults.items).toHaveLength(2);
 
     await world.clock.advanceBy(2 * DAY_MS);
     expect(world.ofType("week.closed")).toHaveLength(1);
