@@ -158,12 +158,12 @@ describe("group expense", () => {
     });
     expect(result.ok).toBe(true);
     const debts = t.store.get("u1")!.debts;
-    expect(
-      debts.map((d) => [d.kind, d.person, d.amountVnd, d.state, d.fundingCategoryId]),
-    ).toEqual([
-      ["receivable", "An", 200_000, "open", t.categoryId],
-      ["receivable", "Binh", 300_000, "open", t.categoryId],
-    ]);
+    expect(debts.map((d) => [d.kind, d.person, d.amountVnd, d.state, d.fundingCategoryId])).toEqual(
+      [
+        ["receivable", "An", 200_000, "open", t.categoryId],
+        ["receivable", "Binh", 300_000, "open", t.categoryId],
+      ],
+    );
     expect(result.ok && result.data.ownShareVnd).toBe(400_000);
     expect(t.published.filter((e) => e.type === "debt.opened")).toHaveLength(2);
     expect(t.store.get("u1")!.audit.filter((a) => a.action === "debt_opened")).toHaveLength(2);
