@@ -4,6 +4,7 @@ import { ApprovePlanRequestSchema, type EventEnvelope, type SettingKey } from "@
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { createReceiptHandler } from "./accounts";
 import { createBankEventHandler } from "./bank-event-wiring";
+import { createForeignCardHandler } from "./foreign-card";
 import { createRefundTransferHandler } from "./refund-wiring";
 import { buildFundRequests, createContractSignedHandler, createCycleApprover } from "./approval";
 import { createFundingHandler } from "./funding";
@@ -76,6 +77,12 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     publish: deps.publish ?? (() => undefined),
     readSettings: deps.readSettings,
   });
+  const recordForeignCard = createForeignCardHandler({
+    store,
+    now,
+    newId: randomUUID,
+    publish: deps.publish ?? (() => undefined),
+  });
   const recordRefundOrTransfer = createRefundTransferHandler({
     store,
     now,
@@ -88,6 +95,7 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     await fundAccount(event);
     await recordTransaction(event);
     await recordBankEvent(event);
+    await recordForeignCard(event);
     await recordRefundOrTransfer(event);
   });
   const unknownSpend = createUnknownSpendHandlers({
