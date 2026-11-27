@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Writable } from "node:stream";
-import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from "fastify";
 import { pino } from "pino";
 
 export const TRACE_HEADER = "x-trace-id";
@@ -30,7 +30,7 @@ export function createServiceApp(opts: ServiceAppOptions): FastifyInstance {
   const app = Fastify({
     loggerInstance: logger as unknown as FastifyBaseLogger,
     requestIdHeader: TRACE_HEADER,
-    requestIdLogLabel: "traceId",
+    logController: new LogController({ requestIdLogLabel: "traceId" }),
     genReqId: () => randomUUID(),
   });
 

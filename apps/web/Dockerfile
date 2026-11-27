@@ -4,6 +4,7 @@ RUN corepack enable
 WORKDIR /app
 COPY . .
 RUN pnpm install --frozen-lockfile --filter @my-wife/web...
+ENV NEXT_OUTPUT=standalone
 RUN pnpm --filter @my-wife/web build
 
 FROM node:22-alpine
