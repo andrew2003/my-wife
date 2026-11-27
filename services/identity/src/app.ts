@@ -37,7 +37,12 @@ import {
 } from "./consents";
 import { anonymisedEmail, type PenaltyPort } from "./deletion";
 import { buildExportArchive, createExportStore, type ExportStore } from "./export";
-import { createIncidentStore, incidentCoversUser, type Incident, type IncidentStore } from "./incidents";
+import {
+  createIncidentStore,
+  incidentCoversUser,
+  type Incident,
+  type IncidentStore,
+} from "./incidents";
 import { encryptSecret, parseKeyring } from "./secrets-crypto";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
 
@@ -766,7 +771,13 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     after: Incident,
   ): Promise<void> {
     const snap = (i: Incident | null) =>
-      i && { state: i.state, startsAt: i.startsAt, endsAt: i.endsAt, scope: i.scope, reason: i.reason };
+      i && {
+        state: i.state,
+        startsAt: i.startsAt,
+        endsAt: i.endsAt,
+        scope: i.scope,
+        reason: i.reason,
+      };
     await incidents.save(after, {
       id: randomUUID(),
       actorId: actor,

@@ -170,7 +170,10 @@ describe("incident end and cancel", () => {
       headers: ADMIN,
     });
     expect(res.json().data.incident.state).toBe("cancelled");
-    expect(events.at(-1)).toMatchObject({ type: "incident.cancelled", payload: { incidentId: id } });
+    expect(events.at(-1)).toMatchObject({
+      type: "incident.cancelled",
+      payload: { incidentId: id },
+    });
     const again = await app.inject({
       method: "POST",
       url: `/admin/incidents/${id}/cancel`,
