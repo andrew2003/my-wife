@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "@my-wife/config";
-import { ApprovePlanRequestSchema, type EventEnvelope, type SettingKey } from "@my-wife/contracts";
+import {
+  ApprovePlanRequestSchema,
+  SubmitBalanceSnapshotRequestSchema,
+  type EventEnvelope,
+  type SettingKey,
+} from "@my-wife/contracts";
+import { createBalanceCheck, MemoryBalanceSnapshotStore } from "./balance-check";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { createReceiptHandler } from "./accounts";
 import { createBankEventHandler } from "./bank-event-wiring";
@@ -164,6 +170,25 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
       return reply.code(result.error.code === "budget.cycle_not_found" ? 404 : 400).send(result);
     }
     return reply.code(201).send(result);
+  });
+
+  // Weekly balance check (spec 10 section 9): the user submits the balance of each account.
+  const balanceCheck = createBalanceCheck({
+    store,
+    snapshots: new MemoryBalanceSnapshotStore(),
+    publish: deps.publish ?? (() => undefined),
+    readSettings: deps.readSettings,
+  });
+  app.post("/budget/balance-snapshots", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const parsed = SubmitBalanceSnapshotRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    return { ok: true, data: await balanceCheck.run(userId, [parsed.data], now()) };
   });
 
   app.decorate(
