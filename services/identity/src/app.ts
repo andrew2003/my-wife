@@ -10,6 +10,8 @@ import {
   EVENT_SCHEMA_VERSION,
   ConsentKindSchema,
   ConsentRequestSchema,
+  FeatureFlagSchema,
+  SetFeatureFlagRequestSchema,
   OnboardingStepSchema,
   SupervisionLevelSchema,
   type ConsentKind,
@@ -44,6 +46,11 @@ import {
   type Incident,
   type IncidentStore,
 } from "./incidents";
+import {
+  createFeatureFlagStore,
+  featureDisabledNoticeKey,
+  type FeatureFlagStore,
+} from "./feature-flags";
 import { createSenderMapStore, type SenderMapEntry, type SenderMapStore } from "./sender-map";
 import { encryptSecret, parseKeyring } from "./secrets-crypto";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
@@ -60,6 +67,8 @@ export type IdentityDeps = ServiceDeps & {
   incidentStore?: IncidentStore;
   /** The global bank sender map; in memory until the Drizzle store lands. */
   senderMapStore?: SenderMapStore;
+  /** Per-user feature flags; in memory until the Drizzle store lands. */
+  featureFlagStore?: FeatureFlagStore;
   /** Built export archives; in memory until the Drizzle store lands. */
   exportStore?: ExportStore;
   /** Origin used to build download links (the gateway's public address). */
@@ -913,6 +922,57 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     );
     await emit("invitation.revoked", admin, { invitationId: revoked.id });
     return { ok: true, data: { invitation: invitationView(revoked) } };
+  });
+
+  // ---- Feature flags per user (spec 50 section 2) ----
+  const featureFlags = deps.featureFlagStore ?? createFeatureFlagStore();
+
+  /** Admin switch. Readers query live, so a change applies on the next request. */
+  app.put("/admin/feature-flags", async (req, reply) => {
+    const admin = adminId(req.headers);
+    if (!admin) return fail(reply, 403, "identity.forbidden");
+    const parsed = SetFeatureFlagRequestSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "identity.feature_flag_invalid");
+    const { userId, flag, enabled } = parsed.data;
+    const was = (await featureFlags.get(userId, flag)) ?? true;
+    await featureFlags.set(userId, flag, enabled);
+    await auditAdmin(
+      admin,
+      "feature_flag.changed",
+      userId,
+      { flag, enabled: was },
+      { flag, enabled },
+    );
+    await emit("feature_flag.changed", userId, { flag, enabled });
+    return { ok: true, data: { flag: { userId, flag, enabled } } };
+  });
+
+  /** Query for other services and the web: may this caller use the feature now? */
+  app.get("/feature-flags/:flag/check", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const flag = FeatureFlagSchema.safeParse((req.params as { flag?: string }).flag);
+    if (!flag.success) return fail(reply, 400, "identity.feature_flag_invalid");
+    const enabled = (await featureFlags.get(userId, flag.data)) ?? true;
+    return {
+      ok: true,
+      data: {
+        flag: flag.data,
+        enabled,
+        ...(enabled ? {} : { noticeKey: featureDisabledNoticeKey(flag.data) }),
+      },
+    };
+  });
+
+  app.get("/feature-flags", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const stored = await featureFlags.list(userId);
+    const flags = Object.fromEntries(FeatureFlagSchema.options.map((f) => [f, stored[f] ?? true]));
+    const notices = FeatureFlagSchema.options
+      .filter((f) => flags[f] === false)
+      .map(featureDisabledNoticeKey);
+    return { ok: true, data: { flags, notices } };
   });
 
   const senderMap = deps.senderMapStore ?? createSenderMapStore();
