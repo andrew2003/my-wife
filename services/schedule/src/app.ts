@@ -25,6 +25,12 @@ import {
   type PlanTask,
 } from "./plan";
 import {
+  computeWeekLoad,
+  copyTemplateIntoWeek,
+  type TemplateTask,
+  type WeekTemplate,
+} from "./week-plan";
+import {
   createMemorySessionStore,
   runSessionJob,
   startSession,
@@ -262,6 +268,90 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     const { closedAnnounced: _c, reviewAnnounced: _r, userId: _u, ...week } = res.week;
     return { ok: true, data: { week } };
   });
+  const templates = new Map<string, WeekTemplate>();
+  const templateApplied = new Set<string>();
+
+  app.post("/templates", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const body = req.body as { name?: unknown; tasks?: unknown } | null;
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    if (!name || !Array.isArray(body?.tasks)) return fail(reply, 400, "schedule.invalid_request");
+    const tasks: TemplateTask[] = [];
+    for (const raw of body.tasks as Record<string, unknown>[]) {
+      const { dayOffset, ...rest } = raw ?? {};
+      const offset = dayOffset as number;
+      const parsed = CreateTaskRequestSchema.omit({ day: true }).safeParse(rest);
+      if (!Number.isInteger(offset) || offset < 0 || offset > 6 || !parsed.success) {
+        return fail(reply, 400, "schedule.invalid_request");
+      }
+      const b = parsed.data;
+      let minutes: number = SETTINGS["schedule.task_default_minutes"].default;
+      if (b.estimatedMinutes === undefined) {
+        const answer = (await readSettings(userId))["schedule.task_default_minutes"];
+        if (typeof answer === "number" && Number.isInteger(answer) && answer > 0) minutes = answer;
+      }
+      tasks.push({
+        dayOffset: offset,
+        title: b.title,
+        window: b.window ?? null,
+        estimatedMinutes: b.estimatedMinutes ?? minutes,
+        energyLevel: b.energyLevel ?? null,
+        definitionOfDone: b.definitionOfDone ?? null,
+        monitoringProfile: b.monitoringProfile,
+        kind: b.kind,
+        parentRecurrenceId: b.parentRecurrenceId ?? null,
+      });
+    }
+    const template: WeekTemplate = { id: randomUUID(), userId, name, tasks };
+    templates.set(template.id, template);
+    const { userId: _u, ...view } = template;
+    return { ok: true, data: { template: view } };
+  });
+  app.get("/templates", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const list = [...templates.values()]
+      .filter((t) => t.userId === userId)
+      .map(({ userId: _u, ...view }) => view);
+    return { ok: true, data: { templates: list } };
+  });
+
+  /**
+   * Planning step of a draft week: optionally copies a saved template once, then reports the
+   * load so "overloaded" is visible before approval. Emits nothing; `week.planned` comes on approve.
+   */
+  app.post("/weeks/:id/plan", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const found = plan.store.getWeek(userId, (req.params as { id: string }).id);
+    if (!found) return fail(reply, 404, "schedule.week_not_found");
+    if (found.state !== "draft") return fail(reply, 409, "schedule.week_not_draft");
+    const templateId = (req.body as { templateId?: unknown } | null)?.templateId;
+    if (templateId !== undefined) {
+      const template = typeof templateId === "string" ? templates.get(templateId) : undefined;
+      if (!template || template.userId !== userId)
+        return fail(reply, 404, "schedule.template_not_found");
+      // Claim before copying so a concurrent call cannot duplicate the tasks.
+      if (templateApplied.has(found.id))
+        return fail(reply, 409, "schedule.template_already_applied");
+      templateApplied.add(found.id);
+      copyTemplateIntoWeek(plan.store, found, template, randomUUID);
+    }
+    const load = computeWeekLoad(plan.store, found, await readSettings(userId));
+    const { closedAnnounced: _c, reviewAnnounced: _r, userId: _u, ...week } = found;
+    return {
+      ok: true,
+      data: {
+        week,
+        overloaded: load.overloaded,
+        overloadMinutes: load.overloadMinutes,
+        plannedMinutes: load.plannedMinutes,
+        availableMinutes: load.availableMinutes,
+      },
+    };
+  });
+
   app.get("/weeks/current", async (req, reply) => {
     const userId = userOf(req.headers);
     if (!userId) return fail(reply, 401, "schedule.unauthenticated");
