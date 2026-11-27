@@ -140,7 +140,16 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     if (!parsed.success) return fail(reply, 400, "monitor.invalid_request");
     const res = await giveReason(monitor, userId, parsed.data, monitor.now());
     if (!res.ok) return fail(reply, res.error === "ticket.not_found" ? 404 : 409, res.error);
-    return { ok: true, data: { ticketId: res.ticket.id, state: res.ticket.state } };
+    const scoredAs = res.ticket.scoredAs;
+    return {
+      ok: true,
+      data: {
+        ticketId: res.ticket.id,
+        state: res.ticket.state,
+        scoredAs,
+        ...(scoredAs === "silence" ? { messageKey: "monitor.reason.over_quota" } : {}),
+      },
+    };
   });
 
   const breakReply = (
