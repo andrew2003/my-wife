@@ -36,6 +36,7 @@ export {
   createWeekClosedHandler,
   detectOverspends,
   effectiveWeeklyLimit,
+  settleLastWeekExcess,
   type OverspendFinding,
   type OverspendRecord,
 } from "./overspend";

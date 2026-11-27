@@ -8,6 +8,7 @@ import {
 import type { SampleBudgetRecord, SampleBudgetStore } from "./onboarding";
 import { contingencyBalanceOf, CONTINGENCY_SHORT_CODE } from "./exceptions";
 import { getCategoryBalances } from "./transactions";
+import { settleLastWeekExcess } from "./overspend";
 
 /** The surplus split of a closed cycle with the flags of its two events. */
 export interface CycleCloseRecord {
@@ -92,6 +93,14 @@ export interface CycleCloserDeps {
   now: () => Date;
   publish: (event: EventEnvelope) => void | Promise<void>;
   readSettings?: (userId: string) => Promise<Settings>;
+  /**
+   * Categories of the user's next cycle, when it exists. The last-week excess of the closing
+   * cycle is deducted from the first week of the same category there (matched by short code);
+   * without a next cycle, or without that category, it stays penalty debt (spec 10 section 8).
+   */
+  findNextCycleCategories?: (
+    userId: string,
+  ) => Promise<{ categoryId: string; shortCode: string }[] | undefined>;
 }
 
 /**
@@ -152,7 +161,12 @@ export function createCycleCloser(deps: CycleCloserDeps) {
       ...splitSurplus(totalVnd, cfg.savingsPercent, cfg.futurePurchasesPercent),
       remainderTarget: cfg.remainderTarget,
     };
-    const stored = await deps.store.closeCycle(userId, cycleId, allocation, deps.now());
+    const settlement = settleLastWeekExcess(
+      record.penaltyDebts.filter((d) => d.cycleId === cycleId),
+      record.categories.map((c) => ({ categoryId: c.id, shortCode: c.shortCode })),
+      await deps.findNextCycleCategories?.(userId),
+    );
+    const stored = await deps.store.closeCycle(userId, cycleId, allocation, deps.now(), settlement);
     if (stored === "not_closing") return { ok: false, error: { code: "budget.cycle_not_closing" } };
     const announced = await announce(userId, cycleId);
     return { ok: true, data: announced ?? allocation };
