@@ -42,6 +42,23 @@ const withinWindow = (a: string, b: string, hours: number) =>
 
 const stripTags = (html: string) => html.replace(/<[^>]*>/g, "\n");
 
+/** Sender, subject and text body as the pipeline reads them. */
+async function readMail(raw: Buffer) {
+  const parsed = await simpleParser(raw);
+  return {
+    parsed,
+    from: parsed.from?.value[0]?.address?.toLowerCase() ?? null,
+    subject: parsed.subject ?? "",
+    body: parsed.text ?? (typeof parsed.html === "string" ? stripTags(parsed.html) : ""),
+  };
+}
+
+/** The template fingerprint of a mail; harnesses use it to register the layout of a sample. */
+export async function fingerprintOfMail(raw: Buffer): Promise<string> {
+  const { from, subject, body } = await readMail(raw);
+  return fingerprintTemplate({ sender: from ?? "", subject, body });
+}
+
 /** Email content is untrusted data: it is only ever read for facts, never obeyed. */
 export async function processInbound(
   mail: InboundMail,
@@ -74,10 +91,7 @@ export async function processInbound(
     return { state: "rejected", receiptId, reason: early };
   }
 
-  const parsed = await simpleParser(mail.raw);
-  const from = parsed.from?.value[0]?.address?.toLowerCase() ?? null;
-  const subject = parsed.subject ?? "";
-  const body = parsed.text ?? (typeof parsed.html === "string" ? stripTags(parsed.html) : "");
+  const { parsed, from, subject, body } = await readMail(mail.raw);
   const messageId = parsed.messageId ?? null;
 
   const base: ReceiptRecord = {
