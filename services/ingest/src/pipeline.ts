@@ -1,6 +1,14 @@
 import { simpleParser } from "mailparser";
-import type { EventEnvelope, ReceiptState } from "@my-wife/contracts";
+import { SETTINGS, type EventEnvelope, type ReceiptState } from "@my-wife/contracts";
 import { domainAligned, type DkimVerifier } from "./dkim";
+import {
+  extractCode,
+  extractLink,
+  GMAIL_FORWARDING_SENDERS,
+  isForwardingSubject,
+  type ForwardingSender,
+  type ForwardingStore,
+} from "./forwarding";
 import { assertTransition } from "./receipt-state";
 import type { IngestStore, ReceiptRecord } from "./store";
 import { fingerprintTemplate, verifyEvidence, type RegisteredTemplate } from "./templates";
@@ -24,7 +32,16 @@ export type PipelineDeps = {
   publish: (event: EventEnvelope) => Promise<void>;
   newId: () => string;
   /** `ingest.max_email_bytes` (admin) and `ingest.hold_match_window_hours` (user). */
-  settings: { maxEmailBytes: number; holdMatchWindowHours: number };
+  settings: {
+    maxEmailBytes: number;
+    holdMatchWindowHours: number;
+    /** `ingest.forward_confirmation_ttl_hours` (admin); the registry default applies when absent. */
+    forwardConfirmationTtlHours?: number;
+  };
+  /** Where a pending Gmail forwarding confirmation is kept for the user to see. */
+  forwarding?: ForwardingStore;
+  /** Senders of the Gmail forwarding confirmation; defaults to Gmail's own sender. */
+  forwardingSenders?: ForwardingSender[];
 };
 
 export type InboundMail = { toAddress: string; raw: Buffer };
@@ -109,6 +126,47 @@ export async function processInbound(
     await deps.store.save(record);
     return { state: record.state, receiptId, reason: record.rejectReason };
   };
+
+  // Gmail forwarding confirmation: its own path, no bank template and no LLM.
+  const forwardingSender =
+    from && isForwardingSubject(subject)
+      ? (deps.forwardingSenders ?? GMAIL_FORWARDING_SENDERS).find(
+          (s) => s.senderAddress.toLowerCase() === from,
+        )
+      : undefined;
+  if (from && forwardingSender) {
+    const verdict = await deps.verifyDkim(mail.raw);
+    if (
+      verdict.result !== "pass" ||
+      verdict.domain === null ||
+      !domainAligned(verdict.domain, from, forwardingSender.dkimDomain)
+    ) {
+      await emit("receipt.rejected", { receiptId, reason: "dkim_invalid", sender: from });
+      return finish({
+        ...base,
+        state: "rejected",
+        dkimResult: verdict.result,
+        rejectReason: "dkim_invalid",
+      });
+    }
+    const authedMail = { ...base, dkimResult: "pass" as const };
+    const code = extractCode(body);
+    if (!code) {
+      await emit("receipt.failed", { receiptId, reason: "forwarding_code_missing" });
+      return finish({ ...authedMail, state: "failed" });
+    }
+    const ttlHours =
+      deps.settings.forwardConfirmationTtlHours ??
+      SETTINGS["ingest.forward_confirmation_ttl_hours"].default;
+    const expiresAt = new Date(now.getTime() + ttlHours * HOUR_MS).toISOString();
+    await deps.forwarding?.savePending(user.userId, {
+      code,
+      link: extractLink(body, forwardingSender.dkimDomain),
+      expiresAt,
+    });
+    await emit("forwarding.confirmation_received", { code, expiresAt });
+    return finish(authedMail);
+  }
 
   // 1. Authenticate: a valid DKIM signature of the mapped bank domain is required.
   const entry = from
