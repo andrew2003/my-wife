@@ -11,5 +11,7 @@
   "ai.memory.remember_triggers": "hãy nhớ rằng|hãy nhớ là|hãy nhớ|nhớ giúp em|nhớ giúp|nhớ rằng|nhớ là|nhớ nhé|đừng quên",
   "ai.wake.challenge.fingers": "Giơ {n} ngón tay và chụp ảnh anh đã rời giường nhé.",
   "ai.wake.challenge.sink": "Chụp ảnh anh đang đứng ở bồn rửa mặt nhé.",
-  "ai.wake.challenge.object": "Cầm một món đồ trong phòng và chụp ảnh anh cùng món đồ đó nhé."
+  "ai.wake.challenge.object": "Cầm một món đồ trong phòng và chụp ảnh anh cùng món đồ đó nhé.",
+  "ai.wake.retake": "Ảnh này em chưa nhìn rõ. Anh gửi thêm một tấm khác nhé.",
+  "ai.wake.button_check_in": "Em vẫn chưa nhìn rõ qua ảnh. Anh bấm nút xác nhận giúp em nhé."
 }
