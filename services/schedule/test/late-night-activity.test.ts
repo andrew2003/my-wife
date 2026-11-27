@@ -72,6 +72,36 @@ describe("late-night web activity after bedtime", () => {
     expect(events.some((e) => e.type.startsWith("fault."))).toBe(false);
   });
 
+  // Night of Mon 2026-11-23, bedtime 16:00Z; wake default 06:00 local = 23:00Z.
+  it.each([
+    ["before wake time (05:59 local)", {}, "2026-11-23T22:59:00.000Z", true],
+    ["at wake time (06:00 local)", {}, "2026-11-23T23:00:00.000Z", false],
+    ["next morning 07:00 local", {}, "2026-11-24T00:00:00.000Z", false],
+    [
+      "later wake setting, 07:00 local",
+      { "routine.wake.time": "08:00" },
+      "2026-11-24T00:00:00.000Z",
+      true,
+    ],
+    [
+      "weekend wake override on Saturday (night of Friday), 07:30 local",
+      { "routine.weekend.wake_time": "09:00" },
+      "2026-11-28T00:30:00.000Z",
+      true,
+    ],
+  ])("activity %s: labelled %s", async (_n, settings, at, labelled) => {
+    const friday = at.startsWith("2026-11-28");
+    const { activity, lateReminders } = await setup(settings);
+    if (friday) {
+      // Friday night bedtime 16:00Z on 2026-11-27 needs its own week.
+      await activity("2026-11-27T16:10:00.000Z");
+    }
+    const before = lateReminders().length;
+    const res = await activity(at);
+    expect(res.data.labelled).toBe(labelled);
+    expect(lateReminders().length - before).toBe(!friday && labelled ? 1 : 0);
+  });
+
   it("follows the bedtime setting", async () => {
     const { activity, lateReminders } = await setup({ "routine.sleep.start": "22:00" });
     await activity("2026-11-23T15:30:00.000Z");

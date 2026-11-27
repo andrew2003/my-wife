@@ -1,6 +1,7 @@
 import type { EventEnvelope } from "@my-wife/contracts";
 import { RoutineLevelSchema, SETTINGS, type SleepNightStateSchema } from "@my-wife/contracts";
 import type { PlanDeps } from "./plan";
+import { wakeTimeOf } from "./routine-blocks";
 import { zoneParts, zoneSetting, zonedInstant } from "./review";
 
 const MINUTE_MS = 60_000;
@@ -165,7 +166,8 @@ export async function recordWebActivity(
   at: Date,
 ): Promise<LateNightResult> {
   const none: LateNightResult = { labelled: false, label: null, quickReasons: [] };
-  const s = sleepSettings(await deps.readSettings(userId));
+  const raw = await deps.readSettings(userId);
+  const s = sleepSettings(raw);
   if (!s.active) return none;
   // Bring the machine up to `at` first, so activity right after bedtime is not missed.
   await runSleepForUser(deps, userId, at);
@@ -177,7 +179,9 @@ export async function recordWebActivity(
     const night = deps.store.get(userId, nightDate);
     if (!night || night.state !== "sleeping") continue;
     const bedtimeMs = new Date(night.bedtimeAt).getTime();
-    if (atMs < bedtimeMs || atMs >= bedtimeMs + NIGHT_SPAN_MS) continue;
+    if (atMs < bedtimeMs || atMs >= Math.min(wakeAfter(raw, night, s), bedtimeMs + NIGHT_SPAN_MS)) {
+      continue;
+    }
     if (!night.lateNightLabelledAt) {
       await deps.plan.publish(lateNightReminderEvent(deps.plan, night, at));
       night.lateNightLabelledAt = at.toISOString();
@@ -186,6 +190,27 @@ export async function recordWebActivity(
     return { labelled: true, label: "late_night", quickReasons: LATE_NIGHT_QUICK_REASONS };
   }
   return none;
+}
+
+/** First wake time (UTC ms) after the bedtime of `night`; the weekend profile applies to the wake day. */
+function wakeAfter(raw: Record<string, unknown>, night: SleepNight, s: SleepSettings): number {
+  const bedtimeMs = new Date(night.bedtimeAt).getTime();
+  const [y, mo, d] = night.nightDate.split("-").map(Number) as [number, number, number];
+  for (const offset of [0, 1]) {
+    const day = new Date(Date.UTC(y, mo - 1, d) + offset * DAY_MS);
+    const isoDay = `${day.getUTCFullYear()}-${pad(day.getUTCMonth() + 1)}-${pad(day.getUTCDate())}`;
+    const [h, m] = wakeTimeOf(raw, isoDay).split(":").map(Number) as [number, number];
+    const wakeMs = zonedInstant(
+      day.getUTCFullYear(),
+      day.getUTCMonth() + 1,
+      day.getUTCDate(),
+      h,
+      m,
+      s.zone,
+    );
+    if (wakeMs > bedtimeMs) return wakeMs;
+  }
+  return bedtimeMs + NIGHT_SPAN_MS;
 }
 
 function lateNightReminderEvent(plan: PlanDeps, night: SleepNight, at: Date): EventEnvelope {
