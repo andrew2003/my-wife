@@ -38,9 +38,11 @@ export function ReceiptConfirmationView(props: ReceiptConfirmationViewProps) {
   }
 
   const amount = `${new Intl.NumberFormat(tag).format(receipt.amountVnd)} ${t("receipt.currency")}`;
-  const when = new Intl.DateTimeFormat(tag, { dateStyle: "medium", timeStyle: "short", timeZone }).format(
-    new Date(receipt.occurredAt),
-  );
+  const when = new Intl.DateTimeFormat(tag, {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone,
+  }).format(new Date(receipt.occurredAt));
   const rows: [string, string][] = [
     [t("receipt.field.direction"), t(`receipt.direction.${receipt.direction}`)],
     [t("receipt.field.amount"), amount],

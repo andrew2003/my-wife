@@ -128,6 +128,10 @@ describe("anomaly list", () => {
   it("links receipt anomalies to the confirmation screen only", () => {
     expect(anomalyHref(anomalies[0] as never)).toBe(`/receipts/${ID}`);
     expect(anomalyHref(anomalies[1] as never)).toBeNull();
+    expect(anomalyHref({ kind: "unknown_receipt", subjectRef: `receipt:${ID}` })).toBe(
+      `/receipts/${ID}`,
+    );
+    expect(anomalyHref({ kind: "unknown_receipt", subjectRef: "anomaly:x" })).toBeNull();
     expect(view({})).toContain(`href="/receipts/${ID}"`);
   });
 

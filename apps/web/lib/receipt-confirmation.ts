@@ -28,11 +28,18 @@ const RECEIPT_ANOMALY_KINDS: ReadonlySet<AnomalyView["kind"]> = new Set([
   "receipt_failed",
 ]);
 
-/** Link to the confirmation screen, or null when the anomaly has no receipt to open. */
+/**
+ * Link to the confirmation screen, or null when the anomaly has no receipt to open. Budget writes
+ * `receipt:<id>` as the subject of receipt anomalies; a bare id is accepted for needs_confirmation.
+ */
 export function anomalyHref(anomaly: Pick<AnomalyView, "kind" | "subjectRef">): string | null {
-  return RECEIPT_ANOMALY_KINDS.has(anomaly.kind)
-    ? `/receipts/${encodeURIComponent(anomaly.subjectRef)}`
-    : null;
+  if (!RECEIPT_ANOMALY_KINDS.has(anomaly.kind)) return null;
+  const prefix = "receipt:";
+  const { subjectRef } = anomaly;
+  const id = subjectRef.startsWith(prefix) ? subjectRef.slice(prefix.length) : subjectRef;
+  const bare = !subjectRef.startsWith(prefix);
+  if (id.length === 0 || (bare && anomaly.kind !== "needs_confirmation")) return null;
+  return `/receipts/${encodeURIComponent(id)}`;
 }
 
 /** Only a receipt that waits for the user can be confirmed or rejected. */

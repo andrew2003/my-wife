@@ -26,5 +26,12 @@ export function AnomalyListScreen({ locale }: { locale: Locale }) {
     void load();
   }, [load]);
 
-  return <AnomalyListView locale={locale} status={status} anomalies={anomalies} onRetry={() => void load()} />;
+  return (
+    <AnomalyListView
+      locale={locale}
+      status={status}
+      anomalies={anomalies}
+      onRetry={() => void load()}
+    />
+  );
 }
