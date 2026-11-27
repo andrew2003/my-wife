@@ -227,6 +227,13 @@ export function createDrizzleStore(rootDb: NodePgDatabase): IdentityStore {
       const [r] = await db.select().from(invitations).where(eq(invitations.tokenHash, hash));
       return r && toInvitation(r);
     },
+    async findInvitationById(id) {
+      const [r] = await db.select().from(invitations).where(eq(invitations.id, id));
+      return r && toInvitation(r);
+    },
+    async listInvitations() {
+      return (await db.select().from(invitations)).map(toInvitation);
+    },
     async findOpenInvitationByEmail(email, now) {
       const [r] = await db
         .select()
