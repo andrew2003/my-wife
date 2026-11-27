@@ -126,7 +126,8 @@ const startOfDay = (isoDay: string) => Date.parse(`${isoDay}T00:00:00Z`);
  * Budget and schedule share the week boundary: a week of a known cycle starts on the cycle first
  * day plus whole weeks. `none` means no cycle starts on or before the day (nothing to share yet).
  */
-export type CycleWeek = { kind: "none" } | { kind: "misaligned" } | { kind: "index"; index: number };
+export type CycleWeek =
+  { kind: "none" } | { kind: "misaligned" } | { kind: "index"; index: number };
 
 export function cycleWeekOf(cycleFirstDays: string[], firstDay: string): CycleWeek {
   const day = startOfDay(firstDay);
