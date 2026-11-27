@@ -121,10 +121,7 @@ describe("frame guard", () => {
     );
     await ok.run();
     expect(ok.net.requests).toHaveLength(1);
-    const other = post(
-      "/api/appeals",
-      JSON.stringify({ imageBase64: b64(BIG_FRAME) }),
-    );
+    const other = post("/api/appeals", JSON.stringify({ imageBase64: b64(BIG_FRAME) }));
     await expect(other.run()).rejects.toThrow();
   });
 
