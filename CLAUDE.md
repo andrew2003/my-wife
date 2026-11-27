@@ -96,3 +96,5 @@ The project is built by agents running in cycles. Orchestration instructions are
 ## Commands
 
 Added during milestone M0 (install, run, test, run the four scenarios, rebuild the demo state).
+
+The step-by-step guide to verify the four scenarios is `docs/acceptance-guide.md`.
