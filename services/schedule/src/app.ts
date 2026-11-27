@@ -226,7 +226,9 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
       return fail(
         reply,
         409,
-        res.error === "subtasks_open" ? "schedule.task_subtasks_open" : "schedule.task_invalid_state",
+        res.error === "subtasks_open"
+          ? "schedule.task_subtasks_open"
+          : "schedule.task_invalid_state",
       );
     };
   app.post("/tasks/start", transition(startTask, StartTaskRequestSchema));

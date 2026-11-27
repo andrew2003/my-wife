@@ -109,7 +109,8 @@ function envelope(deps: PlanDeps, id: string, type: string, userId: string, payl
 }
 
 export type TaskResult =
-  { ok: true; task: PlanTask } | { ok: false; error: "not_in_plan" | "invalid_state" | "subtasks_open" };
+  | { ok: true; task: PlanTask }
+  | { ok: false; error: "not_in_plan" | "invalid_state" | "subtasks_open" };
 
 /**
  * Start: only a task of this user that is still `planned` can be started. The state is claimed
