@@ -1,16 +1,19 @@
 import type { AppConfig } from "@my-wife/config";
 import {
+  AppealFrameRequestSchema,
   DecideAppealRequestSchema,
   IdSchema,
   OpenAppealRequestSchema,
   parseEvent,
   SignContractRequestSchema,
+  type ConsentKind,
   type EventEnvelope,
 } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
   createAppealService,
   InMemoryAppealStore,
+  type AppealFrameStore,
   type AppealRecord,
   type AppealSettings,
   type AppealStore,
@@ -76,6 +79,10 @@ export type RulesDeps = ServiceDeps & {
   /** The user's `want` categories with unspent limit (budget); no allocation when absent. */
   readWantList?: PenaltyServiceDeps["readWantList"];
   appealStore?: AppealStore;
+  /** Short-lived store for the consented appeal frame; frames are refused when absent. */
+  appealFrameStore?: AppealFrameStore;
+  /** Reads whether the user holds a consent (identity); every consent is missing when absent. */
+  hasConsent?: (userId: string, kind: ConsentKind) => Promise<boolean>;
   /** Reads the user's appeal settings (`appeal.window_hours`); registry defaults when absent. */
   readAppealSettings?: (userId: string) => Promise<AppealSettings>;
   /** Reads the user's trial settings (identity `GET /settings`); registry defaults when absent. */
@@ -262,6 +269,8 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
 
   const appeals = createAppealService({
     store: deps.appealStore ?? new InMemoryAppealStore(),
+    frameStore: deps.appealFrameStore,
+    hasConsent: deps.hasConsent,
     faultStore,
     penaltyStore,
     publish: deps.publish,
@@ -288,6 +297,35 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     const result = await appeals.open(userId, body.data, now);
     if (!result.ok) {
       return reply.code(409).send({ ok: false, error: { code: result.error } });
+    }
+    return { ok: true, data: { appeal: toAppealView(result.appeal) } };
+  });
+
+  // The single consented frame of an appeal; deleted when the appeal is decided.
+  app.post("/appeals/frame", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const body = AppealFrameRequestSchema.safeParse(req.body);
+    if (!body.success) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    const result = await appeals.attachFrame(
+      userId,
+      body.data.appealId,
+      body.data.frameBase64,
+      now,
+    );
+    if (!result.ok) {
+      const code =
+        result.error === "rules.appeal_not_found"
+          ? 404
+          : result.error === "rules.consent_missing"
+            ? 403
+            : 409;
+      return reply.code(code).send({ ok: false, error: { code: result.error } });
     }
     return { ok: true, data: { appeal: toAppealView(result.appeal) } };
   });

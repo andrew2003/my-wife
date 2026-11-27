@@ -4,6 +4,7 @@ import {
   SETTINGS,
   type EventEnvelope,
   type EventPayload,
+  type ConsentKind,
 } from "@my-wife/contracts";
 import type { FaultAuditRecord, FaultStore } from "./fault";
 import type { PenaltyAuditRecord, PenaltyStore } from "./penalty";
@@ -37,7 +38,7 @@ export type AppealRecord = {
 export type AppealAuditRecord = {
   id: string;
   appealId: string;
-  action: "appeal.opened" | "appeal.decided";
+  action: "appeal.opened" | "appeal.decided" | "appeal.frame_attached" | "appeal.frame_deleted";
   at: string;
   detail: Record<string, unknown>;
 };
@@ -63,10 +64,44 @@ export interface AppealStore {
     audit: AppealAuditRecord,
   ): AppealRecord | undefined;
   markPublished(userId: string, appealId: string, kind: "opened" | "decided"): void;
+  /** Sets the evidence-frame flag of an appeal and writes the audit record. */
+  setEvidenceFrame(
+    userId: string,
+    appealId: string,
+    present: boolean,
+    audit: AppealAuditRecord,
+  ): boolean;
   /** Appeals with an owed event, oldest first. */
   owed(userId: string): { appeal: AppealRecord; kind: "opened" | "decided" }[];
   list(userId: string): readonly AppealRecord[];
   audit(userId: string): readonly AppealAuditRecord[];
+}
+
+/**
+ * Holds the single consented appeal frame until the decision. A real implementation must be
+ * short-lived storage; nothing else in the service keeps image data.
+ */
+export interface AppealFrameStore {
+  put(userId: string, appealId: string, frameBase64: string): void;
+  has(userId: string, appealId: string): boolean;
+  /** Removes the frame; true when one existed. */
+  delete(userId: string, appealId: string): boolean;
+}
+
+export class InMemoryAppealFrameStore implements AppealFrameStore {
+  private readonly frames = new Map<string, string>();
+  private key(userId: string, appealId: string) {
+    return `${userId}:${appealId}`;
+  }
+  put(userId: string, appealId: string, frameBase64: string) {
+    this.frames.set(this.key(userId, appealId), frameBase64);
+  }
+  has(userId: string, appealId: string) {
+    return this.frames.has(this.key(userId, appealId));
+  }
+  delete(userId: string, appealId: string) {
+    return this.frames.delete(this.key(userId, appealId));
+  }
 }
 
 export class InMemoryAppealStore implements AppealStore {
@@ -121,6 +156,13 @@ export class InMemoryAppealStore implements AppealStore {
     this.addAudit(userId, audit);
     return row.appeal;
   }
+  setEvidenceFrame(userId: string, appealId: string, present: boolean, audit: AppealAuditRecord) {
+    const row = this.row(userId, appealId);
+    if (!row) return false;
+    row.appeal = Object.freeze({ ...row.appeal, hasEvidenceFrame: present });
+    this.addAudit(userId, audit);
+    return true;
+  }
   markPublished(userId: string, appealId: string, kind: "opened" | "decided") {
     const row = this.row(userId, appealId);
     if (!row) return;
@@ -170,8 +212,24 @@ export type DecideAppealResult =
       error: "rules.appeal_not_found" | "rules.appeal_already_decided" | "rules.fault_not_appealed";
     };
 
+export type AttachFrameResult =
+  | { ok: true; appeal: AppealRecord }
+  | {
+      ok: false;
+      error:
+        | "rules.invalid_appeal"
+        | "rules.appeal_not_found"
+        | "rules.appeal_already_decided"
+        | "rules.frame_already_attached"
+        | "rules.consent_missing";
+    };
+
 export type AppealServiceDeps = {
   store: AppealStore;
+  /** Where the consented frame lives until the decision; without it no frame is accepted. */
+  frameStore?: AppealFrameStore;
+  /** Tells whether the user currently holds a consent (identity); false when absent. */
+  hasConsent?: (userId: string, kind: ConsentKind) => Promise<boolean>;
   faultStore: FaultStore;
   penaltyStore: PenaltyStore;
   publish?: (event: EventEnvelope) => void | Promise<void>;
@@ -192,6 +250,24 @@ export function createAppealService(deps: AppealServiceDeps) {
   const readSettings = deps.readSettings ?? (async () => DEFAULT_APPEAL_SETTINGS);
   const maxLagMs = deps.maxPenaltyLagMs ?? 14 * 24 * HOUR_MS;
   const claimed = new Set<string>();
+
+  /** Deletes the frame of a decided appeal and records it; a failure leaves it for a retry. */
+  function purgeFrame(userId: string, appeal: AppealRecord, now: Date): void {
+    if (!deps.frameStore || !appeal.hasEvidenceFrame || appeal.status === "open") return;
+    try {
+      deps.frameStore.delete(userId, appeal.id);
+    } catch (err) {
+      deps.onPublishError?.(err);
+      return;
+    }
+    deps.store.setEvidenceFrame(userId, appeal.id, false, {
+      id: newId(),
+      appealId: appeal.id,
+      action: "appeal.frame_deleted",
+      at: now.toISOString(),
+      detail: {},
+    });
+  }
 
   async function emitOwed(userId: string, now: Date): Promise<void> {
     for (const { appeal, kind } of deps.store.owed(userId)) {
@@ -400,12 +476,42 @@ export function createAppealService(deps: AppealServiceDeps) {
           deps.penaltyStore.reverse(userId, appeal.penaltyId, appealId, at, audit);
         else deps.penaltyStore.releaseAppealHold(userId, appeal.penaltyId, appealId, audit);
       }
+      purgeFrame(userId, appeal, now);
       await emitOwed(userId, now);
-      return { ok: true, appeal };
+      return { ok: true, appeal: deps.store.find(userId, appealId) ?? appeal };
     },
 
-    /** Re-publishes events whose publish failed earlier. */
+    /**
+     * Stores the single camera frame sent with an appeal. It needs the `vision_frame` consent at
+     * this moment; the frame lives only until the decision, which deletes it.
+     */
+    async attachFrame(
+      userId: string,
+      appealId: string,
+      frameBase64: string,
+      now: Date,
+    ): Promise<AttachFrameResult> {
+      if (frameBase64.trim() === "") return { ok: false, error: "rules.invalid_appeal" };
+      const appeal = deps.store.find(userId, appealId);
+      if (!appeal) return { ok: false, error: "rules.appeal_not_found" };
+      if (appeal.status !== "open") return { ok: false, error: "rules.appeal_already_decided" };
+      if (appeal.hasEvidenceFrame) return { ok: false, error: "rules.frame_already_attached" };
+      if (!deps.frameStore || !deps.hasConsent || !(await deps.hasConsent(userId, "vision_frame")))
+        return { ok: false, error: "rules.consent_missing" };
+      deps.frameStore.put(userId, appealId, frameBase64);
+      deps.store.setEvidenceFrame(userId, appealId, true, {
+        id: newId(),
+        appealId,
+        action: "appeal.frame_attached",
+        at: now.toISOString(),
+        detail: {},
+      });
+      return { ok: true, appeal: deps.store.find(userId, appealId)! };
+    },
+
+    /** Re-publishes events whose publish failed earlier and retries frame deletions. */
     async retryPending(userId: string, now: Date): Promise<void> {
+      for (const a of deps.store.list(userId)) purgeFrame(userId, a, now);
       await emitOwed(userId, now);
     },
 
