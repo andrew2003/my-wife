@@ -685,6 +685,69 @@ export function createPenaltyService(deps: PenaltyServiceDeps) {
     },
 
     /**
+     * Issues one monitoring penalty computed by the weekly job (the amount is already decided
+     * by code from recorded fault points). One ledger entry with its audit record per
+     * `sourceKey`; suspended during the trial, otherwise `due`. A repeat call adds no entry and
+     * only re-sends an event that is still owed. Money is not allocated from the want list here.
+     */
+    async issueMonitoring(
+      userId: string,
+      input: {
+        sourceKey: string;
+        amountVnd: number;
+        transferCode: string;
+        detail: Record<string, unknown>;
+      },
+      now: Date,
+    ): Promise<{ penaltyId: string; status: "suspended" | "due"; duplicate: boolean }> {
+      const existing = deps.store.findBySource(userId, input.sourceKey);
+      if (existing) {
+        await emitOwed(userId, input.sourceKey, now);
+        return {
+          penaltyId: existing.id,
+          status: existing.status === "suspended" ? "suspended" : "due",
+          duplicate: true,
+        };
+      }
+      const trial = deps.trialStore.find(userId);
+      const inTrial =
+        trial !== undefined && trial.state === "active" && now.getTime() < Date.parse(trial.endsAt);
+      const id = newId();
+      const entry: PenaltyLedgerEntry = {
+        id,
+        source: "monitoring",
+        amountVnd: input.amountVnd,
+        status: inTrial ? "suspended" : "due",
+        dueDate: new Date(now.getTime() + dueDays * DAY_MS).toISOString(),
+        transferCode: input.transferCode,
+        sourceKey: input.sourceKey,
+        auditRefs: [],
+        issuedAt: now.toISOString(),
+        contractId: null,
+      };
+      const audit: PenaltyAuditRecord = {
+        id: newId(),
+        penaltyId: id,
+        action: "penalty.created",
+        at: now.toISOString(),
+        detail: { ...input.detail, sourceKey: input.sourceKey, status: entry.status },
+      };
+      entry.auditRefs.push(audit.id);
+      const inserted = deps.store.insertOnce(userId, entry, audit);
+      if (inserted && inTrial) {
+        deps.trialStore.addSuspended(userId, [
+          { id, source: "monitoring", amountVnd: entry.amountVnd },
+        ]);
+      }
+      await emitOwed(userId, input.sourceKey, now);
+      return {
+        penaltyId: id,
+        status: entry.status === "suspended" ? "suspended" : "due",
+        duplicate: !inserted,
+      };
+    },
+
+    /**
      * Consumes `penalty_savings.withdrawal_detected`: money left the penalty savings account.
      * The user repays it and pays `penalty.withdrawal_extra_percent` extra, so one flagged
      * `withdrawal` entry of repayment plus extra is issued (suspended during the trial, like
