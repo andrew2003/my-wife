@@ -7,9 +7,7 @@ import {
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export type LedgerResult =
-  | { status: "ready"; penalties: PenaltyLedgerEntry[] }
-  | { status: "empty" }
-  | { status: "error" };
+  { status: "ready"; penalties: PenaltyLedgerEntry[] } | { status: "empty" } | { status: "error" };
 
 /** Reads the whole penalty ledger (suspended, due and paid) through the gateway. */
 export async function loadLedger(doFetch: FetchLike = fetch): Promise<LedgerResult> {

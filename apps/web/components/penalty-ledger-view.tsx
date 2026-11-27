@@ -79,9 +79,7 @@ export function PenaltyLedgerView(props: PenaltyLedgerViewProps) {
                   {t("penalty.appeal.reason")}
                   <textarea name="reason" required rows={3} />
                 </label>
-                {appealState === "failed" ? (
-                  <p role="alert">{t("penalty.appeal.failed")}</p>
-                ) : null}
+                {appealState === "failed" ? <p role="alert">{t("penalty.appeal.failed")}</p> : null}
                 <button type="submit" className="button" disabled={appealState === "sending"}>
                   {t("penalty.appeal.submit")}
                 </button>

@@ -106,8 +106,7 @@ describe("loadLedger", () => {
     const ok = async () => json(200, { ok: true, data: { penalties, suspendedTotalVnd: 70_000 } });
     const res = await loadLedger(ok as never);
     expect(res.status === "ready" && res.penalties).toHaveLength(3);
-    const none = async () =>
-      json(200, { ok: true, data: { penalties: [], suspendedTotalVnd: 0 } });
+    const none = async () => json(200, { ok: true, data: { penalties: [], suspendedTotalVnd: 0 } });
     expect((await loadLedger(none as never)).status).toBe("empty");
     expect((await loadLedger((async () => json(500, {})) as never)).status).toBe("error");
   });
