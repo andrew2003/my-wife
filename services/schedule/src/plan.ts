@@ -20,6 +20,14 @@ export interface PlanTask {
   parentRecurrenceId: string | null;
 }
 
+export interface PlanSubtask {
+  id: string;
+  userId: string;
+  taskId: string;
+  title: string;
+  done: boolean;
+}
+
 export interface PlanWeek {
   id: string;
   userId: string;
@@ -36,6 +44,9 @@ export interface PlanStore {
   addTask(task: PlanTask): void;
   getTask(userId: string, taskId: string): PlanTask | undefined;
   tasksOn(userId: string, day: string): PlanTask[];
+  addSubtask(subtask: PlanSubtask): void;
+  getSubtask(userId: string, subtaskId: string): PlanSubtask | undefined;
+  subtasksOf(userId: string, taskId: string): PlanSubtask[];
   addWeek(week: PlanWeek): void;
   getWeek(userId: string, weekId: string): PlanWeek | undefined;
   latestWeek(userId: string): PlanWeek | undefined;
@@ -45,7 +56,15 @@ export interface PlanStore {
 export function createMemoryPlanStore(): PlanStore {
   const tasks = new Map<string, PlanTask>();
   const weeks = new Map<string, PlanWeek>();
+  const subtasks = new Map<string, PlanSubtask>();
   return {
+    addSubtask: (s) => void subtasks.set(s.id, s),
+    getSubtask: (userId, id) => {
+      const s = subtasks.get(id);
+      return s && s.userId === userId ? s : undefined;
+    },
+    subtasksOf: (userId, taskId) =>
+      [...subtasks.values()].filter((s) => s.userId === userId && s.taskId === taskId),
     addTask: (t) => void tasks.set(t.id, t),
     getTask: (userId, id) => {
       const t = tasks.get(id);
@@ -90,7 +109,8 @@ function envelope(deps: PlanDeps, id: string, type: string, userId: string, payl
 }
 
 export type TaskResult =
-  { ok: true; task: PlanTask } | { ok: false; error: "not_in_plan" | "invalid_state" };
+  | { ok: true; task: PlanTask }
+  | { ok: false; error: "not_in_plan" | "invalid_state" | "subtasks_open" };
 
 /**
  * Start: only a task of this user that is still `planned` can be started. The state is claimed
@@ -134,6 +154,9 @@ export async function completeTask(
   if (!task) return { ok: false, error: "not_in_plan" };
   const from = task.state;
   if (from !== "planned" && from !== "in_progress") return { ok: false, error: "invalid_state" };
+  // The parent can be completed only when every sub-task is done.
+  if (deps.store.subtasksOf(userId, taskId).some((s) => !s.done))
+    return { ok: false, error: "subtasks_open" };
   task.state = "done";
   try {
     if (from === "planned") await publishStarted(deps, task);

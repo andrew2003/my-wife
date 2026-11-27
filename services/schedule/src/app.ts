@@ -9,6 +9,7 @@ import {
   parseEvent,
   SETTINGS,
   StartTaskRequestSchema,
+  SubtaskSchema,
   WeekPlannedItemSchema,
   type EventEnvelope,
 } from "@my-wife/contracts";
@@ -23,6 +24,7 @@ import {
   startTask,
   type PlanDeps,
   type PlanStore,
+  type PlanSubtask,
   type PlanTask,
 } from "./plan";
 import {
@@ -220,12 +222,57 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
       if (!parsed.success) return fail(reply, 400, "schedule.invalid_request");
       const res = await run(plan, userId, parsed.data.taskId);
       if (res.ok) return { ok: true, data: { task: taskView(res.task) } };
-      return res.error === "not_in_plan"
-        ? fail(reply, 404, "schedule.task_not_in_plan")
-        : fail(reply, 409, "schedule.task_invalid_state");
+      if (res.error === "not_in_plan") return fail(reply, 404, "schedule.task_not_in_plan");
+      return fail(
+        reply,
+        409,
+        res.error === "subtasks_open"
+          ? "schedule.task_subtasks_open"
+          : "schedule.task_invalid_state",
+      );
     };
   app.post("/tasks/start", transition(startTask, StartTaskRequestSchema));
   app.post("/tasks/complete", transition(completeTask, CompleteTaskRequestSchema));
+
+  const subtaskView = ({ userId: _userId, ...s }: PlanSubtask) => s;
+
+  app.post("/tasks/subtasks", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const parsed = SubtaskSchema.pick({ taskId: true, title: true }).safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "schedule.invalid_request");
+    if (!plan.store.getTask(userId, parsed.data.taskId))
+      return fail(reply, 404, "schedule.task_not_in_plan");
+    const subtask: PlanSubtask = { id: randomUUID(), userId, ...parsed.data, done: false };
+    plan.store.addSubtask(subtask);
+    return { ok: true, data: { subtask: subtaskView(subtask) } };
+  });
+
+  app.get("/tasks/subtasks", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const taskId = IdSchema.safeParse((req.query as { taskId?: string }).taskId);
+    if (!taskId.success) return fail(reply, 400, "schedule.invalid_request");
+    if (!plan.store.getTask(userId, taskId.data))
+      return fail(reply, 404, "schedule.task_not_in_plan");
+    return {
+      ok: true,
+      data: { subtasks: plan.store.subtasksOf(userId, taskId.data).map(subtaskView) },
+    };
+  });
+
+  app.post("/subtasks/done", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const parsed = SubtaskSchema.pick({ done: true })
+      .extend({ subtaskId: IdSchema })
+      .safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "schedule.invalid_request");
+    const subtask = plan.store.getSubtask(userId, parsed.data.subtaskId);
+    if (!subtask) return fail(reply, 404, "schedule.subtask_not_found");
+    subtask.done = parsed.data.done;
+    return { ok: true, data: { subtask: subtaskView(subtask) } };
+  });
 
   /** Daily checklist: the tasks of one day, in plan order. */
   app.get("/checklist", async (req, reply) => {
