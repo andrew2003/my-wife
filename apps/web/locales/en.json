@@ -435,5 +435,9 @@
   "inbox.question.delivered_inbox_only": "Waiting for your answer",
   "inbox.question.answered": "Answered",
   "inbox.question.expired": "Expired",
-  "inbox.question.cancelled": "Cancelled"
+  "inbox.question.cancelled": "Cancelled",
+  "feature.disabled.camera_supervision": "Camera supervision is turned off for your account by the administrator.",
+  "feature.disabled.wake_photo": "The wake photo is turned off for your account by the administrator.",
+  "feature.disabled.sync": "Sync is turned off for your account by the administrator.",
+  "feature.disabled.email_ingest": "Bank email ingest is turned off for your account by the administrator."
 }

@@ -435,5 +435,9 @@
   "inbox.question.delivered_inbox_only": "Đang chờ bạn trả lời",
   "inbox.question.answered": "Đã trả lời",
   "inbox.question.expired": "Đã hết hạn",
-  "inbox.question.cancelled": "Đã hủy"
+  "inbox.question.cancelled": "Đã hủy",
+  "feature.disabled.camera_supervision": "Giám sát bằng camera đã bị quản trị viên tắt cho tài khoản của bạn.",
+  "feature.disabled.wake_photo": "Ảnh thức dậy đã bị quản trị viên tắt cho tài khoản của bạn.",
+  "feature.disabled.sync": "Đồng bộ đã bị quản trị viên tắt cho tài khoản của bạn.",
+  "feature.disabled.email_ingest": "Nhận email ngân hàng đã bị quản trị viên tắt cho tài khoản của bạn."
 }
