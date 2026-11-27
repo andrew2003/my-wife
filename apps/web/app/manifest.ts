@@ -1,7 +1,8 @@
-import { defaultLocale, translate } from "../lib/i18n";
+import { configuredLocale, translate } from "../lib/i18n";
 
+/** A manifest has no user context, so it uses the configured default language. */
 export default function manifest() {
-  const locale = defaultLocale(process.env.UI_LANGUAGE);
+  const locale = configuredLocale();
   return {
     name: translate(locale, "app.name"),
     short_name: translate(locale, "app.name"),

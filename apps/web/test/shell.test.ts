@@ -40,7 +40,7 @@ describe("sign-in page (anonymous visitor, UI_LANGUAGE=vi)", () => {
     const html = renderToStaticMarkup(
       createElement(SignInPage, { locale: "vi", loginMethod: "google" }),
     );
-    expect(html).toContain("/locale?to=en");
+    expect(html).toContain("/locale?lang=en");
   });
 });
 

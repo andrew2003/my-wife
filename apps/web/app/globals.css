@@ -155,3 +155,19 @@ body {
   margin: 0.5rem 0;
   overflow-wrap: anywhere;
 }
+
+.locale-switch {
+  display: inline-flex;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.locale-switch a {
+  padding: 0.25rem 0.75rem;
+  text-decoration: none;
+}
+.locale-switch a[data-active="true"] {
+  background: CanvasText;
+  color: Canvas;
+  font-weight: 600;
+}
