@@ -138,6 +138,25 @@ describe("processInbound", () => {
     expect(types()).toEqual(["receipt.parsed", "receipt.parsed"]);
   });
 
+  it("delivers the same mail twice: the second is duplicate and nothing more is emitted", async () => {
+    const raw = await buildMail();
+    expect(await run(raw)).toMatchObject({ state: "parsed" });
+    expect(await run(raw)).toMatchObject({ state: "duplicate" });
+    expect(types()).toEqual(["receipt.parsed"]);
+  });
+
+  it("does not store a mail from a user without the email consent", async () => {
+    const store = deps.store as MemoryIngestStore;
+    for (let i = 0; i < 2; i++) {
+      expect(await run(await buildMail(), "u-nc@in.example.test")).toMatchObject({
+        state: "rejected",
+        reason: "no_consent",
+      });
+    }
+    expect(store.size()).toBe(0);
+    expect(types()).toEqual(["receipt.rejected", "receipt.rejected"]);
+  });
+
   it("rejects without consent and rejects oversize mail", async () => {
     expect(await run(await buildMail(), "u-nc@in.example.test")).toMatchObject({
       state: "rejected",
