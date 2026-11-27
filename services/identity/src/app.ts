@@ -52,6 +52,13 @@ import {
   featureDisabledNoticeKey,
   type FeatureFlagStore,
 } from "./feature-flags";
+import {
+  CHECKLIST_STEPS,
+  resolveItem,
+  runCheck,
+  type ChecklistChecks,
+  type ChecklistStep,
+} from "./checklist";
 import { createSenderMapStore, type SenderMapEntry, type SenderMapStore } from "./sender-map";
 import { encryptSecret, parseKeyring } from "./secrets-crypto";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
@@ -76,6 +83,8 @@ export type IdentityDeps = ServiceDeps & {
   exportBaseUrl?: string;
   /** Current consent text version per kind (default 1); raising it asks for consent again. */
   consentTextVersions?: Partial<Record<ConsentKind, number>>;
+  /** Real checks owned by other services (linked channel, verified forwarding). */
+  checks?: ChecklistChecks;
   /** Time is a parameter so tests can simulate it. */
   now?: () => Date;
   /** Overrides of admin settings; defaults come from the contracts registry. */
@@ -478,6 +487,37 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       await store.saveOnboardingStep({ ...record, eventAt: now().toISOString() });
     }
     return { ok: true, data: { step, skipped: record.skipped } };
+  });
+
+  /**
+   * The setup checklist: every item reflects a real check (spec 40 section 7). Items with no
+   * server-side fact (do_not_disturb) fall back to the recorded step.
+   */
+  app.get("/onboarding/checklist", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const recorded = new Map(
+      (await store.listOnboardingSteps(userId)).filter((r) => r.eventAt).map((r) => [r.step, r]),
+    );
+    const secrets = await store.listSecrets(userId);
+    const [channel, forwarding, camera] = await Promise.all([
+      runCheck(deps.checks?.channelLinked, userId),
+      runCheck(deps.checks?.forwardingVerified, userId),
+      consentStatus(userId, "camera"),
+    ]);
+    const results: Record<ChecklistStep, boolean | undefined> = {
+      connect_channel: channel,
+      llm_key: secrets.some((s) => s.kind === "llm_key"),
+      mail_forwarding: forwarding,
+      notifications_camera_install: camera.granted,
+      do_not_disturb: undefined,
+    };
+    return {
+      ok: true,
+      data: {
+        items: CHECKLIST_STEPS.map((step) => resolveItem(step, results[step], recorded.get(step))),
+      },
+    };
   });
 
   /** Whether a step is finished (event delivered) and whether it was skipped. */

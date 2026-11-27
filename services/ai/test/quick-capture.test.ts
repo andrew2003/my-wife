@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { resolveDay } from "../src/chat/capture";
 import { ChatService } from "../src/chat/chat-service";
 import { FakeLlmProvider } from "../src/llm";
 import { InMemoryAuditLog, ToolExecutor, type ToolBackends } from "../src/tools";
 
-const NOW = new Date("2026-11-28T10:00:00Z");
+const NOW = new Date("2026-11-28T12:00:00Z");
 
 function setup(
   reply: ConstructorParameters<typeof FakeLlmProvider>[0],
@@ -67,7 +68,28 @@ describe("quick capture in chat", () => {
       { "calendar.time_zone": "Pacific/Auckland" },
     );
     await chat.handleMessage("buy rice tomorrow", "en", "u1");
-    // 10:00Z on the 28th is 23:00 on the 28th in Auckland (UTC+13), so tomorrow is the 29th.
+    // 12:00Z on the 28th is 01:00 on the 29th in Auckland (UTC+13): tomorrow is the 30th (UTC gives the 29th).
+    expect(created[0]?.day).toBe("2026-11-30");
+  });
+
+  it("resolves 'today' in the user's time zone", async () => {
+    const created: { day?: string }[] = [];
+    const { chat } = setup(
+      {
+        reply: () => ({
+          text: "ok",
+          toolCalls: [{ tool: "create_task", args: { title: "Rice", day: "today" } }],
+        }),
+      },
+      {
+        createTask: async (_u, args) => {
+          created.push(args);
+          return {};
+        },
+      },
+      { "calendar.time_zone": "Pacific/Auckland" },
+    );
+    await chat.handleMessage("rice today", "en", "u1");
     expect(created[0]?.day).toBe("2026-11-29");
   });
 
@@ -129,8 +151,9 @@ describe("quick capture in chat", () => {
         },
       },
     );
-    await chat.handleMessage("buy rice", "en", "u1");
+    const result = await chat.handleMessage("buy rice", "en", "u1");
     expect(created).toEqual([{ title: "Buy rice" }]);
+    expect(text(result)).toContain("could not tell which day");
   });
 
   it("says so when the backend fails, and never claims success", async () => {
@@ -212,5 +235,29 @@ describe("quick capture in chat", () => {
     );
     await chat.handleMessage("many", "en", "u1");
     expect(called).toBe(3);
+  });
+});
+
+describe("resolveDay", () => {
+  const at = new Date("2026-12-31T12:00:00Z");
+  const cases: [string, string | undefined, string, string | undefined][] = [
+    ["tomorrow rolls the year", "tomorrow", "UTC", "2027-01-01"],
+    ["mixed case and spaces", "  ToMorROW ", "UTC", "2027-01-01"],
+    ["today", "TODAY", "UTC", "2026-12-31"],
+    ["zone ahead of UTC", "today", "Pacific/Auckland", "2027-01-01"],
+    ["valid iso", "2026-02-28", "UTC", "2026-02-28"],
+    ["impossible date", "2026-02-30", "UTC", undefined],
+    ["leap day in a non-leap year", "2026-02-29", "UTC", undefined],
+    ["free text", "next friday", "UTC", undefined],
+    ["empty", "", "UTC", undefined],
+    ["missing", undefined, "UTC", undefined],
+    ["invalid zone", "tomorrow", "Not/AZone", undefined],
+  ];
+  it.each(cases)("%s", (_name, proposed, zone, expected) => {
+    expect(resolveDay(proposed, at, zone)).toBe(expected);
+  });
+
+  it("rolls over a month end", () => {
+    expect(resolveDay("tomorrow", new Date("2026-02-28T05:00:00Z"), "UTC")).toBe("2026-03-01");
   });
 });

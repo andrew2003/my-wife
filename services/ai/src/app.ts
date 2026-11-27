@@ -70,7 +70,8 @@ export interface AiDeps extends ServiceDeps {
       | "ai.handover_failed"
       | "ai.model_changed"
       | "ai.degraded_entered"
-      | "ai.degraded_exited";
+      | "ai.degraded_exited"
+      | "ai.token_cap_reached";
     payload: unknown;
   }) => Promise<void>;
   memoryStore?: MemoryStore;
