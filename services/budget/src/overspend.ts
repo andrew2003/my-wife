@@ -7,6 +7,12 @@ import {
 import type { SampleBudgetRecord, SampleBudgetStore } from "./onboarding";
 import { buildWeeklyLimitPlan } from "./weekly-plan";
 import { writeOffOverdueReceivables } from "./debts";
+import {
+  applyExceptions,
+  contingencyBalanceOf,
+  exceptionUsedEvent,
+  type AppliedException,
+} from "./exceptions";
 
 /** An overspend found when a week closed (spec 10 section 8). Integer VND. */
 export interface OverspendRecord {
@@ -40,6 +46,8 @@ export interface WeekCloseOutcome {
   overspends: OverspendRecord[];
   adjustments: LimitAdjustment[];
   debts: PenaltyDebt[];
+  /** Exceptions applied at this close: the excess funded from the contingency fund. */
+  exceptions: AppliedException[];
 }
 
 export type NeedOverspendMode = "penalize" | "warn_only";
@@ -150,6 +158,24 @@ export function createWeekClosedHandler(deps: WeekClosedDeps) {
     }
   };
 
+  const announceExceptions = async (
+    userId: string,
+    cycleId: string,
+    weekIndex: number,
+    at: Date,
+  ) => {
+    const owed = await deps.store.claimExceptionAnnouncements(userId, cycleId, weekIndex);
+    try {
+      for (const c of owed) {
+        await deps.publish(exceptionUsedEvent(userId, c, at));
+        await deps.store.markExceptionAnnounced(userId, c.id);
+      }
+    } catch (err) {
+      await deps.store.releaseExceptionClaims(userId, cycleId, weekIndex);
+      throw err;
+    }
+  };
+
   const compute = (
     record: SampleBudgetRecord,
     weekIndex: number,
@@ -186,7 +212,21 @@ export function createWeekClosedHandler(deps: WeekClosedDeps) {
         spentVnd,
       };
     });
-    const found = detectOverspends(rows, needMode);
+    // Exceptions claimed before the close fund the excess from the contingency fund; the funded
+    // part is neither penalized nor deducted from a later limit (spec 10 section 8).
+    const claimed = new Set(
+      record.exceptionClaims
+        .filter(
+          (c) =>
+            c.cycleId === record.cycle.id && c.weekIndex === weekIndex && c.state === "claimed",
+        )
+        .map((c) => c.categoryId),
+    );
+    const { findings: found, funded } = applyExceptions(
+      detectOverspends(rows, needMode),
+      claimed,
+      contingencyBalanceOf(record),
+    );
     const isLastWeek = weekIndex >= record.cycle.weeks;
     return {
       overspends: found.map((f) => ({
@@ -214,6 +254,7 @@ export function createWeekClosedHandler(deps: WeekClosedDeps) {
           categoryId: f.categoryId,
           amountVnd: f.deductionVnd,
         })),
+      exceptions: funded.filter((e) => e.fundedVnd > 0),
     };
   };
 
@@ -260,5 +301,6 @@ export function createWeekClosedHandler(deps: WeekClosedDeps) {
     if (result === "not_running") return;
     // Also on `duplicate`: a first delivery whose publish failed leaves events owed.
     await announce(event.userId, cycleId, weekIndex, at);
+    await announceExceptions(event.userId, cycleId, weekIndex, at);
   };
 }

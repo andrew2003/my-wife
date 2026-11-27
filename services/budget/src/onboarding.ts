@@ -15,6 +15,7 @@ import type { TransactionRecord } from "./transactions";
 import type { AnomalyRecord } from "./unknown-spend";
 import type { DebtRecord } from "./debts";
 import type { LimitAdjustment, OverspendRecord, PenaltyDebt, WeekCloseOutcome } from "./overspend";
+import type { ExceptionClaim } from "./exceptions";
 
 /**
  * Default total of the sample budget when the user gave no answer (decisions.md, MW-013).
@@ -36,6 +37,8 @@ export interface AuditRecord {
     | "income_recorded"
     | "category_created"
     | "week_closed"
+    | "exception_claimed"
+    | "exception_used"
     | "weekly_plan_published"
     | "anomaly_opened"
     | "anomaly_resolved"
@@ -74,6 +77,8 @@ export interface SampleBudgetRecord {
   limitAdjustments: LimitAdjustment[];
   /** Overspend left from the last week of a cycle, settled later as penalty debt. */
   penaltyDebts: PenaltyDebt[];
+  /** Exceptions claimed by the user; funded from the contingency fund at week close (MW-064). */
+  exceptionClaims: ExceptionClaim[];
   /** Unknown spend waiting for a category, or resolved by the user's answer (MW-025). */
   anomalies: AnomalyRecord[];
   /** Debt ledger: receivables and payables (spec 10 section 6, MW-061). */
@@ -254,6 +259,27 @@ export interface SampleBudgetStore {
   /** Releases claims after a failed publish so the next delivery retries. */
   releaseOverspendClaims(userId: string, cycleId: string, weekIndex: number): Promise<void>;
   markOverspendAnnounced(userId: string, overspendId: string): Promise<void>;
+  /**
+   * Atomically records an exception claim with an audit record, unless the week closed, the
+   * category already has a claim that week, or `quota` non-released claims exist in the cycle.
+   */
+  claimException(
+    userId: string,
+    claim: ExceptionClaim,
+    quota: number,
+    at: Date,
+  ): Promise<
+    | { result: "claimed"; remaining: number }
+    | { result: "not_running" | "week_closed" | "duplicate" | "limit_reached" }
+  >;
+  /** Claims the applied exceptions of the week still owing `exception.used`; held once. */
+  claimExceptionAnnouncements(
+    userId: string,
+    cycleId: string,
+    weekIndex: number,
+  ): Promise<ExceptionClaim[]>;
+  releaseExceptionClaims(userId: string, cycleId: string, weekIndex: number): Promise<void>;
+  markExceptionAnnounced(userId: string, claimId: string): Promise<void>;
   /** Stores a new debt with an audit record. */
   openDebt(userId: string, debt: DebtRecord, at: Date): Promise<"opened" | "not_found">;
   markDebtOpenedAnnounced(userId: string, debtId: string): Promise<void>;
@@ -642,6 +668,29 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
       return "duplicate" as const;
     }
     r.closedWeeks.push({ cycleId, weekIndex });
+    // Claims of the week are settled with the close: funded ones debit the contingency fund.
+    for (const c of r.exceptionClaims) {
+      if (c.cycleId !== cycleId || c.weekIndex !== weekIndex || c.state !== "claimed") continue;
+      const applied = outcome.exceptions.find((e) => e.categoryId === c.categoryId);
+      if (applied) {
+        c.state = "applied";
+        c.fundedVnd = applied.fundedVnd;
+        r.audit.push({
+          at: at.toISOString(),
+          userId,
+          action: "exception_used",
+          detail: {
+            claimId: c.id,
+            cycleId,
+            weekIndex,
+            categoryId: c.categoryId,
+            fundedVnd: applied.fundedVnd,
+          },
+        });
+      } else {
+        c.state = "released";
+      }
+    }
     r.overspends.push(...outcome.overspends.map((o) => ({ ...o })));
     r.limitAdjustments.push(...outcome.adjustments.map((a) => ({ ...a })));
     r.penaltyDebts.push(...outcome.debts.map((d) => ({ ...d })));
@@ -685,6 +734,66 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
   async markOverspendAnnounced(userId: string, overspendId: string) {
     const o = this.records.get(userId)?.overspends.find((x) => x.id === overspendId);
     if (o) o.announced = true;
+  }
+
+  private readonly exceptionAnnounceClaims = new Set<string>();
+
+  // Synchronous check-and-set: no await between the tests and the write.
+  async claimException(userId: string, claim: ExceptionClaim, quota: number, at: Date) {
+    const r = this.records.get(userId);
+    if (!r || r.cycle.id !== claim.cycleId || r.cycle.state !== "running") {
+      return { result: "not_running" as const };
+    }
+    if (r.closedWeeks.some((w) => w.cycleId === claim.cycleId && w.weekIndex === claim.weekIndex)) {
+      return { result: "week_closed" as const };
+    }
+    const live = r.exceptionClaims.filter(
+      (c) => c.cycleId === claim.cycleId && c.state !== "released",
+    );
+    if (live.some((c) => c.weekIndex === claim.weekIndex && c.categoryId === claim.categoryId)) {
+      return { result: "duplicate" as const };
+    }
+    if (live.length >= quota) return { result: "limit_reached" as const };
+    r.exceptionClaims.push({ ...claim });
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "exception_claimed",
+      detail: {
+        claimId: claim.id,
+        cycleId: claim.cycleId,
+        weekIndex: claim.weekIndex,
+        categoryId: claim.categoryId,
+      },
+    });
+    return { result: "claimed" as const, remaining: quota - live.length - 1 };
+  }
+
+  async claimExceptionAnnouncements(userId: string, cycleId: string, weekIndex: number) {
+    const owed = (this.records.get(userId)?.exceptionClaims ?? []).filter(
+      (c) =>
+        c.cycleId === cycleId &&
+        c.weekIndex === weekIndex &&
+        c.state === "applied" &&
+        c.fundedVnd > 0 &&
+        !c.announced &&
+        !this.exceptionAnnounceClaims.has(c.id),
+    );
+    for (const c of owed) this.exceptionAnnounceClaims.add(c.id);
+    return owed.map((c) => ({ ...c }));
+  }
+
+  async releaseExceptionClaims(userId: string, cycleId: string, weekIndex: number) {
+    for (const c of this.records.get(userId)?.exceptionClaims ?? []) {
+      if (c.cycleId === cycleId && c.weekIndex === weekIndex) {
+        this.exceptionAnnounceClaims.delete(c.id);
+      }
+    }
+  }
+
+  async markExceptionAnnounced(userId: string, claimId: string) {
+    const c = this.records.get(userId)?.exceptionClaims.find((x) => x.id === claimId);
+    if (c) c.announced = true;
   }
 
   async openDebt(userId: string, debt: DebtRecord, at: Date) {
@@ -890,6 +999,7 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       overspends: [],
       limitAdjustments: [],
       penaltyDebts: [],
+      exceptionClaims: [],
       anomalies: [],
       plannedItems: [],
       publishedPlanWeeks: [],
