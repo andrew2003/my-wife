@@ -2,5 +2,11 @@
   "sync.error.consent_required": "Đồng bộ Google cần có sự đồng ý của bạn trước.",
   "sync.error.invalid_state": "Yêu cầu cấp quyền không hợp lệ hoặc đã hết hạn. Vui lòng thử lại.",
   "sync.error.link_failed": "Liên kết tài khoản Google không thành công. Vui lòng thử lại.",
-  "sync.error.bad_request": "Yêu cầu không hợp lệ."
+  "sync.error.bad_request": "Yêu cầu không hợp lệ.",
+  "sync.sheet.banner": "Bảng tính này chỉ để xem. Mọi chỉnh sửa sẽ bị ghi đè từ ứng dụng ở lần đồng bộ tiếp theo.",
+  "sync.tab.categories": "Hạng mục ngân sách",
+  "sync.tab.accounts": "Tài khoản ngân hàng",
+  "sync.tab.weeklyPlan": "Kế hoạch tuần",
+  "sync.tab.ledger": "Sổ giao dịch",
+  "sync.tab.surplusGoals": "Số dư thừa và mục tiêu"
 }
