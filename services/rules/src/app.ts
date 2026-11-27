@@ -104,8 +104,9 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
       ),
   });
 
+  const penaltyStore = deps.penaltyStore ?? new InMemoryPenaltyStore();
   const penalties = createPenaltyService({
-    store: deps.penaltyStore ?? new InMemoryPenaltyStore(),
+    store: penaltyStore,
     trialStore,
     publish: deps.publish,
     readSettings: deps.readPenaltySettings,
@@ -164,6 +165,30 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
   });
 
   // The gateway has verified the session and forwards the user id (see decisions.md).
+  app.get("/penalties", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const list = [...penaltyStore.list(userId)];
+    const suspendedTotalVnd = list
+      .filter((p) => p.status === "suspended")
+      .reduce((sum, p) => sum + p.amountVnd, 0);
+    // Internal bookkeeping fields (such as the source key) are not part of the contract.
+    const penalties = list.map((p) => ({
+      id: p.id,
+      source: p.source,
+      amountVnd: p.amountVnd,
+      status: p.status,
+      dueDate: p.dueDate,
+      transferCode: p.transferCode,
+      paymentTransactionId: p.paymentTransactionId ?? null,
+      auditRefs: [...p.auditRefs],
+      contractId: null,
+    }));
+    return { ok: true, data: { penalties, suspendedTotalVnd } };
+  });
+
   app.post("/contracts/sign", async (req, reply) => {
     const userId = req.headers["x-user-id"];
     if (typeof userId !== "string" || userId === "") {
