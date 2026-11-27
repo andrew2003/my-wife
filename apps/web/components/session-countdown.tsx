@@ -18,7 +18,8 @@ import { browserPipApi, isPipSupported, openCountdownPip, type CountdownPip } fr
 export function PipToggle({ locale, text }: { locale: Locale; text: string }) {
   const pipRef = useRef<CountdownPip | null>(null);
   const [open, setOpen] = useState(false);
-  const [supported, setSupported] = useState(true);
+  const [supported, setSupported] = useState<boolean | null>(null);
+  const inFlight = useRef(false);
   useEffect(() => {
     setSupported(isPipSupported(browserPipApi()));
     return () => pipRef.current?.close();
@@ -26,6 +27,7 @@ export function PipToggle({ locale, text }: { locale: Locale; text: string }) {
   useEffect(() => {
     pipRef.current?.update(text);
   }, [text]);
+  if (supported === null) return null;
   if (!supported) {
     return <span className="pip-hint">{translate(locale, "pip.unsupported")}</span>;
   }
@@ -34,17 +36,23 @@ export function PipToggle({ locale, text }: { locale: Locale; text: string }) {
       pipRef.current.close();
       return;
     }
-    const pip = await openCountdownPip(browserPipApi(), {
-      title: translate(locale, "countdown.label"),
-      onClose: () => {
-        pipRef.current = null;
-        setOpen(false);
-      },
-    });
-    if (!pip) return;
-    pipRef.current = pip;
-    pip.update(text);
-    setOpen(true);
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const pip = await openCountdownPip(browserPipApi(), {
+        title: translate(locale, "countdown.label"),
+        onClose: () => {
+          pipRef.current = null;
+          setOpen(false);
+        },
+      });
+      if (!pip) return;
+      pipRef.current = pip;
+      pip.update(text);
+      setOpen(true);
+    } finally {
+      inFlight.current = false;
+    }
   };
   return (
     <button type="button" className="pip-toggle" onClick={() => void toggle()}>

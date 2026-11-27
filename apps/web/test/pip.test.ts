@@ -55,8 +55,11 @@ describe("picture-in-picture countdown", () => {
 
   it("has the strings in both locales", () => {
     for (const k of ["pip.open", "pip.close", "pip.unsupported"]) {
-      expect(en).toHaveProperty([k]);
-      expect(vi_).toHaveProperty([k]);
+      const e = (en as Record<string, string>)[k];
+      const v = (vi_ as Record<string, string>)[k];
+      expect(e?.trim()).toBeTruthy();
+      expect(v?.trim()).toBeTruthy();
+      expect(v).not.toBe(e);
     }
   });
 });
