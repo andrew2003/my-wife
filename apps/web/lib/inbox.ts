@@ -52,7 +52,9 @@ export async function loadInbox(
     if (!res.ok) return { status: "error" };
     const parsed = InboxResponseSchema.safeParse(await res.json());
     if (!parsed.success || !parsed.data.ok) return { status: "error" };
-    const items = [...parsed.data.data.items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const items = [...parsed.data.data.items].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
     return items.length === 0 ? { status: "empty" } : { status: "ready", items };
   } catch {
     return { status: "error" };

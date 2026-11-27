@@ -123,9 +123,7 @@ export function InboxView(props: InboxViewProps) {
                           disabled={busyId === q.id}
                           onClick={() => props.onAnswer(q.id, o.value)}
                         >
-                          {translate(locale, o.labelKey) === o.labelKey
-                            ? o.value
-                            : t(o.labelKey)}
+                          {translate(locale, o.labelKey) === o.labelKey ? o.value : t(o.labelKey)}
                         </button>
                       ))}
                     </div>
