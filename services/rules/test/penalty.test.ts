@@ -8,6 +8,7 @@ import {
   type PenaltySettings,
 } from "../src/penalty";
 import { InMemoryTrialStore, type TrialRecord } from "../src/trial";
+import { InMemoryContractStore } from "../src/contract";
 
 const USER = "11111111-1111-4111-8111-111111111111";
 const CYCLE = "22222222-2222-4222-8222-222222222222";
@@ -159,6 +160,41 @@ function setup(opts: { trial?: TrialRecord; settings?: Partial<PenaltySettings> 
   });
   return { events, store, trialStore, service };
 }
+
+describe("onOverspendDetected carries the contract id (table)", () => {
+  const OTHER_CYCLE = "33333333-3333-4333-8333-333333333333";
+  const cases = [
+    { name: "signed contract for the cycle", signFor: CYCLE, expected: "contract-1" },
+    { name: "no contract at all", signFor: undefined, expected: null },
+    { name: "contract only for another cycle", signFor: OTHER_CYCLE, expected: null },
+  ] as const;
+  it.each(cases)("$name", async ({ signFor, expected }) => {
+    const contractStore = new InMemoryContractStore();
+    if (signFor) {
+      contractStore.save(USER, {
+        id: "contract-1",
+        cycleId: signFor,
+        version: 1,
+        signedAt: T0.toISOString(),
+      } as never);
+    }
+    const store = new InMemoryPenaltyStore();
+    const service = createPenaltyService({
+      store,
+      trialStore: new InMemoryTrialStore(),
+      contractStore,
+      newId: ids(),
+    });
+    await service.onOverspendDetected(overspend("want"), T0);
+    expect(store.list(USER)[0]!.contractId).toBe(expected);
+  });
+
+  it("is null when no contract store is wired", async () => {
+    const { store, service } = setup();
+    await service.onOverspendDetected(overspend("want"), T0);
+    expect(store.list(USER)[0]!.contractId).toBeNull();
+  });
+});
 
 describe("onOverspendDetected", () => {
   it("in trial: suspended entry, penalty.suspended, no payment request", async () => {

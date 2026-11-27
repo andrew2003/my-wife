@@ -62,8 +62,9 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     nats: deps.nats,
   });
 
+  const contractStore = deps.contractStore ?? new InMemoryContractStore();
   const contracts = createContractService({
-    store: deps.contractStore ?? new InMemoryContractStore(),
+    store: contractStore,
     publish: deps.publish,
     now: deps.now ?? (() => new Date()),
     onPublishError: (err) =>
@@ -108,6 +109,7 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
   const penalties = createPenaltyService({
     store: penaltyStore,
     trialStore,
+    contractStore,
     publish: deps.publish,
     readSettings: deps.readPenaltySettings,
     resolveTransferCode: deps.resolveTransferCode,
@@ -184,7 +186,7 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
       transferCode: p.transferCode,
       paymentTransactionId: p.paymentTransactionId ?? null,
       auditRefs: [...p.auditRefs],
-      contractId: null,
+      contractId: p.contractId ?? null,
     }));
     return { ok: true, data: { penalties, suspendedTotalVnd } };
   });
