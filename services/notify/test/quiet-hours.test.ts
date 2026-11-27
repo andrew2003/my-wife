@@ -93,10 +93,7 @@ describe("dispatcher quiet hours", () => {
 
   it("delivers a wake message at 06:00 immediately", async () => {
     now = new Date("2026-11-02T23:00:00Z"); // 06:00 local
-    const result = await dispatcher.send(
-      "u1",
-      msg({ id: "wake", class: "timed", isWakeUp: true }),
-    );
+    const result = await dispatcher.send("u1", msg({ id: "wake", class: "timed", isWakeUp: true }));
     expect(result.deferredToDigest).toBe(false);
     expect(sent).toEqual(["wake"]);
     expect((await inbox.list("u1")).map((i) => i.message.id)).toEqual(["wake"]);
