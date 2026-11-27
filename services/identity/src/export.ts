@@ -62,7 +62,7 @@ export function buildExportArchive(i: ExportInput): ExportArchive {
 
 export type ExportRecord = { userId: string; expiresAt: string; archive: ExportArchive };
 
-/** Port: holds a built archive under the hash of its one-time download token. */
+/** Port: holds a built archive under the hash of its random download token. */
 export interface ExportStore {
   save(tokenHash: string, record: ExportRecord): Promise<void>;
   find(tokenHash: string): Promise<ExportRecord | undefined>;

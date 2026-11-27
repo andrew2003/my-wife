@@ -29,9 +29,24 @@ async function setup(settings: Record<string, number> = {}) {
     now: () => clock,
     publish: (e) => void events.push(e),
   });
-  await app.inject({ method: "PUT", url: "/secrets/llm_key", headers: A, payload: { value: SECRET } });
-  await app.inject({ method: "PUT", url: "/settings", headers: A, payload: { key: "budget.cycle_weeks", value: 3 } });
-  await app.inject({ method: "POST", url: "/consents", headers: A, payload: { kind: "email", textVersion: 1 } });
+  await app.inject({
+    method: "PUT",
+    url: "/secrets/llm_key",
+    headers: A,
+    payload: { value: SECRET },
+  });
+  await app.inject({
+    method: "PUT",
+    url: "/settings",
+    headers: A,
+    payload: { key: "budget.cycle_weeks", value: 3 },
+  });
+  await app.inject({
+    method: "POST",
+    url: "/consents",
+    headers: A,
+    payload: { kind: "email", textVersion: 1 },
+  });
   events.length = 0;
   return { app, events, store, tick: (d: Date) => (clock = d) };
 }
@@ -98,6 +113,8 @@ describe("personal data export", () => {
     const path = new URL(downloadUrl).pathname;
     expect((await app.inject({ method: "GET", url: path, headers: B })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: path })).statusCode).toBe(401);
-    expect((await app.inject({ method: "GET", url: "/exports/nope", headers: A })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/exports/nope", headers: A })).statusCode).toBe(
+      404,
+    );
   });
 });
