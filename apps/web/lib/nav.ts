@@ -21,5 +21,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/routines", labelKey: "nav.routines" },
   { href: "/routines/sleep", labelKey: "nav.sleep" },
   { href: "/settings", labelKey: "nav.settings" },
+  { href: "/settings/models", labelKey: "nav.models" },
   { href: "/admin", labelKey: "nav.admin" },
 ];
