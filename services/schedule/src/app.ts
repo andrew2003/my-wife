@@ -12,6 +12,7 @@ import {
   WeekPlannedItemSchema,
   type EventEnvelope,
 } from "@my-wife/contracts";
+import { resolvePomodoroSettings } from "./pomodoro";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
   approveWeek,
@@ -369,13 +370,9 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (!userId) return fail(reply, 401, "schedule.unauthenticated");
     const parsed = parseStartSession(req.body);
     if (!parsed) return fail(reply, 400, "schedule.invalid_request");
-    let minutes = parsed.durationMinutes;
-    if (minutes === undefined) {
-      minutes = SETTINGS["schedule.pomodoro_work_minutes"].default;
-      const answer = (await readSettings(userId))["schedule.pomodoro_work_minutes"];
-      if (typeof answer === "number" && Number.isInteger(answer) && answer > 0) minutes = answer;
-    }
-    const res = await startSession(sessionDeps, userId, parsed.taskId, minutes);
+    const pomodoro = resolvePomodoroSettings(await readSettings(userId));
+    const minutes = parsed.durationMinutes ?? pomodoro.workMinutes;
+    const res = await startSession(sessionDeps, userId, parsed.taskId, minutes, pomodoro);
     if (res.ok) return { ok: true, data: { session: viewSession(res.session, now()) } };
     if (res.error === "not_in_plan") return fail(reply, 404, "schedule.task_not_in_plan");
     return fail(reply, 409, `schedule.session_${res.error}`);
