@@ -8,6 +8,7 @@ import {
   IsoDateTimeSchema,
   parseEvent,
   RecurrencePatternSchema,
+  RoutineLevelSchema,
   SETTINGS,
   SpecialModeKindSchema,
   StartTaskRequestSchema,
@@ -56,6 +57,14 @@ import {
   runReviewJob,
   type LedgerStore,
 } from "./review";
+import {
+  buildStarterRoutines,
+  changeRoutineLevel,
+  createMemoryRoutineStore,
+  effectiveLevel,
+  runRoutineReminderJob,
+  type RoutineStore,
+} from "./routines";
 import { createMemorySleepStore, runSleepJob, type SleepStore } from "./sleep";
 import {
   applyPhotoGrade,
@@ -101,6 +110,8 @@ export type ScheduleDeps = ServiceDeps & {
   ledgerStore?: LedgerStore;
   /** `sleep_night` storage port; in memory until the Drizzle store lands. */
   sleepStore?: SleepStore;
+  /** Routine level changes and meal reminders storage port; in memory for now. */
+  routineStore?: RoutineStore;
   /** `wake` challenge storage port; in memory until the Drizzle store lands. */
   wakeStore?: WakeStore;
   /** Daily challenge text; the fake generator in M1. */
@@ -117,6 +128,8 @@ declare module "fastify" {
     runSessionJob: (now: Date) => Promise<{ ended: string[]; failed: string[] }>;
     /** Advances the `sleep_night` machines and announces bedtime reminders; the caller passes `now`. */
     runSleepJob: (now: Date) => Promise<{ checked: number; failed: string[] }>;
+    /** Sends the meal reminders whose window opened; the caller passes `now`. */
+    runRoutineJob: (now: Date) => Promise<{ checked: number; failed: string[] }>;
     /** Sends the daily wake challenge once wake time is reached; the caller passes `now`. */
     runWakeJob: (now: Date) => Promise<{ checked: number; failed: string[] }>;
   }
@@ -650,6 +663,57 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (!night) return fail(reply, 404, "schedule.night_not_found");
     const { userId: _u, ...view } = night;
     return { ok: true, data: { night: view } };
+  });
+  const routineDeps = {
+    plan,
+    store: deps.routineStore ?? createMemoryRoutineStore(),
+    readSettings: readSettings as (userId: string) => Promise<Record<string, unknown>>,
+  };
+  app.decorate("runRoutineJob", (at: Date) => runRoutineReminderJob(routineDeps, at));
+  app.post("/jobs/routines", async () => ({
+    ok: true,
+    data: await runRoutineReminderJob(routineDeps, now()),
+  }));
+  /** Routines with the level in force at `at` (default now). */
+  app.get("/routines", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const atRaw = (req.query as { at?: string }).at;
+    const at = atRaw ? new Date(atRaw) : now();
+    if (Number.isNaN(at.getTime())) return fail(reply, 400, "schedule.invalid_request");
+    const raw = await routineDeps.readSettings(userId);
+    const routines = buildStarterRoutines(raw).map((r) => ({
+      ...r,
+      level: effectiveLevel(routineDeps.store, userId, r, at),
+    }));
+    return { ok: true, data: { routines } };
+  });
+  /** Called after the user saved a level; lowering from `commit` waits for next week. */
+  app.post("/routines/level-changes", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const b = (req.body ?? {}) as { routineId?: unknown; from?: unknown; to?: unknown };
+    const from = RoutineLevelSchema.safeParse(b.from);
+    const to = RoutineLevelSchema.safeParse(b.to);
+    if (
+      typeof b.routineId !== "string" ||
+      !/^[a-z][a-z0-9_]{0,39}$/.test(b.routineId) ||
+      !from.success ||
+      !to.success
+    ) {
+      return fail(reply, 400, "schedule.invalid_request");
+    }
+    try {
+      const change = await changeRoutineLevel(
+        routineDeps,
+        userId,
+        { routineId: b.routineId, from: from.data, to: to.data },
+        now(),
+      );
+      return { ok: true, data: { change } };
+    } catch {
+      return fail(reply, 503, "schedule.publish_failed");
+    }
   });
   const wakeDeps: WakeDeps = {
     plan,
