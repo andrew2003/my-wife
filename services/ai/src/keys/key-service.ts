@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { LlmKeyView, ModelRole } from "@my-wife/contracts";
-import type { LlmProvider } from "./key-validator";
-import type { KeyValidator } from "./key-validator";
+import type { KeyValidator, LlmProvider } from "./key-validator";
 import type { LlmKeyStore, StoredLlmKey } from "./key-store";
 import { decryptSecret, encryptSecret, type Keyring } from "./secrets-crypto";
 
@@ -67,7 +66,9 @@ export class LlmKeyService {
       valid,
       sealed: encryptSecret(input.apiKey, ring, `${userId}:llm_key:${input.role}`),
     };
-    await this.deps.store.put(stored);
+    // An invalid key never displaces a working one of the same role.
+    const current = valid ? null : await this.deps.store.getByRole(userId, input.role);
+    if (!current?.valid) await this.deps.store.put(stored);
     await this.deps.publish({
       name: valid ? "llm_key.saved" : "llm_key.invalid",
       payload: { role: input.role, keyId },

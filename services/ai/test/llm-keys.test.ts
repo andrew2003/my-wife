@@ -112,6 +112,18 @@ describe("bring-your-own llm keys", () => {
     expect(await app.llmKeys.resolve("u2", "primary")).toBeNull();
   });
 
+  it("keeps a valid key resolvable when a later invalid key is saved for the same role", async () => {
+    const { app, events } = await setup();
+    const first = await save(app, SECRET);
+    const bad = await save(app, BAD_SECRET);
+    expect(bad.json().data.key.valid).toBe(false);
+    expect(events.map((e) => e.name)).toEqual(["llm_key.saved", "llm_key.invalid"]);
+    expect(await app.llmKeys.resolve("u1", "primary")).toMatchObject({ apiKey: SECRET });
+    expect((await list(app)).json().data.keys).toEqual([
+      expect.objectContaining({ keyId: first.json().data.key.keyId, valid: true }),
+    ]);
+  });
+
   it("replaces the key of the same role and deletes by id", async () => {
     const { app } = await setup();
     await save(app, SECRET);
