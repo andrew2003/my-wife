@@ -455,21 +455,25 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
       day: true,
       parentRecurrenceId: true,
     }).safeParse(body.task);
-    // Only the solar calendar here; lunar recurrences need the lunar conversion.
-    if (body.calendar !== "solar" || !pattern.success || !exceptions.success || !parsedTask.success)
+    if (
+      (body.calendar !== "solar" && body.calendar !== "lunar") ||
+      !pattern.success ||
+      !exceptions.success ||
+      !parsedTask.success
+    )
       return fail(reply, 400, "schedule.invalid_request");
-    if (pattern.data.type === "lunar_day") return fail(reply, 400, "schedule.invalid_request");
+    // The lunar pattern belongs to the lunar calendar only, and the other patterns to the solar one.
+    if ((body.calendar === "lunar") !== (pattern.data.type === "lunar_day"))
+      return fail(reply, 400, "schedule.invalid_request");
     const t = parsedTask.data;
     let minutes: number = SETTINGS["schedule.task_default_minutes"].default;
     if (t.estimatedMinutes === undefined) {
       const answer = (await readSettings(userId))["schedule.task_default_minutes"];
       if (typeof answer === "number" && Number.isInteger(answer) && answer > 0) minutes = answer;
     }
-    const stored: StoredRecurrence = {
+    const base = {
       id: randomUUID(),
       userId,
-      calendar: "solar",
-      pattern: pattern.data,
       exceptions: exceptions.data,
       task: {
         title: t.title,
@@ -481,6 +485,10 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
         kind: t.kind,
       },
     };
+    const stored: StoredRecurrence =
+      pattern.data.type === "lunar_day"
+        ? { ...base, calendar: "lunar", pattern: pattern.data }
+        : { ...base, calendar: "solar", pattern: pattern.data };
     recurrences.set(stored.id, stored);
     const { userId: _u, ...view } = stored;
     return { ok: true, data: { recurrence: view } };
