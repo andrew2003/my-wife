@@ -15,16 +15,24 @@ import {
 } from "../fallback";
 import { renderMessage } from "../i18n";
 import type { LlmProvider } from "../llm";
+import type { ConversationStore } from "../conversation";
 import type { MemoryService } from "../memory";
 import { buildSystemPrompt } from "./persona";
 
 export interface ChatServiceDeps {
   provider: LlmProvider;
   publish: (event: {
-    name: "ai.message_sent" | "memory.created" | "ai.degraded_entered" | "ai.degraded_exited";
+    name:
+      | "ai.message_sent"
+      | "memory.created"
+      | "memory.deleted"
+      | "ai.degraded_entered"
+      | "ai.degraded_exited";
     payload: unknown;
   }) => Promise<void>;
   memory?: MemoryService;
+  /** Where answered turns are recorded for the summary job. */
+  conversations?: ConversationStore;
   now?: () => Date;
   newId?: () => string;
   /** Structured warn logger; never receives user text or secrets. */
@@ -161,6 +169,16 @@ export class ChatService {
       name: "ai.message_sent",
       payload: aiEvents["ai.message_sent"].parse({ messageId, toolCalls: 0 }),
     });
+    try {
+      const at = (this.deps.now ?? (() => new Date()))();
+      await this.deps.conversations?.append({ userId, role: "user", text, at });
+      await this.deps.conversations?.append({ userId, role: "assistant", text: answered.text, at });
+    } catch (error) {
+      this.deps.warn?.(
+        { errorName: error instanceof Error ? error.name : "unknown" },
+        "conversation record failed",
+      );
+    }
     // The turn has ended: code validates and stores the proposed facts.
     try {
       await this.deps.memory?.endTurn(

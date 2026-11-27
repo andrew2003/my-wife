@@ -4,7 +4,10 @@ import { extractExplicitFact, rememberTriggers } from "./triggers";
 
 export interface MemoryServiceOptions {
   store: MemoryStore;
-  publish: (event: { name: "memory.created"; payload: unknown }) => Promise<void>;
+  publish: (event: {
+    name: "memory.created" | "memory.deleted";
+    payload: unknown;
+  }) => Promise<void>;
   /** Max memories placed in the context for this user (`ai.memory_retrieval_top_k`). */
   topK: (userId: string) => Promise<number>;
   /** Service guards on a proposed fact; code decides, the LLM only proposes. */
@@ -36,6 +39,16 @@ export class MemoryService {
       (r) => r.source !== "model_proposal",
     );
     return rows.slice(0, await this.options.topK(userId)).map((r) => r.fact);
+  }
+
+  /** Deletes one of the user's memories and announces it; false when there is none. */
+  async delete(userId: string, memoryId: string): Promise<boolean> {
+    if (!(await this.options.store.remove(userId, memoryId))) return false;
+    await this.options.publish({
+      name: "memory.deleted",
+      payload: aiEvents["memory.deleted"].parse({ memoryId }),
+    });
+    return true;
   }
 
   /**
