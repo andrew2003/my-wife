@@ -1,3 +1,4 @@
+import { planWeekRoutines } from "./routine-blocks";
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "@my-wife/config";
 import {
@@ -580,14 +581,18 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
       randomUUID,
     ).map(taskView);
     const load = computeWeekLoad(plan.store, found, values);
+    const routines = planWeekRoutines(plan.store, found, values);
     const { closedAnnounced: _c, reviewAnnounced: _r, userId: _u, ...week } = found;
     return {
       ok: true,
       data: {
         week,
         recurringTasks,
-        overloaded: load.overloaded,
+        overloaded: load.overloaded || routines.routineOverloaded,
         overloadMinutes: load.overloadMinutes,
+        routineOverloaded: routines.routineOverloaded,
+        routineOverloadMinutes: routines.routineOverloadMinutes,
+        routineBlocks: routines.blocks,
         plannedMinutes: load.plannedMinutes,
         availableMinutes: load.availableMinutes,
       },
