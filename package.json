@@ -15,7 +15,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint:root": "eslint scripts *.mjs",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:scripts": "node --test scripts/test/"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",
