@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { EventEnvelope, PhotoGrade } from "@my-wife/contracts";
 import { RoutineLevelSchema, SETTINGS } from "@my-wife/contracts";
+import { evaluateLateness, wakeGraceMinutes } from "./checkin-lateness";
 import type { PlanDeps } from "./plan";
+import type { RoutineLevel } from "./routines";
 import { zoneParts, zoneSetting, zonedInstant } from "./review";
 
 const MINUTE_MS = 60_000;
@@ -66,6 +68,8 @@ export interface WakeDeps {
   sendPhotoRequest: (userId: string, message: MessageRef, challengeId: string) => Promise<void>;
   /** A plain chat reply. */
   sendReply: (userId: string, message: MessageRef) => Promise<void>;
+  /** Wake level in force at `now` (pending lowering from `commit` included); default from settings. */
+  levelOf?: (userId: string, raw: Record<string, unknown>, now: Date) => RoutineLevel;
 }
 
 const FAKE_KEYS = [
@@ -90,6 +94,7 @@ export const fakeChallengeGenerator: WakeDeps["generateChallenge"] = async (_use
 };
 
 interface WakeSettings {
+  level: RoutineLevel;
   active: boolean;
   hour: number;
   minute: number;
@@ -113,6 +118,7 @@ function wakeSettings(raw: Record<string, unknown>): WakeSettings {
       : (SETTINGS["routine.wake_photo_window_minutes"].default as number);
   const [hour, minute] = timeValue.split(":").map(Number) as [number, number];
   return {
+    level: levelValue as RoutineLevel,
     active: levelValue !== "off",
     hour,
     minute,
@@ -294,7 +300,11 @@ export async function applyPhotoGrade(
       },
     ),
   );
-  const zone = zoneSetting((await deps.readSettings(userId))["calendar.time_zone"]);
+  const raw = await deps.readSettings(userId);
+  if (grade === "pass" && wakeTime !== null && minutesLate !== null) {
+    await recordLateness(deps, userId, raw, wakeTime, minutesLate);
+  }
+  const zone = zoneSetting(raw["calendar.time_zone"]);
   const reply: MessageRef =
     grade === "unclear"
       ? { key: "routine.wake_photo_unclear", params: {} }
@@ -308,6 +318,43 @@ export async function applyPhotoGrade(
             };
   await deps.sendReply(userId, reply);
   return "applied";
+}
+
+/** Check-in for the review at `track`/`commit`; a fault only past the grace, at `commit`. */
+async function recordLateness(
+  deps: WakeDeps,
+  userId: string,
+  raw: Record<string, unknown>,
+  wakeTime: string,
+  minutesLate: number,
+): Promise<void> {
+  const level = deps.levelOf
+    ? deps.levelOf(userId, raw, deps.plan.now())
+    : wakeSettings(raw).level;
+  const result = evaluateLateness({
+    level,
+    graceMinutes: wakeGraceMinutes(raw),
+    minutesLate,
+  });
+  if (result.recordCheckin) {
+    await deps.plan.publish(
+      envelope(deps, `routine-checkin-wake-${wakeTime}-${userId}`, "routine.checkin_recorded", userId, {
+        kind: "wake",
+        at: wakeTime,
+        minutesLate,
+      }),
+    );
+  }
+  if (result.fault) {
+    await deps.plan.publish(
+      envelope(deps, `routine-late-wake-${wakeTime}-${userId}`, "routine.late_detected", userId, {
+        routine: "wake",
+        faultType: "wake_late",
+        occurredAt: wakeTime,
+        minutesLate,
+      }),
+    );
+  }
 }
 
 function localTime(iso: string, zone: string): string {
