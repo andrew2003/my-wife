@@ -1,6 +1,7 @@
 import type { AppConfig } from "@my-wife/config";
 import {
   GiveReasonRequestSchema,
+  StartBreakRequestSchema,
   HeartbeatRequestSchema,
   MonitorStartSessionRequestSchema,
   type EventEnvelope,
@@ -9,6 +10,9 @@ import {
 } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
+  createMemoryBreakStore,
+  endBreak,
+  startBreak,
   createMemoryNudgeStore,
   createMemorySessionStore,
   processSoftSignals,
@@ -57,6 +61,7 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     nats: deps.nats,
   });
   const state: MonitorState = {
+    breaks: deps.state?.breaks ?? createMemoryBreakStore(),
     nudges: deps.state?.nudges ?? createMemoryNudgeStore(),
     sessions: deps.state?.sessions ?? createMemorySessionStore(),
     tickets: deps.state?.tickets ?? createMemoryTicketStore(),
@@ -129,6 +134,48 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     const res = await giveReason(monitor, userId, parsed.data, monitor.now());
     if (!res.ok) return fail(reply, res.error === "ticket.not_found" ? 404 : 409, res.error);
     return { ok: true, data: { ticketId: res.ticket.id, state: res.ticket.state } };
+  });
+
+  const breakReply = (
+    reply: { code(n: number): unknown },
+    res: Awaited<ReturnType<typeof startBreak>>,
+  ) => {
+    if (res.ok) {
+      return { ok: true, data: { breakId: res.break.id, allowedUntil: res.break.allowedUntil } };
+    }
+    return fail(reply, res.error === "session.not_found" ? 404 : 409, res.error);
+  };
+  app.post("/breaks/start", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "monitor.unauthenticated");
+    const parsed = StartBreakRequestSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "monitor.invalid_request");
+    const input = { sessionId: parsed.data.sessionId, kind: "manual" as const };
+    return breakReply(reply, await startBreak(monitor, userId, input, monitor.now()));
+  });
+  /** Local port until the schedule break event is decided (#389): pomodoro and meal breaks. */
+  app.post("/breaks/scheduled", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "monitor.unauthenticated");
+    const parsed = StartBreakRequestSchema.safeParse(req.body);
+    const minutes = (req.body as { minutes?: unknown } | null)?.minutes;
+    if (
+      !parsed.success ||
+      typeof minutes !== "number" ||
+      !Number.isInteger(minutes) ||
+      minutes < 1
+    ) {
+      return fail(reply, 400, "monitor.invalid_request");
+    }
+    const input = { sessionId: parsed.data.sessionId, kind: "scheduled" as const, minutes };
+    return breakReply(reply, await startBreak(monitor, userId, input, monitor.now()));
+  });
+  app.post("/breaks/end", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "monitor.unauthenticated");
+    const parsed = StartBreakRequestSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "monitor.invalid_request");
+    return breakReply(reply, await endBreak(monitor, userId, parsed.data.sessionId, monitor.now()));
   });
 
   /** Entry for the scheduler and the dev-runner clock; `now` is a parameter. */
