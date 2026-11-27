@@ -119,11 +119,14 @@ function buildRaw(spec: MailSpec): string {
 
 const vnd = (n: number) => n.toLocaleString("en-US");
 const pad = (n: number) => String(n).padStart(2, "0");
-/** `DD/MM/YYYY HH:MM` in the demo time zone (UTC+7). */
+/** `DD/MM/YYYY HH:MM:SS` in the demo time zone (UTC+7), as the ingest templates read it. */
 function localStamp(d: Date): string {
   const l = new Date(d.getTime() + 7 * 3_600_000);
-  return `${pad(l.getUTCDate())}/${pad(l.getUTCMonth() + 1)}/${l.getUTCFullYear()} ${pad(l.getUTCHours())}:${pad(l.getUTCMinutes())}`;
+  return `${pad(l.getUTCDate())}/${pad(l.getUTCMonth() + 1)}/${l.getUTCFullYear()} ${pad(l.getUTCHours())}:${pad(l.getUTCMinutes())}:${pad(l.getUTCSeconds())}`;
 }
+
+/** Synthetic masked account shared by every sample mail. */
+const ACCOUNT_TEXT = "****1234";
 
 interface TxnSpec {
   id: string;
@@ -138,18 +141,35 @@ interface TxnSpec {
   /** Extra visible line, for the injection fixture. */
   note?: string;
   layout?: "table" | "list";
+  /** Foreign-card mails: `authorization` has no VND amount, `debit` carries it. */
+  card?: { stage: "authorization" | "debit"; merchant: string; authCode: string; foreign: string };
 }
 
 function txnMail(t: TxnSpec, to: string): { raw: string; occurredText: string } {
   const occurredText = localStamp(t.at);
-  const sign = t.direction === "out" ? "-" : "+";
-  const currency = t.currency ?? "VND";
-  const amountText = `${sign}${vnd(t.amount)} ${currency}`;
+  const card = t.card;
+  const money = `${vnd(t.amount)} ${t.currency ?? "VND"}`;
+  // Labels follow the registered ingest templates (basic-bank and foreign-card).
+  const amountRows: Array<[string, string]> = !card
+    ? [[t.direction === "out" ? "Debit" : "Credit", money]]
+    : card.stage === "authorization"
+      ? [["Authorization", `${t.amount.toFixed(2)} ${t.currency ?? "USD"}`]]
+      : [
+          ["Debit", `${vnd(t.amount)} VND`],
+          ["Foreign amount", card.foreign],
+        ];
   const rows: Array<[string, string]> = [
-    ["Amount", amountText],
+    ["Account", ACCOUNT_TEXT],
+    ...amountRows,
+    ...(card
+      ? ([
+          ["Merchant", card.merchant],
+          ["Auth code", card.authCode],
+        ] as Array<[string, string]>)
+      : []),
     ["Time", occurredText],
-    ["Reference", t.reference],
-    ["Description", t.memo],
+    ["Ref", t.reference],
+    ["Details", t.memo],
     ...(t.balanceAfter !== undefined
       ? ([["Balance", `${vnd(t.balanceAfter)} VND`]] as Array<[string, string]>)
       : []),
@@ -240,6 +260,7 @@ export async function buildEmailFixtures(opts: FixtureOptions): Promise<EmailFix
     reference: "AUTH26306000004",
     at: minutesAgo(420),
     memo: "Online subscription",
+    card: { stage: "authorization", merchant: "EXAMPLE*Cloud", authCode: "A20001", foreign: "" },
   });
   const fxDebit = await make("foreign-card-debit", {
     id: "fx-card-debit",
@@ -250,6 +271,12 @@ export async function buildEmailFixtures(opts: FixtureOptions): Promise<EmailFix
     at: minutesAgo(180),
     memo: "Online subscription 20 USD",
     balanceAfter: 23_195_000,
+    card: {
+      stage: "debit",
+      merchant: "EXAMPLE*Cloud",
+      authCode: "A20001",
+      foreign: "20.00 USD",
+    },
   });
   const fee = await make("fee", {
     id: "fx-fee",
