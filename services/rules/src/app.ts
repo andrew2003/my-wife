@@ -11,12 +11,14 @@ import {
 import {
   createPenaltyService,
   InMemoryPenaltyStore,
+  type PenaltyServiceDeps,
   type PenaltySettings,
   type PenaltyStore,
 } from "./penalty";
 import {
   createTrialService,
   InMemoryTrialStore,
+  type SettlementLine,
   type TrialSettings,
   type TrialStore,
 } from "./trial";
@@ -34,6 +36,13 @@ export type RulesDeps = ServiceDeps & {
   faultStore?: FaultStore;
   /** Fault settings in force at the given time (identity `GET /settings`); registry defaults when absent. */
   readFaultSettings?: (userId: string, at: Date) => Promise<FaultSettings>;
+  /** Resolves the `MW-PH-...` payment code (cycle sequence and category code live in budget). */
+  resolveTransferCode?: PenaltyServiceDeps["resolveTransferCode"];
+  /**
+   * Tells whether a parsed account hint (trailing digits) is the user's penalty savings account
+   * (budget account of kind `penalty_savings`). Defaults to the seeded code `PEN`.
+   */
+  isPenaltySavingsAccount?: PenaltyServiceDeps["isPenaltySavingsAccount"];
   /** Reads the user's trial settings (identity `GET /settings`); registry defaults when absent. */
   readTrialSettings?: (userId: string) => Promise<TrialSettings>;
 };
@@ -65,10 +74,17 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
   });
 
   const trialStore = deps.trialStore ?? new InMemoryTrialStore();
+  // Assigned below; the trial job only runs after the app is built.
+  let settlePenalties: (
+    userId: string,
+    lines: SettlementLine[],
+    now: Date,
+  ) => Promise<void> = async () => {};
   const trial = createTrialService({
     store: trialStore,
     publish: deps.publish,
     readSettings: deps.readTrialSettings,
+    onSettled: (userId, lines, now) => settlePenalties(userId, lines, now),
     onPublishError: (err) =>
       app.log.error(
         { err: err instanceof Error ? err.message : "unknown" },
@@ -93,12 +109,16 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     trialStore,
     publish: deps.publish,
     readSettings: deps.readPenaltySettings,
+    resolveTransferCode: deps.resolveTransferCode,
+    isPenaltySavingsAccount: deps.isPenaltySavingsAccount,
     onPublishError: (err) =>
       app.log.error(
         { err: err instanceof Error ? err.message : "unknown" },
         "penalty event publish failed; it will be retried",
       ),
   });
+
+  settlePenalties = (userId, lines, now) => penalties.onTrialSettled(userId, lines, now);
 
   /** Internal entry for the bus bridge: `overspend.detected` becomes an overspend penalty. */
   app.post("/events/overspend-detected", async (req, reply) => {

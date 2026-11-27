@@ -5,7 +5,7 @@ import {
   type EventEnvelope,
   type EventPayload,
 } from "@my-wife/contracts";
-import type { TrialStore } from "./trial";
+import type { SettlementLine, TrialStore } from "./trial";
 
 const DAY_MS = 86_400_000;
 
@@ -81,7 +81,7 @@ export type PenaltyLedgerEntry = {
 export type PenaltyAuditRecord = {
   id: string;
   penaltyId: string;
-  action: "penalty.created" | "penalty.paid";
+  action: "penalty.created" | "penalty.due" | "penalty.paid";
   at: string;
   detail: Record<string, unknown>;
 };
@@ -116,6 +116,16 @@ export interface PenaltyStore {
     userId: string,
     penaltyId: string,
     payment: PenaltyPayment,
+    audit: PenaltyAuditRecord,
+  ): PenaltyLedgerEntry | undefined;
+  /**
+   * Synchronously moves a `suspended` entry to `due` with its audit record and re-arms its owed
+   * event, so `penalty.issued` follows. Returns undefined when the entry is not `suspended`.
+   */
+  markDue(
+    userId: string,
+    penaltyId: string,
+    dueDate: string,
     audit: PenaltyAuditRecord,
   ): PenaltyLedgerEntry | undefined;
   claimPaidEvent(userId: string, penaltyId: string): PenaltyLedgerEntry | undefined;
@@ -175,6 +185,21 @@ export class InMemoryPenaltyStore implements PenaltyStore {
       paymentTransactionId: payment.transactionId,
       auditRefs: [...row.entry.auditRefs, audit.id],
     });
+    this.audits.set(userId, [...(this.audits.get(userId) ?? []), Object.freeze(audit)]);
+    return row.entry;
+  }
+  markDue(userId: string, penaltyId: string, dueDate: string, audit: PenaltyAuditRecord) {
+    const row = this.rows.get(userId)?.find((r) => r.entry.id === penaltyId);
+    if (!row || row.entry.status !== "suspended") return undefined;
+    row.entry = Object.freeze({
+      ...row.entry,
+      status: "due" as const,
+      dueDate,
+      auditRefs: [...row.entry.auditRefs, audit.id],
+    });
+    // The suspended notice was published; the payment request is a new owed event.
+    row.eventPublishedAt = null;
+    row.eventClaimed = false;
     this.audits.set(userId, [...(this.audits.get(userId) ?? []), Object.freeze(audit)]);
     return row.entry;
   }
@@ -378,6 +403,39 @@ export function createPenaltyService(deps: PenaltyServiceDeps) {
       if (!paid) return { status: "ignored" };
       await emitPaid(userId, paid.id, now);
       return { status: "paid", duplicate: false };
+    },
+
+    /**
+     * Trial settlement: each settled suspended entry becomes `due` (audited) and `penalty.issued`
+     * goes out. The due date is the later of the usual due window and the last installment, so
+     * the whole amount stays payable. Idempotent: entries that are not suspended are skipped.
+     */
+    async onTrialSettled(userId: string, lines: SettlementLine[], now: Date): Promise<void> {
+      for (const line of lines) {
+        const entry = deps.store.list(userId).find((e) => e.id === line.entryId);
+        if (!entry) continue;
+        const lastInstallment = Math.max(
+          0,
+          ...line.installments.map((i) => Date.parse(i.dueDate)).filter(Number.isFinite),
+        );
+        const dueDate = new Date(
+          Math.max(now.getTime() + dueDays * DAY_MS, lastInstallment),
+        ).toISOString();
+        const audit: PenaltyAuditRecord = {
+          id: newId(),
+          penaltyId: entry.id,
+          action: "penalty.due",
+          at: now.toISOString(),
+          detail: {
+            reason: "trial_settled",
+            installments: line.installments,
+            amountVnd: entry.amountVnd,
+          },
+        };
+        deps.store.markDue(userId, entry.id, dueDate, audit);
+        // Also covers an owed event that failed to publish on an earlier run.
+        await emitOwed(userId, entry.sourceKey, now);
+      }
     },
 
     /**
