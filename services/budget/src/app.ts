@@ -21,6 +21,7 @@ import {
   parsePublishWeeklyPlanRequest,
 } from "./plan-publish";
 import { createWeekClosedHandler } from "./overspend";
+import { createExceptionClaimer } from "./exceptions";
 import { createDebtOpener, toDebt } from "./debts";
 import { buildOverview, roundingFrom } from "./overview";
 import {
@@ -169,6 +170,45 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     if (!result.ok) {
       return reply.code(result.error.code === "budget.cycle_not_found" ? 404 : 400).send(result);
     }
+    return reply.code(201).send(result);
+  });
+
+  // Exceptions (spec 10 section 8): claimed before the week closes, funded from the contingency
+  // fund at close.
+  const claimException = createExceptionClaimer({
+    store,
+    now,
+    newId: randomUUID,
+    readSettings: deps.readSettings,
+  });
+  const EXCEPTION_STATUS: Record<string, number> = {
+    "budget.cycle_not_found": 404,
+    "budget.category_not_found": 404,
+    "budget.cycle_not_running": 409,
+    "budget.week_not_open": 409,
+    "budget.exception_already_claimed": 409,
+    "budget.exception_limit_reached": 409,
+    "budget.exception_not_allowed": 400,
+  };
+  app.post("/budget/exceptions", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const body = req.body as { categoryId?: unknown; weekIndex?: unknown } | null;
+    const weekIndex = body?.weekIndex;
+    if (
+      typeof body?.categoryId !== "string" ||
+      body.categoryId === "" ||
+      (weekIndex !== undefined && (!Number.isInteger(weekIndex) || (weekIndex as number) < 1))
+    ) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const result = await claimException(userId, {
+      categoryId: body.categoryId,
+      weekIndex: weekIndex as number | undefined,
+    });
+    if (!result.ok) return reply.code(EXCEPTION_STATUS[result.error.code] ?? 400).send(result);
     return reply.code(201).send(result);
   });
 
