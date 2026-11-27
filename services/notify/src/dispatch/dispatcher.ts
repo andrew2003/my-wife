@@ -14,6 +14,10 @@ export type DigestKind = "morning" | "evening";
 export interface DispatchSettings {
   quietHours: TimeRange;
   timeZone: string;
+  /** `notify.morning_digest_time`; defaults to the registry default. */
+  morningDigestTime?: string;
+  /** `notify.evening_digest_time`; defaults to the registry default. */
+  eveningDigestTime?: string;
   /** `notify.delivery_retries`; defaults to the registry default. */
   deliveryRetries?: number;
   /** Channel named in `notify.delivery_failed`; defaults to `notify.channel`'s default. */
@@ -79,6 +83,11 @@ export interface Dispatcher {
   ): Promise<{ messageId: string; deferredToDigest: boolean }>;
   /** Batches the held items into a digest; returns the item count (0 sends nothing). */
   flushDigest(userId: string, kind: DigestKind): Promise<number>;
+  /**
+   * Sends each user's morning and evening digest once per local day, once `now()` has reached
+   * the configured time; run it from a timer.
+   */
+  runDigests(userIds: readonly string[]): Promise<void>;
   /** Retries every failed delivery that is due at `now()`; run it from a timer. */
   runRetries(): Promise<void>;
 }
@@ -107,6 +116,10 @@ function localMinutes(at: Date, timeZone: string): number {
   return get("hour") * 60 + get("minute");
 }
 
+function localDate(at: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(at);
+}
+
 /** `from` is inclusive, `to` exclusive; a range may cross midnight; `from == to` is empty. */
 export function isInQuietHours(at: Date, range: TimeRange, timeZone: string): boolean {
   const from = minutesOfDay(range.from);
@@ -121,6 +134,8 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
     ? deps.retryBackoffSeconds
     : DEFAULT_RETRY_BACKOFF_SECONDS;
   const retries = new Map<string, PendingRetry>();
+  /** Local date of the last digest run, per user and kind. */
+  const digestRuns = new Map<string, string>();
 
   /** One delivery attempt; on failure schedules a retry or, when exhausted, announces it. */
   async function attempt(userId: string, message: OutboundMessage, made: number): Promise<void> {
@@ -155,7 +170,31 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
     });
   }
 
-  return {
+  const dispatcher: Dispatcher = {
+    async runDigests(userIds) {
+      for (const userId of userIds) {
+        const settings = await deps.settings.get(userId);
+        const at = deps.now();
+        const today = localDate(at, settings.timeZone);
+        const minutes = localMinutes(at, settings.timeZone);
+        const times: [DigestKind, string][] = [
+          ["morning", settings.morningDigestTime ?? SETTINGS["notify.morning_digest_time"].default],
+          ["evening", settings.eveningDigestTime ?? SETTINGS["notify.evening_digest_time"].default],
+        ];
+        // Several digests due at once (late start): only the latest-time one is sent, so a
+        // morning digest never arrives in the evening; the earlier ones count as done.
+        const due = times
+          .filter(
+            ([kind, time]) =>
+              minutes >= minutesOfDay(time) && digestRuns.get(`${userId}:${kind}`) !== today,
+          )
+          .sort((a, b) => minutesOfDay(a[1]) - minutesOfDay(b[1]));
+        for (const [kind] of due) digestRuns.set(`${userId}:${kind}`, today);
+        const latest = due.at(-1);
+        if (latest) await dispatcher.flushDigest(userId, latest[0]);
+      }
+    },
+
     async runRetries() {
       const nowMs = deps.now().getTime();
       for (const retry of [...retries.values()]) {
@@ -191,4 +230,5 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
       return items.length;
     },
   };
+  return dispatcher;
 }
