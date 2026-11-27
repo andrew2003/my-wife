@@ -97,6 +97,7 @@ export interface IdentityStore {
   saveSettings(userId: string, changes: SettingChange[]): Promise<void>;
   listSettingAudit(userId: string): Promise<SettingAuditRecord[]>;
   findOnboardingStep(userId: string, step: string): Promise<OnboardingStepRecord | undefined>;
+  listOnboardingSteps(userId: string): Promise<OnboardingStepRecord[]>;
   saveOnboardingStep(record: OnboardingStepRecord): Promise<void>;
   saveSecret(record: SecretRecord): Promise<void>;
   findSecret(userId: string, kind: string): Promise<SecretRecord | undefined>;
@@ -128,6 +129,9 @@ export function createMemoryStore(): IdentityStore {
     },
     async findOnboardingStep(userId, step) {
       return steps.get(`${userId}:${step}`);
+    },
+    async listOnboardingSteps(userId) {
+      return [...steps.values()].filter((s) => s.userId === userId);
     },
     async saveOnboardingStep(record) {
       steps.set(`${record.userId}:${record.step}`, record);

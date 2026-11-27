@@ -108,6 +108,16 @@ export function createDrizzleStore(rootDb: NodePgDatabase): IdentityStore {
       );
       return r && { ...r, completedAt: r.completedAt.toISOString(), eventAt: iso(r.eventAt) };
     },
+    async listOnboardingSteps(userId) {
+      const rows = await scoped(userId, (tx) =>
+        tx.select().from(onboardingSteps).where(eq(onboardingSteps.userId, userId)),
+      );
+      return rows.map((r) => ({
+        ...r,
+        completedAt: r.completedAt.toISOString(),
+        eventAt: iso(r.eventAt),
+      }));
+    },
     async saveOnboardingStep(rec) {
       const row = { ...rec, completedAt: new Date(rec.completedAt), eventAt: date(rec.eventAt) };
       await scoped(rec.userId, (tx) =>
