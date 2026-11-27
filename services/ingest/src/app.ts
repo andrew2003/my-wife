@@ -8,6 +8,9 @@ export const SERVICE_NAME = "ingest";
 export const SECRET_HEADER = "x-ingest-secret";
 export const WEBHOOK_PATH = "/webhook/inbound-email";
 
+export const USER_HEADER = "x-user-id";
+export const FORWARDING_PENDING_PATH = "/forwarding/pending";
+
 export type IngestDeps = Omit<PipelineDeps, "newId"> & {
   /** Shared secret expected in the `x-ingest-secret` header; never logged. */
   secret: string;
@@ -56,6 +59,26 @@ export function createApp(config: AppConfig, deps: ServiceDeps & { ingest?: Inge
         return reply.code(422).send({ ok: false, error: { code: outcome.reason ?? "rejected" } });
       }
       return { ok: true, data: { receiptId: outcome.receiptId, state: outcome.state } };
+    });
+  }
+
+  const forwarding = ingest?.forwarding;
+  if (ingest && forwarding) {
+    // The gateway sets `x-user-id` after verifying the session; the user sees only their own.
+    app.get(FORWARDING_PENDING_PATH, async (req, reply) => {
+      const userId = req.headers[USER_HEADER];
+      if (typeof userId !== "string" || userId.length === 0) {
+        return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+      }
+      const pending = await forwarding.findPending(userId, ingest.now());
+      return {
+        ok: true,
+        data: {
+          pendingConfirmationCode: pending?.code ?? null,
+          confirmationLink: pending?.link ?? null,
+          confirmationExpiresAt: pending?.expiresAt ?? null,
+        },
+      };
     });
   }
   return app;
