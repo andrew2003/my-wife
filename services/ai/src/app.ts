@@ -69,7 +69,8 @@ export interface AiDeps extends ServiceDeps {
       | "ai.handover_failed"
       | "ai.model_changed"
       | "ai.degraded_entered"
-      | "ai.degraded_exited";
+      | "ai.degraded_exited"
+      | "ai.token_cap_reached";
     payload: unknown;
   }) => Promise<void>;
   memoryStore?: MemoryStore;
@@ -138,6 +139,7 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     conversations,
     fallback: deps.fallbackProvider,
     readSettings,
+    now: deps.now,
     warn: (fields, message) => app.log.warn(fields, message),
   });
   const now = deps.now ?? (() => new Date());
