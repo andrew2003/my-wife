@@ -20,5 +20,7 @@
   "routine.wake_recorded": "Đã ghi nhận giờ thức dậy lúc {time}, đúng giờ.",
   "routine.wake_recorded_late": "Đã ghi nhận giờ thức dậy lúc {time}, trễ {minutes} phút.",
   "schedule.pomodoro.break_started": "Hết một pomodoro. Nghỉ {minutes} phút nhé, hệ thống tạm dừng theo dõi.",
-  "schedule.pomodoro.break_ended": "Hết giờ nghỉ. Quay lại làm việc khi bạn sẵn sàng."
+  "schedule.pomodoro.break_ended": "Hết giờ nghỉ. Quay lại làm việc khi bạn sẵn sàng.",
+  "schedule.offline.check_in_start": "Đã điểm danh bắt đầu. Mình không giám sát công việc này.",
+  "schedule.offline.check_in_end": "Đã điểm danh kết thúc. Công việc được ghi nhận là hoàn thành."
 }

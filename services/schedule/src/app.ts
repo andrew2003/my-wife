@@ -17,6 +17,7 @@ import { resolvePomodoroSettings } from "./pomodoro";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
   approveWeek,
+  checkInOfflineTask,
   completeTask,
   createMemoryPlanStore,
   createWeek,
@@ -233,6 +234,48 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     };
   app.post("/tasks/start", transition(startTask, StartTaskRequestSchema));
   app.post("/tasks/complete", transition(completeTask, CompleteTaskRequestSchema));
+
+  app.post("/tasks/check-in", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const b = (req.body ?? {}) as { taskId?: unknown; phase?: unknown };
+    const taskId = IdSchema.safeParse(b.taskId);
+    const phase = b.phase;
+    if (!taskId.success || (phase !== "start" && phase !== "end"))
+      return fail(reply, 400, "schedule.invalid_request");
+    const res = await checkInOfflineTask(plan, userId, taskId.data, phase);
+    if (res.ok) {
+      const { userId: _u, ...checkIn } = res.checkIn;
+      return {
+        ok: true,
+        data: {
+          task: taskView(res.task),
+          checkIn,
+          messageKey: `schedule.offline.check_in_${phase}`,
+        },
+      };
+    }
+    if (res.error === "not_in_plan") return fail(reply, 404, "schedule.task_not_in_plan");
+    if (res.error === "not_offline") return fail(reply, 409, "schedule.task_not_offline");
+    return fail(
+      reply,
+      409,
+      res.error === "subtasks_open" ? "schedule.task_subtasks_open" : "schedule.task_invalid_state",
+    );
+  });
+
+  app.get("/tasks/check-ins", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const taskId = IdSchema.safeParse((req.query as { taskId?: string }).taskId);
+    if (!taskId.success) return fail(reply, 400, "schedule.invalid_request");
+    if (!plan.store.getTask(userId, taskId.data))
+      return fail(reply, 404, "schedule.task_not_in_plan");
+    const checkIns = plan.store
+      .checkInsOf(userId, taskId.data)
+      .map(({ userId: _u, ...c }) => c);
+    return { ok: true, data: { checkIns } };
+  });
 
   const subtaskView = ({ userId: _userId, ...s }: PlanSubtask) => s;
 
