@@ -16,7 +16,63 @@ export type FaultSettings = {
   honestPercent: number;
   silentPercent: number;
   quotaPerWeek: number;
+  /** `admin.incident_waiver_default`: waive faults inside admin incidents. Absent means default. */
+  incidentWaiver?: boolean;
 };
+
+/** An admin incident as the rules service knows it (from `incident.*` events). */
+export type IncidentWindow = {
+  id: string;
+  state: "declared" | "active" | "ended" | "cancelled";
+  startsAt: string;
+  endsAt: string | null;
+  scope: "all" | readonly string[];
+};
+
+/**
+ * Pure: the first non-cancelled incident whose window (inclusive) holds `occurredAt` and
+ * whose scope includes the user. An open-ended incident covers every later time.
+ */
+export function findCoveringIncident(
+  occurredAt: string,
+  userId: string,
+  incidents: readonly IncidentWindow[],
+): IncidentWindow | undefined {
+  const t = Date.parse(occurredAt);
+  return incidents.find(
+    (i) =>
+      i.state !== "cancelled" &&
+      t >= Date.parse(i.startsAt) &&
+      (i.endsAt === null || t <= Date.parse(i.endsAt)) &&
+      (i.scope === "all" || i.scope.includes(userId)),
+  );
+}
+
+export type WaivedFaultReport = {
+  items: { faultId: string; type: FaultType; occurredAt: string; points: number; cause: string }[];
+  totalPointsWaived: number;
+};
+
+/** Pure: system-waived faults with occurredAt in [from, to), for the weekly report. */
+export function summarizeWaivedFaults(
+  faults: readonly FaultEntry[],
+  from: Date,
+  to: Date,
+): WaivedFaultReport {
+  const items = faults
+    .filter((f) => {
+      const t = Date.parse(f.occurredAt);
+      return f.status === "waived_system" && t >= from.getTime() && t < to.getTime();
+    })
+    .map((f) => ({
+      faultId: f.id,
+      type: f.type,
+      occurredAt: f.occurredAt,
+      points: f.points,
+      cause: f.waiver ?? "heartbeat_gap_outage",
+    }));
+  return { items, totalPointsWaived: items.reduce((a, i) => a + i.points, 0) };
+}
 
 export const DEFAULT_FAULT_SETTINGS: FaultSettings = {
   weights: {
@@ -30,6 +86,7 @@ export const DEFAULT_FAULT_SETTINGS: FaultSettings = {
   honestPercent: SETTINGS["fault.reason_multiplier_percent.honest"].default,
   silentPercent: SETTINGS["fault.reason_multiplier_percent.silent"].default,
   quotaPerWeek: SETTINGS["reason.quota_per_week"].default,
+  incidentWaiver: SETTINGS["admin.incident_waiver_default"].default,
 };
 
 export type FaultReasonKind = "none" | "honest" | "quota_exceeded";
@@ -168,6 +225,8 @@ export type FaultServiceDeps = {
   publish?: (event: EventEnvelope) => void | Promise<void>;
   /** Settings in force at `at` (point-in-time); registry defaults when absent. */
   readSettings?: (userId: string, at: Date) => Promise<FaultSettings>;
+  /** Admin incidents known to the service (declared, active, ended, cancelled). */
+  listIncidents?: (userId: string) => Promise<readonly IncidentWindow[]>;
   newId?: () => string;
   onPublishError?: (err: unknown) => void;
 };
@@ -175,6 +234,7 @@ export type FaultServiceDeps = {
 /** Every method takes `now`; nothing here reads the system clock. */
 export function createFaultService(deps: FaultServiceDeps) {
   const newId = deps.newId ?? randomUUID;
+  const listIncidents = deps.listIncidents ?? (async () => []);
   const readSettings = deps.readSettings ?? (async () => DEFAULT_FAULT_SETTINGS);
 
   async function emitOwed(userId: string, signalRef: string, now: Date): Promise<void> {
@@ -247,7 +307,11 @@ export function createFaultService(deps: FaultServiceDeps) {
         reason = used >= settings.quotaPerWeek ? "quota_exceeded" : "honest";
       }
       const { weightSnapshot, points } = scoreFault({ type: p.type, reason }, settings);
-      const waived = p.overlapsOutage;
+      const incident =
+        !p.overlapsOutage && (settings.incidentWaiver ?? DEFAULT_FAULT_SETTINGS.incidentWaiver)
+          ? findCoveringIncident(p.occurredAt, userId, await listIncidents(userId))
+          : undefined;
+      const waived = p.overlapsOutage || incident !== undefined;
       const id = newId();
       const entry: FaultLedgerEntry = {
         id,
@@ -258,8 +322,8 @@ export function createFaultService(deps: FaultServiceDeps) {
         weightSnapshot,
         points,
         status: waived ? "waived_system" : "recorded",
-        waiver: waived ? "heartbeat_gap_outage" : null,
-        systemCause: waived ? "overlaps_outage" : null,
+        waiver: !waived ? null : incident ? "admin_incident" : "heartbeat_gap_outage",
+        systemCause: !waived ? null : incident ? `incident:${incident.id}` : "overlaps_outage",
         honestReason: reason === "honest",
       };
       const audit: FaultAuditRecord = {
@@ -267,7 +331,14 @@ export function createFaultService(deps: FaultServiceDeps) {
         faultId: id,
         action: waived ? "fault.waived_system" : "fault.recorded",
         at: now.toISOString(),
-        detail: { sourceEventId: event.id, signalRef: p.signalRef, reason, weightSnapshot, points },
+        detail: {
+          sourceEventId: event.id,
+          signalRef: p.signalRef,
+          reason,
+          weightSnapshot,
+          points,
+          incidentId: incident?.id ?? null,
+        },
       };
       const inserted = deps.store.insertOnce(userId, entry, audit);
       await emitOwed(userId, p.signalRef, now);
