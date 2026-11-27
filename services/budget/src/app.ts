@@ -98,7 +98,7 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     "budget.account_unconfirmed": 409,
   };
   // The gateway has verified the session and forwards the user id (see decisions.md).
-  app.post("/cycles/approve", async (req, reply) => {
+  app.post("/budget/cycles/approve", async (req, reply) => {
     const userId = req.headers["x-user-id"];
     if (typeof userId !== "string" || userId === "") {
       return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
