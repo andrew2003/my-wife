@@ -2,6 +2,7 @@ import type { EventEnvelope } from "@my-wife/contracts";
 import { RoutineLevelSchema, SETTINGS, WeekdaySchema } from "@my-wife/contracts";
 import type { PlanDeps } from "./plan";
 import { zoneParts, zoneSetting, zonedInstant } from "./review";
+import type { SessionStore, WorkSession } from "./sessions";
 
 const DAY_MS = 24 * 60 * 60_000;
 const WEEKDAYS = WeekdaySchema.options as readonly string[];
@@ -146,7 +147,18 @@ export interface RoutineDeps {
   plan: PlanDeps;
   store: RoutineStore;
   readSettings: (userId: string) => Promise<Record<string, unknown>>;
+  /** Work sessions, to see whether the user worked through a meal window. */
+  sessions?: SessionStore;
+  /** Today's dish for a meal from the budget menu; undefined when there is none. */
+  menuSource?: MenuSource;
 }
+
+/** Port: budget's weekly menu. `date` is the user's local day (YYYY-MM-DD). */
+export type MenuSource = (
+  userId: string,
+  date: string,
+  mealId: string,
+) => Promise<string | undefined>;
 
 /** Level in force at `now`: a lowering from `commit` keeps the old level until it takes effect. */
 export function effectiveLevel(
@@ -267,6 +279,62 @@ export async function runRoutineRemindersForUser(
   }
 }
 
+const sessionEndMs = (s: WorkSession) =>
+  s.endedAt !== null ? Date.parse(s.endedAt) : Date.parse(s.startedAt) + s.durationMinutes * 60_000;
+
+/**
+ * Once a meal window has passed and a work session overlapped it, prompts a meal break (once
+ * per meal and day). When the budget has a menu for the day the prompt names the dish; a
+ * missing menu or a failed lookup gives the plain prompt. Never a fault. `now` is a parameter.
+ */
+export async function runMealBreakPromptsForUser(
+  deps: RoutineDeps,
+  userId: string,
+  now: Date,
+): Promise<void> {
+  if (!deps.sessions) return;
+  const raw = await deps.readSettings(userId);
+  const zone = zoneSetting(raw["calendar.time_zone"]);
+  const nowMs = now.getTime();
+  const p = zoneParts(nowMs, zone);
+  const date = `${p.y}-${pad(p.mo)}-${pad(p.d)}`;
+  const mine = deps.sessions.all().filter((s) => s.userId === userId);
+  for (const r of buildStarterRoutines(raw)) {
+    if (!r.window) continue;
+    if (effectiveLevel(deps.store, userId, r, now) === "off") continue;
+    const [fh, fm] = r.window.from.split(":").map(Number) as [number, number];
+    const [th, tm] = r.window.to.split(":").map(Number) as [number, number];
+    const startMs = zonedInstant(p.y, p.mo, p.d, fh, fm, zone);
+    const endMs = zonedInstant(p.y, p.mo, p.d, th, tm, zone);
+    if (nowMs < endMs) continue;
+    const id = `routine-meal-break-${userId}-${r.id}-${date}`;
+    if (deps.store.hasReminded(id)) continue;
+    const worked = mine.some((s) => Date.parse(s.startedAt) < endMs && sessionEndMs(s) > startMs);
+    if (!worked) continue;
+    let dish: string | undefined;
+    try {
+      dish = await deps.menuSource?.(userId, date, r.id);
+    } catch {
+      dish = undefined;
+    }
+    dish = dish?.trim() || undefined;
+    await deps.plan.publish({
+      id,
+      type: "routine.reminder_due",
+      occurredAt: deps.plan.now().toISOString(),
+      userId,
+      schemaVersion: 1,
+      payload: {
+        routine: r.kind,
+        dueAt: new Date(endMs).toISOString(),
+        messageKey: `routine.meal_break.${r.id}${dish ? "_menu" : ""}`,
+        params: { minutes: r.window.durationMinutes, ...(dish ? { dish } : {}) },
+      },
+    } as EventEnvelope);
+    deps.store.markReminded(id);
+  }
+}
+
 export async function runRoutineReminderJob(
   deps: RoutineDeps,
   now: Date,
@@ -276,6 +344,7 @@ export async function runRoutineReminderJob(
   for (const userId of users) {
     try {
       await runRoutineRemindersForUser(deps, userId, now);
+      await runMealBreakPromptsForUser(deps, userId, now);
     } catch {
       failed.push(userId);
     }
