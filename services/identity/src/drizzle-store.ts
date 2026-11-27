@@ -67,6 +67,28 @@ export function createDrizzleStore(rootDb: NodePgDatabase): IdentityStore {
     });
   const db = rootDb;
   return {
+    async listUsersByState(state) {
+      return (await db.select().from(users).where(eq(users.state, state))).map(toUser);
+    },
+    async eraseUserData(userId, anonymisedEmail) {
+      const [user] = await db.select().from(users).where(eq(users.id, userId));
+      if (!user) return;
+      await scoped(userId, async (tx) => {
+        await tx.delete(secrets).where(eq(secrets.userId, userId));
+        await tx.delete(onboardingSteps).where(eq(onboardingSteps.userId, userId));
+        await tx.delete(userSettings).where(eq(userSettings.userId, userId));
+        await tx.delete(settingAudit).where(eq(settingAudit.userId, userId));
+      });
+      await db.transaction(async (tx) => {
+        await tx.delete(sessions).where(eq(sessions.userId, userId));
+        await tx.delete(invitations).where(eq(invitations.email, user.email));
+        await tx.delete(loginTokens).where(eq(loginTokens.email, user.email));
+        await tx
+          .update(users)
+          .set({ email: anonymisedEmail, lastSeenAt: null })
+          .where(eq(users.id, userId));
+      });
+    },
     async saveSecret(r: SecretRecord) {
       const row = { ...r, updatedAt: new Date(r.updatedAt) };
       await scoped(r.userId, (tx) =>

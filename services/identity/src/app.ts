@@ -33,6 +33,7 @@ import {
   evaluateConsent,
   type ConsentStore,
 } from "./consents";
+import { anonymisedEmail, type PenaltyPort } from "./deletion";
 import { buildExportArchive, createExportStore, type ExportStore } from "./export";
 import { encryptSecret, parseKeyring } from "./secrets-crypto";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
@@ -43,6 +44,8 @@ export type IdentityDeps = ServiceDeps & {
   store?: IdentityStore;
   /** Consents and their audit trail; in memory until the Drizzle store lands. */
   consentStore?: ConsentStore;
+  /** Open (suspended or due) penalties of a user, from `rules`. Without it none are assumed. */
+  penalties?: PenaltyPort;
   /** Built export archives; in memory until the Drizzle store lands. */
   exportStore?: ExportStore;
   /** Origin used to build download links (the gateway's public address). */
@@ -653,6 +656,75 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     return reply
       .header("content-disposition", 'attachment; filename="my-wife-export.json"')
       .send(record.archive);
+  });
+
+  /** Penalty state comes through a port (rules owns it); a failure means "unknown", never "none". */
+  async function openPenalties(userId: string) {
+    // Fail closed: without a port the ledger is unknown, so nothing may be erased or closed.
+    if (!deps.penalties) throw new Error("penalty port is not configured");
+    return deps.penalties.listOpen(userId);
+  }
+
+  /** Marks an already anonymised account closed and announces it. */
+  async function closeAccount(user: UserRecord) {
+    await store.saveUser({ ...user, state: "closed" });
+    await emit("user.closed", user.id, {});
+  }
+
+  /**
+   * Deletion (spec 40 section 1 and 6). Personal data is anonymised at once; the account stays
+   * `closing` while penalties are suspended or due, and only then is it `closed`.
+   */
+  app.post("/account/deletion", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const user = await store.findUserById(userId);
+    if (!user) return fail(reply, 404, "identity.user_not_found");
+    // A request that failed half-way leaves the account `closing`; the repeat finishes the work
+    // (already confirmed, and the email may be anonymised by now). Erasing is idempotent.
+    const resume = user.state === "closing";
+    if (user.state !== "active" && !resume)
+      return fail(reply, 409, "identity.deletion_not_allowed");
+    const typed = (req.body as { confirmation?: unknown } | undefined)?.confirmation;
+    if (
+      !resume &&
+      (typeof typed !== "string" || typed.trim().toLowerCase() !== user.email.toLowerCase())
+    )
+      return fail(reply, 400, "identity.deletion_not_confirmed");
+    let open;
+    try {
+      open = await openPenalties(userId);
+    } catch (err) {
+      app.log.error(
+        { err: err instanceof Error ? err.message : "unknown" },
+        "penalty lookup failed; nothing was deleted",
+      );
+      return fail(reply, 503, "identity.penalties_unavailable");
+    }
+    const closing = { ...user, state: "closing" as const };
+    if (!resume) await store.saveUser(closing);
+    await store.eraseUserData(userId, anonymisedEmail(userId));
+    await consents.deleteAll(userId);
+    await exportStore.deleteByUser(userId);
+    await emit("user.closing", userId, { reason: "deletion_requested" });
+    if (open.length > 0) return { ok: true, data: { state: "closing", exportOffered: true } };
+    await closeAccount({ ...closing, email: anonymisedEmail(userId) });
+    return { ok: true, data: { state: "closed", exportOffered: true } };
+  });
+
+  /** Internal job: closes every closing account whose penalties are all settled. */
+  app.post("/jobs/closing", async () => {
+    let closed = 0;
+    for (const user of await store.listUsersByState("closing")) {
+      try {
+        if ((await openPenalties(user.id)).length > 0) continue;
+      } catch {
+        continue;
+      }
+      await closeAccount(user);
+      closed++;
+    }
+    return { ok: true, data: { closed } };
   });
 
   /** Internal: the gateway verifies every request's session through this. */

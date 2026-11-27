@@ -66,6 +66,8 @@ export type ExportRecord = { userId: string; expiresAt: string; archive: ExportA
 export interface ExportStore {
   save(tokenHash: string, record: ExportRecord): Promise<void>;
   find(tokenHash: string): Promise<ExportRecord | undefined>;
+  /** Account deletion: drops every archive of the user. */
+  deleteByUser(userId: string): Promise<void>;
 }
 
 export function createExportStore(): ExportStore {
@@ -76,6 +78,9 @@ export function createExportStore(): ExportStore {
     },
     async find(hash) {
       return records.get(hash);
+    },
+    async deleteByUser(userId) {
+      for (const [k, r] of records) if (r.userId === userId) records.delete(k);
     },
   };
 }

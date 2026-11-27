@@ -23,6 +23,8 @@ export interface ConsentStore {
   save(record: ConsentRecord, audit: ConsentAuditRecord): Promise<void>;
   list(userId: string): Promise<ConsentRecord[]>;
   listAudit(userId: string): Promise<ConsentAuditRecord[]>;
+  /** Account deletion: removes the user's consents and their audit trail. */
+  deleteAll(userId: string): Promise<void>;
 }
 
 export function createConsentStore(): ConsentStore {
@@ -41,6 +43,11 @@ export function createConsentStore(): ConsentStore {
     },
     async listAudit(userId) {
       return audit.filter((a) => a.userId === userId);
+    },
+    async deleteAll(userId) {
+      for (const [k, r] of records) if (r.userId === userId) records.delete(k);
+      for (let i = audit.length - 1; i >= 0; i--)
+        if (audit[i]?.userId === userId) audit.splice(i, 1);
     },
   };
 }
