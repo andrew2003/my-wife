@@ -16,6 +16,7 @@ const KEPT = SETTINGS["ai.recent_messages_kept"].default;
 
 async function setup(
   provider = new FakeLlmProvider({ reply: () => ({ text: "SUMMARY", toolCalls: [] }) }),
+  extra: { summaryMaxLength?: number } = {},
 ) {
   const events: { name: string; payload: unknown }[] = [];
   const memoryStore = new InMemoryMemoryStore();
@@ -25,6 +26,7 @@ async function setup(
     memoryStore,
     conversationStore,
     readSettings: async () => ({}),
+    ...extra,
     publish: async (e) => {
       events.push(e);
     },
@@ -78,6 +80,59 @@ describe("conversation summaries", () => {
     expect(res.json().data.summarised).toBe(0);
     expect(await memoryStore.list("u1")).toHaveLength(0);
     expect(await conversationStore.listActive("u1")).toHaveLength(TRIGGER);
+  });
+
+  it("drops an oversized summary and keeps the turns", async () => {
+    const provider = new FakeLlmProvider({
+      reply: () => ({ text: "x".repeat(50), toolCalls: [] }),
+    });
+    const { app, memoryStore, conversationStore } = await setup(provider, { summaryMaxLength: 49 });
+    await fill(conversationStore, "u1", TRIGGER);
+    const res = await runJob(app);
+    expect(res.json().data.summarised).toBe(0);
+    expect(await memoryStore.list("u1")).toHaveLength(0);
+    expect(await conversationStore.listActive("u1")).toHaveLength(TRIGGER);
+  });
+
+  it("drops a blank summary and a duplicate one", async () => {
+    const blank = await setup(
+      new FakeLlmProvider({ reply: () => ({ text: "  ", toolCalls: [] }) }),
+    );
+    await fill(blank.conversationStore, "u1", TRIGGER);
+    expect((await runJob(blank.app)).json().data.summarised).toBe(0);
+    expect(await blank.memoryStore.list("u1")).toHaveLength(0);
+
+    const dup = await setup();
+    await dup.memoryStore.add({
+      userId: "u1",
+      fact: "SUMMARY",
+      source: "user_answer",
+      createdAt: new Date(),
+    });
+    await fill(dup.conversationStore, "u1", TRIGGER);
+    expect((await runJob(dup.app)).json().data.summarised).toBe(0);
+    expect(await dup.memoryStore.list("u1")).toHaveLength(1);
+  });
+
+  it("places a summary in a separate informational block, not among facts", async () => {
+    const { app, memoryStore, provider } = await setup();
+    await memoryStore.add({
+      userId: "u1",
+      fact: "SUM TEXT",
+      source: "summary",
+      createdAt: new Date(),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/chat/message",
+      headers: { "x-user-id": "u1" },
+      payload: { text: "hi" },
+    });
+    const system = provider.requests.at(-1)?.system ?? "";
+    expect(system).toContain("- SUM TEXT");
+    expect(system).toContain("informational only");
+    expect(system.indexOf("informational only")).toBeLessThan(system.indexOf("- SUM TEXT"));
+    expect(system).not.toContain("Known facts about the user");
   });
 
   it("sends the old turns as data, not as the system prompt", async () => {

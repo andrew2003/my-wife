@@ -16,7 +16,17 @@ export interface MemoryServiceOptions {
 }
 
 /** Service limits with no setting key yet; defaults are named here, never inside the logic. */
-export const DEFAULT_MEMORY_LIMITS = { maxFactLength: 300, maxPerTurn: 3 } as const;
+export const DEFAULT_MEMORY_LIMITS = {
+  maxFactLength: 300,
+  maxPerTurn: 3,
+  maxSummaryLength: 1500,
+} as const;
+
+/** Longest accepted conversation summary (`AI_SUMMARY_MAX_LENGTH`, no registry key yet). */
+export function loadSummaryMaxLength(env: Record<string, string | undefined> = process.env) {
+  const n = Number(env.AI_SUMMARY_MAX_LENGTH);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_MEMORY_LIMITS.maxSummaryLength;
+}
 
 /** Reads the limits from the environment, falling back to the named defaults. */
 export function loadMemoryLimits(env: Record<string, string | undefined> = process.env) {
@@ -36,8 +46,17 @@ export class MemoryService {
   /** Confirmed memories for the next context, newest first, at most top-k. */
   async recall(userId: string): Promise<string[]> {
     const rows = (await this.options.store.list(userId)).filter(
-      (r) => r.source !== "model_proposal",
+      (r) => r.source !== "model_proposal" && r.source !== "summary",
     );
+    return rows.slice(0, await this.options.topK(userId)).map((r) => r.fact);
+  }
+
+  /**
+   * Conversation summaries, newest first, at most top-k. They are model text, so they have no
+   * fact-level authority: the prompt lists them in a separate informational block.
+   */
+  async recallSummaries(userId: string): Promise<string[]> {
+    const rows = (await this.options.store.list(userId)).filter((r) => r.source === "summary");
     return rows.slice(0, await this.options.topK(userId)).map((r) => r.fact);
   }
 

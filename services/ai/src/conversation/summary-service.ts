@@ -10,6 +10,8 @@ export interface SummaryServiceOptions {
   provider: LlmProvider;
   publish: (event: { name: "memory.created"; payload: unknown }) => Promise<void>;
   readSettings: (userId: string) => Promise<Record<string, unknown>>;
+  /** Longest accepted summary text; longer ones are dropped and the turns are kept. */
+  maxLength: number;
   locale: "vi" | "en";
   warn?: (fields: Record<string, unknown>, message: string) => void;
 }
@@ -66,7 +68,19 @@ export class SummaryService {
       locale,
     });
     const fact = response.text.trim();
-    if (fact === "") return false;
+    // Same guards as proposed facts: blank and oversized text is dropped, turns stay.
+    if (fact === "" || fact.length > this.options.maxLength) return false;
+    const known = (await memories.list(userId)).some(
+      (r) => r.fact.toLowerCase() === fact.toLowerCase(),
+    );
+    if (known) {
+      // Nothing new to remember; the turns are still covered, so compact them.
+      await conversations.compact(
+        userId,
+        old.map((t) => t.id),
+      );
+      return false;
+    }
     const row = await memories.add({ userId, fact, source: "summary", createdAt: now });
     await conversations.compact(
       userId,

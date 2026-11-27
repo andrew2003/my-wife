@@ -22,7 +22,13 @@ import {
 import { runHandoverTest, type HandoverFact } from "./handover";
 import { createProvider, type LlmProvider } from "./llm";
 import { InMemoryConversationStore, SummaryService, type ConversationStore } from "./conversation";
-import { InMemoryMemoryStore, loadMemoryLimits, MemoryService, type MemoryStore } from "./memory";
+import {
+  InMemoryMemoryStore,
+  loadMemoryLimits,
+  loadSummaryMaxLength,
+  MemoryService,
+  type MemoryStore,
+} from "./memory";
 import { createSettingsReader } from "./settings";
 import {
   createVisionModel,
@@ -93,6 +99,8 @@ export interface AiDeps extends ServiceDeps {
   /** Log destination, for tests that scan logs. */
   logStream?: Writable;
   now?: () => Date;
+  /** Longest accepted conversation summary; defaults to `AI_SUMMARY_MAX_LENGTH`. */
+  summaryMaxLength?: number;
   memoryLimits?: { maxFactLength: number; maxPerTurn: number };
 }
 
@@ -138,6 +146,7 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     provider,
     publish,
     readSettings,
+    maxLength: deps.summaryMaxLength ?? loadSummaryMaxLength(),
     locale: config.uiLanguage,
     warn: (fields, message) => app.log.warn(fields, message),
   });

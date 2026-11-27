@@ -101,23 +101,30 @@ export class ChatService {
   }
 
   /** A memory failure must never cost the user a reply: fall back to no memories. */
-  private async recallSafely(userId: string): Promise<string[]> {
+  private async recallSafely(userId: string): Promise<[string[], string[]]> {
     try {
-      return (await this.deps.memory?.recall(userId)) ?? [];
+      const memory = this.deps.memory;
+      return memory
+        ? [await memory.recall(userId), await memory.recallSummaries(userId)]
+        : [[], []];
     } catch (error) {
       this.deps.warn?.(
         { errorName: error instanceof Error ? error.name : "unknown" },
         "memory recall failed",
       );
-      return [];
+      return [[], []];
     }
   }
 
   async handleMessage(text: string, locale: Locale, userId: string): Promise<ChatResult> {
     const messageId = (this.deps.newId ?? randomUUID)();
     const threshold = await this.threshold(userId);
-    const memories = await this.recallSafely(userId);
-    const request = { system: buildSystemPrompt(locale, memories), userText: text, locale };
+    const [memories, summaries] = await this.recallSafely(userId);
+    const request = {
+      system: buildSystemPrompt(locale, memories, summaries),
+      userText: text,
+      locale,
+    };
     const before = this.statusOf(userId);
     const { fallback } = this.deps;
     const slots: [ModelSlot, LlmProvider][] = [];
