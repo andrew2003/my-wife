@@ -14,7 +14,7 @@ const root = new URL("../..", import.meta.url).pathname;
 export default defineConfig({
   testDir: "./tests",
   // Runs under Vitest (vitest.config.ts): it drives services in process, without a browser.
-  testIgnore: ["**/money.spec.ts"],
+  testIgnore: ["**/money.spec.ts", "**/time.spec.ts"],
   workers: 1,
   fullyParallel: false,
   retries: 0,
