@@ -26,6 +26,10 @@ export interface TransactionRecord {
   categoryId: string;
   /** Set when the receipt carried the code of a planned item. */
   plannedItemId?: string;
+  /** Refund only: the original outgoing transaction it is linked to. */
+  refundOfTransactionId?: string;
+  /** Refund only: the part returned to the category limit (see `bookRefund`). */
+  restoredVnd?: number;
   /** False until `txn.recorded` was published, so a failed publish is retried. */
   announced: boolean;
 }
@@ -83,11 +87,19 @@ export function getCategoryBalances(
   record: Pick<SampleBudgetRecord, "cycle" | "categories" | "transactions">,
 ): CategoryBalance[] {
   return record.categories.map((c) => {
-    const spentVnd = record.transactions
-      .filter(
-        (t) => t.cycleId === record.cycle.id && t.categoryId === c.id && t.direction === "out",
-      )
+    const inCategory = record.transactions.filter(
+      (t) =>
+        t.cycleId === record.cycle.id &&
+        t.categoryId === c.id &&
+        t.transactionType !== "internal_transfer",
+    );
+    const outVnd = inCategory
+      .filter((t) => t.direction === "out")
       .reduce((sum, t) => sum + t.amountVnd, 0);
+    const restoredVnd = inCategory
+      .filter((t) => t.transactionType === "refund")
+      .reduce((sum, t) => sum + (t.restoredVnd ?? 0), 0);
+    const spentVnd = outVnd - restoredVnd;
     return {
       categoryId: c.id,
       limitVnd: c.cycleLimitVnd,
