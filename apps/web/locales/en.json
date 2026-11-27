@@ -352,5 +352,22 @@
   "weekplan.error.already_applied": "A template was already applied to this week.",
   "weekplan.error.template_missing": "That template no longer exists.",
   "weekplan.error.not_draft": "Only a draft week can be changed.",
-  "weekplan.error.approve": "Could not approve the plan. Please try again."
+  "weekplan.error.approve": "Could not approve the plan. Please try again.",
+  "nav.calendar": "Calendar",
+  "calendar.title": "Solar and lunar calendar",
+  "calendar.loading": "Loading the calendar...",
+  "calendar.error": "Could not show the calendar.",
+  "calendar.prev": "Previous month",
+  "calendar.next": "Next month",
+  "calendar.today": "Today",
+  "calendar.lunar_unavailable": "Lunar dates are not available for this year.",
+  "calendar.lunar_title": "Lunar date {date}",
+  "calendar.legend": "Large number: solar day. Small number: lunar day/month (L marks a leap month).",
+  "calendar.weekday.mon": "Mon",
+  "calendar.weekday.tue": "Tue",
+  "calendar.weekday.wed": "Wed",
+  "calendar.weekday.thu": "Thu",
+  "calendar.weekday.fri": "Fri",
+  "calendar.weekday.sat": "Sat",
+  "calendar.weekday.sun": "Sun"
 }
