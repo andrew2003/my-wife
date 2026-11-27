@@ -10,7 +10,7 @@ import { createApp as ingest } from "@my-wife/ingest";
 import { createApp as monitor, type MonitorServiceDeps } from "@my-wife/monitor";
 import { createApp as notify } from "@my-wife/notify";
 import { createApp as rules, type RulesDeps } from "@my-wife/rules";
-import { createApp as schedule, type ScheduleDeps } from "@my-wife/schedule";
+import { createApp as schedule, createSettingsReader, type ScheduleDeps } from "@my-wife/schedule";
 import { createApp as sync } from "@my-wife/sync";
 
 type ScheduleApp = Awaited<ReturnType<typeof schedule>>;
@@ -98,6 +98,13 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
                 ? opts.monitor
                 : undefined;
       let deps: ServiceDeps | undefined = extra ? { ...opts.deps, ...extra } : opts.deps;
+      if (name === "schedule") {
+        // Identity starts before schedule; its URL is read lazily, per request.
+        const own = opts.schedule?.readSettings;
+        const stored = createSettingsReader(() => urls.identity);
+        const withSettings: ScheduleDeps = { ...deps, readSettings: own ?? stored };
+        deps = withSettings;
+      }
       if (name === "identity") {
         const own = opts.identity?.publish;
         const withPublish: IdentityDeps = {
