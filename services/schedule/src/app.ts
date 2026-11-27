@@ -66,7 +66,7 @@ import {
   runRoutineReminderJob,
   type RoutineStore,
 } from "./routines";
-import { createMemorySleepStore, runSleepJob, type SleepStore } from "./sleep";
+import { createMemorySleepStore, recordWebActivity, runSleepJob, type SleepStore } from "./sleep";
 import {
   applyPhotoGrade,
   createMemoryWakeStore,
@@ -659,6 +659,15 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     ok: true,
     data: await runSleepJob(sleepDeps, now()),
   }));
+  /** Web activity report; after bedtime it sets the soft `late_night` label and sends one reminder. */
+  app.post("/sleep/activity", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const atRaw = (req.body as { at?: string } | null)?.at;
+    const at = atRaw ? new Date(atRaw) : now();
+    if (Number.isNaN(at.getTime())) return fail(reply, 400, "schedule.invalid_request");
+    return { ok: true, data: await recordWebActivity(sleepDeps, userId, at) };
+  });
   app.get("/sleep/night", async (req, reply) => {
     const userId = userOf(req.headers);
     if (!userId) return fail(reply, 401, "schedule.unauthenticated");
