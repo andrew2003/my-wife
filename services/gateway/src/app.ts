@@ -34,6 +34,27 @@ function isUnder(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((p) => path === p || path.startsWith(`${p}/`));
 }
 
+/**
+ * Decode, lowercase and collapse a request path for authorisation and routing.
+ * Returns undefined for malformed escapes, dot segments or an encoded slash/backslash,
+ * which the caller rejects with 400.
+ */
+function normalizePath(rawPath: string): { key: string; clean: string } | undefined {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawPath);
+  } catch {
+    return undefined;
+  }
+  if (decoded.includes("\\") || (decoded !== rawPath && /%2f/i.test(rawPath))) return undefined;
+  const segments = decoded.split("/").filter((s) => s !== "");
+  if (segments.some((s) => s === "." || s === ".." || s.includes("%"))) return undefined;
+  return {
+    key: `/${segments.join("/").toLowerCase()}`,
+    clean: `/${segments.map(encodeURIComponent).join("/")}`,
+  };
+}
+
 function readCookie(header: string | undefined, name: string): string | undefined {
   for (const part of (header ?? "").split(";")) {
     const [key, ...rest] = part.trim().split("=");
@@ -44,6 +65,7 @@ function readCookie(header: string | undefined, name: string): string | undefine
 
 const unauthorized = { ok: false, error: { code: "gateway.unauthorized" } } as const;
 const forbidden = { ok: false, error: { code: "gateway.forbidden" } } as const;
+const badRequest = { ok: false, error: { code: "gateway.bad_path" } } as const;
 const unavailable = { ok: false, error: { code: "gateway.upstream_unavailable" } } as const;
 
 /** Factory used by main.ts, the dev runner and tests; no process-level globals (ADR 0007). */
@@ -84,6 +106,8 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
     handler: async (req, reply) => {
       const [rawPath = "", query] = req.url.split("?");
       const path = rawPath.replace(/^\/api/, "") || "/";
+      const normalized = normalizePath(path);
+      if (normalized === undefined) return reply.code(400).send(badRequest);
       const suffix = query ? `?${query}` : "";
       const send = async (res: Response) => {
         const text = await res.text();
@@ -95,7 +119,9 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
 
       try {
         if (PUBLIC_ROUTES.has(`${req.method} ${rawPath}`)) {
-          return await send(await forward(upstreams.identity, path + suffix, req.method, req.body));
+          return await send(
+            await forward(upstreams.identity, normalized.clean + suffix, req.method, req.body),
+          );
         }
 
         const token = readCookie(req.headers.cookie, SESSION_COOKIE);
@@ -110,21 +136,27 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
           data: { user: { id: string; role?: string } };
         };
 
-        if (isUnder(path, ADMIN_PREFIXES) && session.data.user.role !== "admin") {
+        if (isUnder(normalized.key, ADMIN_PREFIXES) && session.data.user.role !== "admin") {
           return reply.code(403).send(forbidden);
         }
 
-        if (path === "/me") return reply.code(200).send(session);
+        if (normalized.key === "/me") return reply.code(200).send(session);
 
-        const base = isUnder(path, BUDGET_PREFIXES)
+        const base = isUnder(normalized.key, BUDGET_PREFIXES)
           ? upstreams.budget
-          : isUnder(path, SCHEDULE_PREFIXES)
+          : isUnder(normalized.key, SCHEDULE_PREFIXES)
             ? upstreams.schedule
-            : isUnder(path, RULES_PREFIXES)
+            : isUnder(normalized.key, RULES_PREFIXES)
               ? upstreams.rules
               : upstreams.identity;
         return await send(
-          await forward(base, path + suffix, req.method, req.body, session.data.user.id),
+          await forward(
+            base,
+            normalized.clean + suffix,
+            req.method,
+            req.body,
+            session.data.user.id,
+          ),
         );
       } catch (err) {
         req.log.error({ err: (err as Error).message }, "upstream request failed");
