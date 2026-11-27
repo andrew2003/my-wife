@@ -21,5 +21,9 @@
   "ai.wake.challenge.sink": "Take a photo of yourself at the sink.",
   "ai.wake.challenge.object": "Hold up an object you can see in the room and take a photo of yourself.",
   "ai.wake.retake": "I could not tell from that photo. Please send another one.",
-  "ai.wake.button_check_in": "I still cannot tell from the photos. Please confirm with the button instead."
+  "ai.wake.button_check_in": "I still cannot tell from the photos. Please confirm with the button instead.",
+  "ai.capture.task_created": "Task added: {title}",
+  "ai.capture.task_created_day": "Task added: {title} ({day})",
+  "ai.capture.expense_recorded": "Cash expense recorded: {amount} VND {note}",
+  "ai.capture.failed": "I could not save that. Please try again or add it in the app."
 }

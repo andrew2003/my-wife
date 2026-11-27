@@ -4,6 +4,7 @@ import {
   DegradedReasonSchema,
   SETTINGS,
   type Locale,
+  type AiToolCall,
   type MessageRef,
 } from "@my-wife/contracts";
 import {
@@ -18,7 +19,11 @@ import type { LlmProvider } from "../llm";
 import type { ConversationStore } from "../conversation";
 import type { MemoryService } from "../memory";
 import { buildSystemPrompt } from "./persona";
+import { isQuickCapture, resolveDay } from "./capture";
+import type { ToolExecutor } from "../tools";
 import { wrapUntrusted, type UntrustedSource } from "./untrusted";
+
+const DEFAULT_MAX_CAPTURES = 5;
 
 export interface ChatServiceDeps {
   provider: LlmProvider;
@@ -41,6 +46,10 @@ export interface ChatServiceDeps {
   warn?: (fields: Record<string, unknown>, message: string) => void;
   /** Second model used after `ai.fallback_after_failures` consecutive primary failures. */
   fallback?: LlmProvider;
+  /** Runs validated quick-capture proposals (create_task, record_cash_expense) on trusted turns. */
+  tools?: ToolExecutor;
+  /** Safety cap on captures run for one message; the registry has no key for it yet. */
+  maxCapturesPerMessage?: number;
   /** Effective user settings; the failure threshold comes from here. */
   readSettings?: (userId: string) => Promise<Record<string, unknown>>;
 }
@@ -77,6 +86,72 @@ export class ChatService {
   /** Current failover state, for the banner signal. */
   statusOf(userId: string): FailoverState {
     return this.states.get(userId) ?? INITIAL_FAILOVER;
+  }
+
+  /** Time zone for resolving relative days; registry default when unset or invalid. */
+  private async timeZone(userId: string): Promise<string> {
+    const def = SETTINGS["calendar.time_zone"];
+    try {
+      const values = (await this.deps.readSettings?.(userId)) ?? {};
+      const parsed = def.schema.safeParse(values["calendar.time_zone"]);
+      return parsed.success ? parsed.data : def.default;
+    } catch {
+      return def.default;
+    }
+  }
+
+  /**
+   * Runs the quick-capture proposals of a trusted turn. The model only proposes: code resolves
+   * the day, the executor validates against the contracts and audits, and the confirmation text
+   * states what code actually did. Other tools are ignored here.
+   */
+  private async capture(
+    calls: readonly AiToolCall[],
+    locale: Locale,
+    userId: string,
+    at: Date,
+  ): Promise<{ lines: string[]; executed: number }> {
+    const tools = this.deps.tools;
+    if (!tools) return { lines: [], executed: 0 };
+    const max = this.deps.maxCapturesPerMessage ?? DEFAULT_MAX_CAPTURES;
+    const lines: string[] = [];
+    let executed = 0;
+    for (const call of calls.filter(isQuickCapture).slice(0, max)) {
+      let args: unknown = call.args;
+      if (call.tool === "create_task") {
+        const { day, ...rest } = call.args;
+        const resolved = resolveDay(day, at, await this.timeZone(userId));
+        args = resolved ? { ...rest, day: resolved } : rest;
+      }
+      const result = await tools.execute(userId, { tool: call.tool, args });
+      if (result.status === "ok") executed += 1;
+      if (result.status !== "ok") {
+        lines.push(renderMessage({ key: "ai.capture.failed", params: {} }, locale));
+      } else if (call.tool === "create_task") {
+        const a = args as { title: string; day?: string };
+        lines.push(
+          renderMessage(
+            {
+              key: a.day ? "ai.capture.task_created_day" : "ai.capture.task_created",
+              params: { title: a.title, day: a.day ?? "" },
+            },
+            locale,
+          ),
+        );
+      } else {
+        const a = args as { amountVnd: number; note?: string };
+        lines.push(
+          renderMessage(
+            {
+              key: "ai.capture.expense_recorded",
+              params: { amount: a.amountVnd, note: a.note ?? "" },
+            },
+            locale,
+          ).trim(),
+        );
+      }
+    }
+    return { lines, executed };
   }
 
   private async threshold(userId: string): Promise<number> {
@@ -197,7 +272,12 @@ export class ChatService {
     if (fallback && (before.degraded || before.active === "fallback"))
       slots.push(["fallback", fallback]);
     let state = before;
-    let answered: { slot: ModelSlot; text: string; memories: readonly string[] } | null = null;
+    let answered: {
+      slot: ModelSlot;
+      text: string;
+      memories: readonly string[];
+      toolCalls: readonly AiToolCall[];
+    } | null = null;
     for (const [slot, provider] of slots) {
       try {
         const response = await provider.complete(request);
@@ -211,6 +291,7 @@ export class ChatService {
           slot,
           text: response.text,
           memories: untrusted ? [] : (response.memories ?? []),
+          toolCalls: untrusted ? [] : response.toolCalls,
         };
         break;
       } catch (error) {
@@ -245,9 +326,18 @@ export class ChatService {
       this.states.set(userId, { ...state, notified: true });
     }
     const proposals = answered.memories;
+    const captured = untrusted
+      ? { lines: [] as string[], executed: 0 }
+      : await this.capture(
+          answered.toolCalls,
+          locale,
+          userId,
+          (this.deps.now ?? (() => new Date()))(),
+        );
+    if (captured.lines.length > 0) replyText = `${replyText}\n\n${captured.lines.join("\n")}`;
     await this.deps.publish({
       name: "ai.message_sent",
-      payload: aiEvents["ai.message_sent"].parse({ messageId, toolCalls: 0 }),
+      payload: aiEvents["ai.message_sent"].parse({ messageId, toolCalls: captured.executed }),
     });
     if (untrusted) {
       return { messageId, reply: { text: replyText }, pendingConfirmations: [], degraded: false };
