@@ -206,8 +206,17 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
   app.post("/models/switch", async (req, reply) => {
     const parsed = SaveLlmKeyRequestSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_request" });
-    const userId = userOf(req.headers["x-user-id"]);
+    const header = req.headers["x-user-id"];
+    if (typeof header !== "string" || header === "")
+      return reply.code(401).send({ ok: false, error: "unauthorized" });
+    const userId = header;
     const input = parsed.data;
+    // Fail closed: without a real adapter for the candidate there is nothing to test.
+    if (!deps.providerFor)
+      return reply.code(503).send({ ok: false, error: "provider_unavailable" });
+    const facts = (await deps.handoverFacts?.(userId)) ?? [];
+    // A run with no questions proves nothing, so it never enables a model.
+    if (facts.length === 0) return reply.code(409).send({ ok: false, error: "not_ready" });
     let keyOk: boolean;
     try {
       keyOk = await validator.validate(input);
@@ -220,8 +229,8 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
       settings["ai.handover_pass_ratio"],
     );
     const result = await runHandoverTest({
-      provider: (deps.providerFor ?? (() => createProvider()))(input),
-      facts: (await deps.handoverFacts?.(userId)) ?? [],
+      provider: deps.providerFor(input),
+      facts,
       locale: config.uiLanguage,
       role: input.role,
       passRatio: ratio.success ? ratio.data : SETTINGS["ai.handover_pass_ratio"].default,

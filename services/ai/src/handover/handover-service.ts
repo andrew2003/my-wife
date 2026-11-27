@@ -48,7 +48,13 @@ export async function runHandoverTest(input: {
   const failed: string[] = [];
   let voiced = 0;
   for (const fact of facts) {
-    const userText = renderMessage({ key: `ai.handover.q.${fact.id}`, params: {} }, locale);
+    const questionKey = `ai.handover.q.${fact.id}`;
+    const userText = renderMessage({ key: questionKey, params: {} }, locale);
+    if (userText === questionKey) {
+      // No locale entry: the question cannot be asked, so it counts as failed (fail closed).
+      failed.push(fact.id);
+      continue;
+    }
     try {
       const answer = await provider.complete({ system, userText, locale });
       if (!normalize(answer.text).includes(normalize(fact.expected))) failed.push(fact.id);

@@ -112,6 +112,7 @@ describe("model switching with the handover test", () => {
     const res = await app.inject({
       method: "POST",
       url: "/models/switch",
+      headers: { "x-user-id": "u1" },
       payload: { provider: "openai", model: "m", role: "primary", apiKey: "sk-bad-123456" },
     });
     expect(res.statusCode).toBe(422);
@@ -121,6 +122,78 @@ describe("model switching with the handover test", () => {
     const { switchTo } = await setup(goodProvider());
     const res = await switchTo("m");
     expect(res.body).not.toContain("sk-key-");
-    expect(typeof res.json().data.personaScore).toBe("number");
+    expect(res.json().data.personaScore).toBe(1);
+  });
+
+  const payload = { provider: "openai", model: "m", role: "primary", apiKey: "sk-key-m-123456" };
+
+  it("fails closed with 503 when no provider adapter is available", async () => {
+    const events: { name: string }[] = [];
+    const app = await createApp(config, {
+      keyValidator: { validate: async () => true },
+      readSettings: async () => ({}),
+      handoverFacts: async () => FACTS,
+      publish: async (e) => {
+        events.push(e);
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/models/switch",
+      headers: { "x-user-id": "u1" },
+      payload,
+    });
+    expect(res.statusCode).toBe(503);
+    expect(events).toEqual([]);
+  });
+
+  it("does not enable a model when there are no handover facts", async () => {
+    const events: { name: string }[] = [];
+    const keyStore = new InMemoryLlmKeyStore();
+    const app = await createApp(config, {
+      keyStore,
+      keyValidator: { validate: async () => true },
+      readSettings: async () => ({}),
+      handoverFacts: async () => [],
+      providerFor: () => goodProvider(),
+      publish: async (e) => {
+        events.push(e);
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/models/switch",
+      headers: { "x-user-id": "u1" },
+      payload,
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toBe("not_ready");
+    expect(events).toEqual([]);
+    expect(await keyStore.getByRole("u1", "primary")).toBeNull();
+  });
+
+  it("rejects a request without a user id", async () => {
+    const { app } = await setup(goodProvider());
+    const res = await app.inject({ method: "POST", url: "/models/switch", payload });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("fails a fact whose question has no locale entry", async () => {
+    const app = await createApp(config, {
+      keyValidator: { validate: async () => true },
+      readSettings: async () => ({}),
+      handoverFacts: async () => [{ id: "unknown_question", expected: "x" }],
+      providerFor: () => goodProvider(),
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/models/switch",
+      headers: { "x-user-id": "u1" },
+      payload,
+    });
+    expect(res.json().data).toMatchObject({
+      state: "failed",
+      failedQuestions: ["unknown_question"],
+    });
   });
 });
