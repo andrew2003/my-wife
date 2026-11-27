@@ -6,7 +6,21 @@
     "resolveJsonModule": true,
     "lib": ["dom", "dom.iterable", "ES2022"],
     "allowJs": false,
-    "plugins": [{ "name": "next" }]
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "esModuleInterop": true
   },
-  "include": ["next-env.d.ts", "app", "components", "lib", "test", "vitest.config.ts"]
+  "include": [
+    "app",
+    "components",
+    "lib",
+    "next-env.d.ts",
+    "test",
+    "vitest.config.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
 }
