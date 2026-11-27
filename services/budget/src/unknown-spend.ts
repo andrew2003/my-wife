@@ -1,6 +1,6 @@
 import { SETTINGS, type EventEnvelope, type SettingKey } from "@my-wife/contracts";
 import type { SampleBudgetRecord, SampleBudgetStore } from "./onboarding";
-import type { TransactionRecord } from "./transactions";
+import { getCategoryBalances, type CategoryBalance, type TransactionRecord } from "./transactions";
 
 /**
  * The facts of an unknown receipt that `budget` needs to book it. `receipt.unknown` carries only
@@ -32,6 +32,8 @@ export interface AnomalyRecord {
   openedAnnounced: boolean;
   /** False until the resolution events were published. */
   resolvedAnnounced: boolean;
+  /** True when the deadline booked it instead of an answer (spec 10 section 7). */
+  resolvedByDeadline?: boolean;
 }
 
 export interface UnknownSpendDeps {
@@ -47,6 +49,135 @@ export interface UnknownSpendDeps {
 const HOUR_MS = 3_600_000;
 export const BUDGET_SOURCE = "budget";
 export const ASK_KIND = "budget_category";
+
+const resolutionOf = (a: AnomalyRecord) =>
+  `${a.resolvedByDeadline ? "deadline:" : ""}category:${a.resolvedCategoryId}`;
+
+function txnRecordedEvent(userId: string, txn: TransactionRecord): EventEnvelope {
+  return {
+    id: `txn-recorded-${txn.id}`,
+    type: "txn.recorded",
+    occurredAt: txn.occurredAt,
+    userId,
+    schemaVersion: 1,
+    payload: {
+      transactionId: txn.id,
+      cycleId: txn.cycleId,
+      amountVnd: txn.amountVnd,
+      direction: txn.direction,
+      transactionType: txn.transactionType,
+      reconciliationResult: txn.reconciliationResult,
+      categoryId: txn.categoryId,
+      bankAccountId: txn.bankAccountId,
+      memo: txn.memo,
+    },
+  } as EventEnvelope;
+}
+
+function bookAnomalyTransaction(
+  record: SampleBudgetRecord,
+  anomaly: AnomalyRecord,
+  category: { id: string; bankAccountId: string },
+  id: string,
+): TransactionRecord {
+  const receipt = anomaly.receipt;
+  const hint = receipt.bankAccountHint.trim().toUpperCase();
+  const account = record.accounts.find((a) => a.code.toUpperCase() === hint);
+  return {
+    id,
+    cycleId: anomaly.cycleId,
+    receiptId: anomaly.receiptId,
+    bankTransactionRef: receipt.bankTransactionRef,
+    bankAccountId: account?.id ?? category.bankAccountId,
+    direction: receipt.direction,
+    amountVnd: receipt.amountVnd,
+    occurredAt: receipt.occurredAt,
+    memo: receipt.memo,
+    counterparty: receipt.counterparty,
+    transactionType: "unknown",
+    reconciliationResult: "unknown",
+    categoryId: category.id,
+    announced: false,
+  };
+}
+
+/**
+ * Pure: the first `want` category (by `wantOrder`) whose remaining balance covers the amount,
+ * else the first `want` category; undefined when the user has none (spec 10 section 7).
+ */
+export function pickWantCategory<
+  C extends { id: string; priority: string; wantOrder: number | null },
+>(categories: readonly C[], balances: readonly CategoryBalance[], amountVnd: number) {
+  const wants = categories
+    .filter((c) => c.priority === "want")
+    .sort(
+      (a, b) => (a.wantOrder ?? Number.MAX_SAFE_INTEGER) - (b.wantOrder ?? Number.MAX_SAFE_INTEGER),
+    );
+  const room = (c: C) =>
+    (balances.find((b) => b.categoryId === c.id)?.balanceVnd ?? 0) >= amountVnd;
+  return wants.find(room) ?? wants[0];
+}
+
+export interface UnknownDeadlineDeps {
+  store: SampleBudgetStore;
+  newId: () => string;
+  publish: (event: EventEnvelope) => void | Promise<void>;
+}
+
+/**
+ * Books every open unknown-spend anomaly of the user whose answer deadline (`expiresAt`, set from
+ * `budget.unknown_deadline_hours` when it was opened) has passed, into the first `want` category
+ * with room. Time is a parameter. It resolves the anomaly like an answer would (audit record, then
+ * `txn.recorded` and `anomaly.resolved` with resolution `deadline:category:<id>`, which tells the
+ * user); a failed publish is retried by the next run. With no `want` category nothing is booked.
+ */
+export function createUnknownDeadlineJob(deps: UnknownDeadlineDeps) {
+  async function run(userId: string, now: Date): Promise<{ booked: number }> {
+    const record = await deps.store.find(userId);
+    if (!record) return { booked: 0 };
+    let booked = 0;
+    for (const anomaly of record.anomalies) {
+      if (anomaly.state !== "open" || Date.parse(anomaly.expiresAt) > now.getTime()) continue;
+      const category = pickWantCategory(
+        record.categories,
+        getCategoryBalances(record),
+        anomaly.receipt.amountVnd,
+      );
+      if (!category) continue;
+      const txn = bookAnomalyTransaction(record, anomaly, category, deps.newId());
+      const result = await deps.store.resolveAnomaly(
+        userId,
+        anomaly.id,
+        category.id,
+        txn,
+        now,
+        "deadline",
+      );
+      if (result === "resolved") booked += 1;
+    }
+    // Also owed events of an earlier run whose publish failed.
+    const fresh = await deps.store.find(userId);
+    for (const a of fresh?.anomalies ?? []) {
+      if (a.state !== "resolved" || a.resolvedAnnounced || !a.resolvedByDeadline) continue;
+      const txn = fresh!.transactions.find((t) => t.id === a.transactionId);
+      if (txn && !txn.announced) {
+        await deps.publish(txnRecordedEvent(userId, txn));
+        await deps.store.markTransactionAnnounced(userId, txn.id);
+      }
+      await deps.publish({
+        id: `anomaly-resolved-${a.id}`,
+        type: "anomaly.resolved",
+        occurredAt: now.toISOString(),
+        userId,
+        schemaVersion: 1,
+        payload: { anomalyId: a.id, resolution: resolutionOf(a) },
+      } as EventEnvelope);
+      await deps.store.markAnomalyResolvedAnnounced(userId, a.id);
+    }
+    return { booked };
+  }
+  return { run };
+}
 
 /**
  * Handles `receipt.unknown` and the answer to its question (`notify.reply_received`).
@@ -94,24 +225,7 @@ export function createUnknownSpendHandlers(deps: UnknownSpendDeps) {
   const announceResolved = async (userId: string, record: SampleBudgetRecord, a: AnomalyRecord) => {
     const txn = record.transactions.find((t) => t.id === a.transactionId);
     if (txn && !txn.announced) {
-      await deps.publish({
-        id: `txn-recorded-${txn.id}`,
-        type: "txn.recorded",
-        occurredAt: txn.occurredAt,
-        userId,
-        schemaVersion: 1,
-        payload: {
-          transactionId: txn.id,
-          cycleId: txn.cycleId,
-          amountVnd: txn.amountVnd,
-          direction: txn.direction,
-          transactionType: txn.transactionType,
-          reconciliationResult: txn.reconciliationResult,
-          categoryId: txn.categoryId,
-          bankAccountId: txn.bankAccountId,
-          memo: txn.memo,
-        },
-      } as EventEnvelope);
+      await deps.publish(txnRecordedEvent(userId, txn));
       await deps.store.markTransactionAnnounced(userId, txn.id);
     }
     await deps.publish({
@@ -120,7 +234,7 @@ export function createUnknownSpendHandlers(deps: UnknownSpendDeps) {
       occurredAt: deps.now().toISOString(),
       userId,
       schemaVersion: 1,
-      payload: { anomalyId: a.id, resolution: `category:${a.resolvedCategoryId}` },
+      payload: { anomalyId: a.id, resolution: resolutionOf(a) },
     } as EventEnvelope);
     await deps.store.markAnomalyResolvedAnnounced(userId, a.id);
   };
@@ -179,25 +293,7 @@ export function createUnknownSpendHandlers(deps: UnknownSpendDeps) {
     if (anomaly.state === "open") {
       const category = offered(record).find((c) => c.id === payload.value);
       if (!category) return;
-      const receipt = anomaly.receipt;
-      const hint = receipt.bankAccountHint.trim().toUpperCase();
-      const account = record.accounts.find((a) => a.code.toUpperCase() === hint);
-      const txn: TransactionRecord = {
-        id: deps.newId(),
-        cycleId: anomaly.cycleId,
-        receiptId: anomaly.receiptId,
-        bankTransactionRef: receipt.bankTransactionRef,
-        bankAccountId: account?.id ?? category.bankAccountId,
-        direction: receipt.direction,
-        amountVnd: receipt.amountVnd,
-        occurredAt: receipt.occurredAt,
-        memo: receipt.memo,
-        counterparty: receipt.counterparty,
-        transactionType: "unknown",
-        reconciliationResult: "unknown",
-        categoryId: category.id,
-        announced: false,
-      };
+      const txn = bookAnomalyTransaction(record, anomaly, category, deps.newId());
       const result = await deps.store.resolveAnomaly(
         event.userId,
         anomaly.id,

@@ -230,6 +230,7 @@ export interface SampleBudgetStore {
     categoryId: string,
     txn: TransactionRecord,
     at: Date,
+    by?: "answer" | "deadline",
   ): Promise<"resolved" | "already_resolved" | "not_found" | "not_running">;
   markAnomalyResolvedAnnounced(userId: string, anomalyId: string): Promise<void>;
   /**
@@ -560,6 +561,7 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     categoryId: string,
     txn: TransactionRecord,
     at: Date,
+    by: "answer" | "deadline" = "answer",
   ) {
     const r = this.records.get(userId);
     const a = r?.anomalies.find((x) => x.id === anomalyId);
@@ -570,6 +572,7 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
       return "already_resolved" as const;
     }
     a.state = "resolved";
+    if (by === "deadline") a.resolvedByDeadline = true;
     a.resolvedCategoryId = categoryId;
     a.transactionId = txn.id;
     r.transactions.push({ ...txn });
@@ -591,7 +594,7 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
         at: at.toISOString(),
         userId,
         action: "anomaly_resolved",
-        detail: { anomalyId, categoryId, transactionId: txn.id },
+        detail: { anomalyId, categoryId, transactionId: txn.id, by },
       },
     );
     return "resolved" as const;
