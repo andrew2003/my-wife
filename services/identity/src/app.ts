@@ -5,7 +5,11 @@ import type { AppConfig } from "@my-wife/config";
 import {
   CompleteOnboardingStepRequestSchema,
   EVENT_SCHEMA_VERSION,
+  ConsentKindSchema,
+  ConsentRequestSchema,
   OnboardingStepSchema,
+  SupervisionLevelSchema,
+  type ConsentKind,
   SETTINGS,
   type EventEnvelope,
   type EventPayload,
@@ -23,6 +27,12 @@ import {
   type OnboardingStepRecord,
   type UserRecord,
 } from "./store";
+import {
+  createConsentStore,
+  effectiveSupervisionLevel,
+  evaluateConsent,
+  type ConsentStore,
+} from "./consents";
 import { encryptSecret, parseKeyring } from "./secrets-crypto";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
 
@@ -30,6 +40,10 @@ export const SERVICE_NAME = "identity";
 
 export type IdentityDeps = ServiceDeps & {
   store?: IdentityStore;
+  /** Consents and their audit trail; in memory until the Drizzle store lands. */
+  consentStore?: ConsentStore;
+  /** Current consent text version per kind (default 1); raising it asks for consent again. */
+  consentTextVersions?: Partial<Record<ConsentKind, number>>;
   /** Time is a parameter so tests can simulate it. */
   now?: () => Date;
   /** Overrides of admin settings; defaults come from the contracts registry. */
@@ -491,6 +505,108 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     if (!kind) return fail(reply, 400, "identity.invalid_secret_kind");
     await store.deleteSecret(userId, kind);
     return { ok: true, data: { kind } };
+  });
+
+  const consents = deps.consentStore ?? createConsentStore();
+  const requiredVersion = (kind: ConsentKind) => deps.consentTextVersions?.[kind] ?? 1;
+  const consentStatus = async (userId: string, kind: ConsentKind) =>
+    evaluateConsent(await consents.find(userId, kind), requiredVersion(kind));
+  const consentView = (r: {
+    kind: ConsentKind;
+    textVersion: number;
+    grantedAt: string;
+    revokedAt: string | null;
+  }) => ({
+    kind: r.kind,
+    textVersion: r.textVersion,
+    grantedAt: r.grantedAt,
+    revokedAt: r.revokedAt,
+  });
+
+  app.get("/consents", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    return { ok: true, data: { consents: (await consents.list(userId)).map(consentView) } };
+  });
+
+  app.get("/consents/audit", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    return { ok: true, data: { audit: await consents.listAudit(userId) } };
+  });
+
+  app.post("/consents", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const body = ConsentRequestSchema.safeParse(req.body);
+    if (!body.success) return fail(reply, 400, "identity.invalid_consent");
+    const { kind, textVersion } = body.data;
+    if (textVersion < requiredVersion(kind))
+      return fail(reply, 409, "identity.consent_text_outdated");
+    const at = now().toISOString();
+    const record = { userId, kind, textVersion, grantedAt: at, revokedAt: null };
+    await consents.save(record, {
+      id: randomUUID(),
+      userId,
+      kind,
+      action: "granted",
+      textVersion,
+      at,
+    });
+    await emit("consent.granted", userId, { kind, textVersion });
+    return { ok: true, data: { consent: consentView(record) } };
+  });
+
+  app.delete("/consents/:kind", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const kind = ConsentKindSchema.safeParse((req.params as { kind?: string }).kind);
+    if (!kind.success) return fail(reply, 400, "identity.invalid_consent");
+    const existing = await consents.find(userId, kind.data);
+    if (!existing || existing.revokedAt)
+      return { ok: true, data: { kind: kind.data, revoked: false } };
+    const at = now().toISOString();
+    await consents.save(
+      { ...existing, revokedAt: at },
+      {
+        id: randomUUID(),
+        userId,
+        kind: kind.data,
+        action: "revoked",
+        textVersion: existing.textVersion,
+        at,
+      },
+    );
+    await emit("consent.revoked", userId, { kind: kind.data });
+    return { ok: true, data: { kind: kind.data, revoked: true } };
+  });
+
+  /** Query for other services (ingest on mail arrival, sync, monitor): is this feature allowed now? */
+  app.get("/consents/:kind/check", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const kind = ConsentKindSchema.safeParse((req.params as { kind?: string }).kind);
+    if (!kind.success) return fail(reply, 400, "identity.invalid_consent");
+    return { ok: true, data: { kind: kind.data, ...(await consentStatus(userId, kind.data)) } };
+  });
+
+  /** Query for monitor: the level it may run, given the camera consent. */
+  app.post("/consents/supervision-level", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const body = SupervisionLevelSchema.safeParse(
+      (req.body as { requested?: unknown } | undefined)?.requested,
+    );
+    if (!body.success) return fail(reply, 400, "identity.invalid_supervision_level");
+    const cameraAvailable = (await consentStatus(userId, "camera")).granted;
+    return {
+      ok: true,
+      data: {
+        requested: body.data,
+        level: effectiveSupervisionLevel(body.data, cameraAvailable),
+        cameraAvailable,
+      },
+    };
   });
 
   /** Internal: the gateway verifies every request's session through this. */
