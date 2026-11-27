@@ -1,3 +1,4 @@
+import { resolveBuildOutput } from "./lib/build-output.mjs";
 import { gatewayRewrites } from "./lib/gateway-url.mjs";
 
 /**
@@ -7,7 +8,7 @@ import { gatewayRewrites } from "./lib/gateway-url.mjs";
  * @type {import('next').NextConfig}
  */
 export default {
-  output: "standalone",
+  output: resolveBuildOutput(process.env),
   transpilePackages: ["@my-wife/contracts"],
   async rewrites() {
     return gatewayRewrites(process.env);

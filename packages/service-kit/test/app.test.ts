@@ -39,6 +39,20 @@ describe("createServiceApp", () => {
     expect(lines.some((l) => l.traceId === "trace-123" && l.service === "budget")).toBe(true);
   });
 
+  it("boots without Fastify deprecation warnings", () => {
+    const warnings: string[] = [];
+    const onWarning = (w: Error & { code?: string }) => warnings.push(w.code ?? w.message);
+    process.on("warning", onWarning);
+    createServiceApp({ name: "budget", logLevel: "silent" });
+    return new Promise<void>((resolve) =>
+      setImmediate(() => {
+        process.off("warning", onWarning);
+        expect(warnings.filter((c) => c.startsWith("FSTDEP"))).toEqual([]);
+        resolve();
+      }),
+    );
+  });
+
   it("reports nats down when the connection is closed", async () => {
     const app = createServiceApp({
       name: "budget",
