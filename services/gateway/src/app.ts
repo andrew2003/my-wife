@@ -15,7 +15,15 @@ export type GatewayOptions = {
 const PUBLIC_ROUTES = new Set(["POST /api/invitations/accept"]);
 
 /** Paths owned by the schedule service (daily checklist and task actions). */
-const SCHEDULE_PREFIXES = ["/checklist", "/tasks", "/sessions", "/wake", "/sample-schedule"];
+const SCHEDULE_PREFIXES = [
+  "/checklist",
+  "/tasks",
+  "/sessions",
+  "/wake",
+  "/sample-schedule",
+  "/weeks",
+  "/templates",
+];
 const BUDGET_PREFIXES = ["/budget"];
 /** Paths owned by the rules service (contracts, penalties, faults and appeals). */
 const RULES_PREFIXES = ["/contracts", "/penalties", "/faults", "/appeals"];
