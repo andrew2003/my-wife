@@ -29,7 +29,8 @@ export function PenaltyLedgerScreen({ locale }: { locale: Locale }) {
 
   const onSubmitAppeal = async (id: string, reason: string) => {
     setAppealState("sending");
-    const ok = await submitAppeal(id, reason);
+    const penalty = penalties.find((p) => p.id === id);
+    const ok = penalty ? await submitAppeal(penalty, reason) : false;
     if (ok) setAppealingId(null);
     setAppealState(ok ? "sent" : "failed");
   };

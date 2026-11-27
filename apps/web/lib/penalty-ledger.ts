@@ -31,11 +31,20 @@ export function canAppeal(status: PenaltyLedgerEntry["status"]): boolean {
 }
 
 /**
- * Opens an appeal on a penalty. The appeal contract has no penalty subject, so the penalty
- * id is sent as a fault subject (see docs/decisions.md). Returns true when rules accepted it.
+ * Subject kind that fits a penalty. Rules resolves anything but a `fault` subject through
+ * `penaltyId`, and a `fault` subject needs a fault id the ledger does not expose, so routine
+ * penalties use the wake-photo grade and every other source uses the classification.
+ */
+export function appealSubjectKind(source: PenaltyLedgerEntry["source"]) {
+  return source === "routine" ? ("wake_photo_grade" as const) : ("classification" as const);
+}
+
+/**
+ * Opens an appeal on a penalty: the penalty id goes in both `subjectId` and `penaltyId`
+ * (see docs/decisions.md). Returns true when rules accepted it.
  */
 export async function submitAppeal(
-  penaltyId: string,
+  penalty: Pick<PenaltyLedgerEntry, "id" | "source">,
   reasonText: string,
   doFetch: FetchLike = fetch,
 ): Promise<boolean> {
@@ -45,7 +54,12 @@ export async function submitAppeal(
     const res = await doFetch("/api/appeals", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ subjectKind: "fault", subjectId: penaltyId, reasonText: reason }),
+      body: JSON.stringify({
+        subjectKind: appealSubjectKind(penalty.source),
+        subjectId: penalty.id,
+        penaltyId: penalty.id,
+        reasonText: reason,
+      }),
     });
     if (!res.ok) return false;
     const parsed = OpenAppealResponseSchema.safeParse(await res.json());

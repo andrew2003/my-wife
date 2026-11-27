@@ -130,13 +130,21 @@ describe("submitAppeal", () => {
       calls.push({ url, body: JSON.parse(String(init?.body)) });
       return json(200, { ok: true, data: { appeal } });
     };
-    expect(await submitAppeal(P1, "I was present", f as never)).toBe(true);
+    const overspend = { id: P1, source: "overspend" as const };
+    expect(await submitAppeal(overspend, "I was present", f as never)).toBe(true);
     expect(calls[0]).toEqual({
       url: "/api/appeals",
-      body: { subjectKind: "fault", subjectId: P1, reasonText: "I was present" },
+      body: {
+        subjectKind: "classification",
+        subjectId: P1,
+        penaltyId: P1,
+        reasonText: "I was present",
+      },
     });
-    expect(await submitAppeal(P1, "  ", f as never)).toBe(false);
-    expect(calls).toHaveLength(1);
-    expect(await submitAppeal(P1, "x", (async () => json(500, {})) as never)).toBe(false);
+    await submitAppeal({ id: P1, source: "routine" }, "late photo", f as never);
+    expect(calls[1]?.body).toMatchObject({ subjectKind: "wake_photo_grade", penaltyId: P1 });
+    expect(await submitAppeal(overspend, "  ", f as never)).toBe(false);
+    expect(calls).toHaveLength(2);
+    expect(await submitAppeal(overspend, "x", (async () => json(500, {})) as never)).toBe(false);
   });
 });
