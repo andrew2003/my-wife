@@ -125,8 +125,8 @@ describe("setup checklist", () => {
       payload: { value: "sk-test" },
     });
     const other = await checklist(app, { "x-user-id": "u2" });
-    expect(
-      other.json().data.items.find((i: { step: string }) => i.step === "llm_key").status,
-    ).toBe("pending");
+    expect(other.json().data.items.find((i: { step: string }) => i.step === "llm_key").status).toBe(
+      "pending",
+    );
   });
 });
