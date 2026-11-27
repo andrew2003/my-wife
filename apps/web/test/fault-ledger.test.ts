@@ -29,7 +29,13 @@ const fault = (over: Record<string, unknown>) => ({
 const faults = [
   fault({}),
   fault({ id: F2, type: "tab_away", points: 1, reasonRef: F3, status: "appealed" }),
-  fault({ id: F3, type: "wake_late", points: 0, status: "waived_system", waiver: "admin_incident" }),
+  fault({
+    id: F3,
+    type: "wake_late",
+    points: 0,
+    status: "waived_system",
+    waiver: "admin_incident",
+  }),
 ];
 
 const render = (props: Record<string, unknown>) =>
