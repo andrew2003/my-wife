@@ -1,4 +1,5 @@
 export { createApp, SERVICE_NAME, type IdentityDeps } from "./app";
+export type { PenaltyPort, PenaltySummary } from "./deletion";
 export { createMemoryStore, type IdentityStore, type SessionRecord } from "./store";
 export { createDrizzleStore } from "./drizzle-store";
 export {

@@ -103,6 +103,13 @@ export interface IdentityStore {
   findSecret(userId: string, kind: string): Promise<SecretRecord | undefined>;
   listSecrets(userId: string): Promise<SecretRecord[]>;
   deleteSecret(userId: string, kind: string): Promise<void>;
+  listUsersByState(state: UserRecord["state"]): Promise<UserRecord[]>;
+  /**
+   * Account deletion: removes the user's settings, setting history, onboarding steps, secrets and
+   * sessions, plus invitations and login tokens for the old email, and replaces the email on the
+   * user row. The row itself stays (id and state) so the account state can still be read.
+   */
+  eraseUserData(userId: string, anonymisedEmail: string): Promise<void>;
 }
 
 export function createMemoryStore(): IdentityStore {
@@ -115,6 +122,22 @@ export function createMemoryStore(): IdentityStore {
   const steps = new Map<string, OnboardingStepRecord>();
   const secrets = new Map<string, SecretRecord>();
   return {
+    async listUsersByState(state) {
+      return [...users.values()].filter((u) => u.state === state);
+    },
+    async eraseUserData(userId, anonymisedEmail) {
+      const user = users.get(userId);
+      if (!user) return;
+      for (const [k, v] of invitations) if (v.email === user.email) invitations.delete(k);
+      for (const [k, v] of loginTokens) if (v.email === user.email) loginTokens.delete(k);
+      for (const [k, v] of sessions) if (v.userId === userId) sessions.delete(k);
+      for (const [k, v] of steps) if (v.userId === userId) steps.delete(k);
+      for (const [k, v] of secrets) if (v.userId === userId) secrets.delete(k);
+      settings.delete(userId);
+      for (let i = audit.length - 1; i >= 0; i--)
+        if (audit[i]?.userId === userId) audit.splice(i, 1);
+      users.set(userId, { ...user, email: anonymisedEmail, lastSeenAt: null });
+    },
     async saveSecret(r) {
       secrets.set(`${r.userId}:${r.kind}`, r);
     },
