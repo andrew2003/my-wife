@@ -34,7 +34,12 @@ import {
   type MonitorDeps,
   type MonitorState,
 } from "./monitoring";
-import { answerTaper, createMemorySupervisionStore, reviewWeek } from "./tapering";
+import {
+  answerTaper,
+  createMemorySupervisionStore,
+  reviewWeek,
+  trackSpecialMode,
+} from "./tapering";
 
 export const SERVICE_NAME = "monitor";
 
@@ -64,6 +69,8 @@ declare module "fastify" {
     onWeekClosed: (event: EventEnvelope) => Promise<void>;
     /** Consumer of `notify.reply_received` and `notify.question_expired` for the taper question. */
     onReplyReceived: (event: EventEnvelope) => Promise<void>;
+    /** Consumer of `special_mode.started` and `special_mode.ended`; such weeks are neutral for tapering. */
+    onSpecialMode: (event: EventEnvelope) => Promise<void>;
     /** The supervision level and clean streak of a user (the setting's level until reviewed). */
     supervisionOf: (userId: string) => { level: SupervisionLevel; cleanWeeks: number };
     /** Starts a planned pause (pomodoro, meal); internal callers only, no HTTP route. */
@@ -208,6 +215,7 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
   app.decorate("runUrgentJob", (at: Date) => runUrgentJob(monitor, at));
   app.decorate("monitorState", state);
   app.decorate("onWeekClosed", (event: EventEnvelope) => reviewWeek(monitor, event));
+  app.decorate("onSpecialMode", (event: EventEnvelope) => trackSpecialMode(monitor, event));
   app.decorate("onReplyReceived", (event: EventEnvelope) => answerTaper(monitor, event));
   app.decorate("supervisionOf", (userId: string) => {
     const r = state.supervision.get(userId);

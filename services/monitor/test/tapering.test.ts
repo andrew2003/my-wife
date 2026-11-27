@@ -22,7 +22,12 @@ const weekClosed = (index: number, userId = "u1"): EventEnvelope =>
     },
   }) as EventEnvelope;
 
-const reply = (questionId: string, value: string, userId = "u1"): EventEnvelope =>
+const reply = (
+  questionId: string,
+  value: string,
+  userId = "u1",
+  override: Record<string, unknown> = {},
+): EventEnvelope =>
   ({
     id: `evt-r-${questionId}-${value}`,
     type: "notify.reply_received",
@@ -36,6 +41,33 @@ const reply = (questionId: string, value: string, userId = "u1"): EventEnvelope 
       value,
       answeredAt: new Date(FIRST_MONDAY + 60 * DAY_MS).toISOString(),
       via: "chat",
+      ...override,
+    },
+  }) as EventEnvelope;
+
+const expired = (questionId: string, override: Record<string, unknown> = {}): EventEnvelope =>
+  ({
+    id: `evt-x-${questionId}`,
+    type: "notify.question_expired",
+    occurredAt: new Date(FIRST_MONDAY + 60 * DAY_MS).toISOString(),
+    userId: "u1",
+    schemaVersion: 1,
+    payload: { questionId, sourceService: "monitor", kind: "supervision_taper", ...override },
+  }) as EventEnvelope;
+
+const specialStarted = (periodId: string, from: Date, to: Date): EventEnvelope =>
+  ({
+    id: `evt-s-${periodId}`,
+    type: "special_mode.started",
+    occurredAt: from.toISOString(),
+    userId: "u1",
+    schemaVersion: 1,
+    payload: {
+      periodId,
+      kind: "sick",
+      from: from.toISOString(),
+      to: to.toISOString(),
+      retroactive: false,
     },
   }) as EventEnvelope;
 
@@ -105,14 +137,85 @@ describe("tapering supervision levels", () => {
     expect(Date.parse(p.effectiveFrom)).toBeGreaterThanOrEqual(FIRST_MONDAY + 7 * DAY_MS);
   });
 
-  it("keeps the level when the user declines and asks again after the next clean week", async () => {
-    const s = await setup({ "monitor.taper_clean_weeks": 1 });
+  it("snoozes a declined ask for the configured number of clean weeks", async () => {
+    const s = await setup({ "monitor.taper_clean_weeks": 2 });
     await s.app.onWeekClosed(weekClosed(0));
+    await s.app.onWeekClosed(weekClosed(1));
     await s.app.onReplyReceived(reply(questionOf(s.ofType("ask.supervision_taper")[0]), "decline"));
     expect(s.ofType("supervision.level_changed")).toEqual([]);
     expect(s.app.supervisionOf("u1").level).toBe("full");
-    await s.app.onWeekClosed(weekClosed(1));
+    await s.app.onWeekClosed(weekClosed(2));
+    expect(s.ofType("ask.supervision_taper")).toHaveLength(1);
+    await s.app.onWeekClosed(weekClosed(3));
     expect(s.ofType("ask.supervision_taper")).toHaveLength(2);
+  });
+
+  it("treats an expired question like a refusal and snoozes", async () => {
+    const s = await setup({ "monitor.taper_clean_weeks": 2 });
+    await s.app.onWeekClosed(weekClosed(0));
+    await s.app.onWeekClosed(weekClosed(1));
+    const q = questionOf(s.ofType("ask.supervision_taper")[0]);
+    await s.app.onReplyReceived(expired(q));
+    await s.app.onWeekClosed(weekClosed(2));
+    expect(s.ofType("ask.supervision_taper")).toHaveLength(1);
+    await s.app.onWeekClosed(weekClosed(3));
+    expect(s.ofType("ask.supervision_taper")).toHaveLength(2);
+    expect(s.ofType("supervision.level_changed")).toEqual([]);
+  });
+
+  it("ignores replies and expiries with a foreign source service or kind", async () => {
+    const s = await setup({ "monitor.taper_clean_weeks": 1 });
+    await s.app.onWeekClosed(weekClosed(0));
+    const q = questionOf(s.ofType("ask.supervision_taper")[0]);
+    await s.app.onReplyReceived(reply(q, "accept", "u1", { sourceService: "budget" }));
+    await s.app.onReplyReceived(reply(q, "accept", "u1", { kind: "carry_over" }));
+    await s.app.onReplyReceived(expired(q, { sourceService: "budget" }));
+    expect(s.ofType("supervision.level_changed")).toEqual([]);
+    await s.app.onWeekClosed(weekClosed(1));
+    expect(s.ofType("ask.supervision_taper")).toHaveLength(1); // still pending
+    await s.app.onReplyReceived(reply(q, "accept"));
+    expect(s.levels()).toEqual(["no_camera"]);
+  });
+
+  it.each([
+    {
+      name: "a special-mode week is neutral between clean weeks",
+      special: [1],
+      fault: null,
+      asks: [0, 0, 1],
+    },
+    { name: "a fault week resets the streak", special: [], fault: 1, asks: [0, 0, 0] },
+    {
+      name: "a fault in a special-mode week stays neutral",
+      special: [1],
+      fault: 1,
+      asks: [0, 0, 1],
+    },
+  ])("$name", async ({ special, fault, asks }) => {
+    const s = await setup({ "monitor.taper_clean_weeks": 2 });
+    for (const w of special) {
+      const from = new Date(FIRST_MONDAY + (w * 7 + 2) * DAY_MS);
+      await s.app.onSpecialMode(specialStarted(`p${w}`, from, new Date(from.getTime() + DAY_MS)));
+    }
+    if (fault !== null) {
+      const at = new Date(FIRST_MONDAY + fault * 7 * DAY_MS + 3600_000).toISOString();
+      s.app.monitorState.tickets.add({
+        id: "t1",
+        userId: "u1",
+        sessionId: "s1",
+        signal: "heartbeat_lost",
+        signalRef: "ref-1",
+        state: "expired",
+        occurredAt: at,
+        createdAt: at,
+      });
+    }
+    const counts: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      await s.app.onWeekClosed(weekClosed(i));
+      counts.push(s.ofType("ask.supervision_taper").length);
+    }
+    expect(counts).toEqual(asks);
   });
 
   it("does not ask twice while a question is open and ignores redelivery", async () => {

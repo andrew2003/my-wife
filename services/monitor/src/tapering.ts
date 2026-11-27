@@ -31,6 +31,8 @@ export interface SupervisionRecord {
   pending: TaperQuestion | null;
   /** Reviewed week ids, so a redelivered `week.closed` changes nothing. */
   reviewedWeeks: string[];
+  /** Special-mode periods (UTC ms); a week that overlaps one is neutral for the streak. */
+  specialPeriods?: { periodId: string; fromMs: number; toMs: number }[];
 }
 
 export interface SupervisionStore {
@@ -106,10 +108,15 @@ export async function reviewWeek(deps: MonitorDeps, event: EventEnvelope): Promi
     cleanWeeks: stored?.cleanWeeks ?? 0,
     pending: stored?.pending ?? null,
     reviewedWeeks: [...(stored?.reviewedWeeks ?? []), weekId],
+    specialPeriods: stored?.specialPeriods ?? [],
   };
   const startMs = Date.parse(`${firstDay}T00:00:00.000Z`);
   const endMs = startMs + WEEK_DAYS * DAY_MS;
-  record.cleanWeeks = isCleanWeek(deps, userId, startMs, endMs) ? record.cleanWeeks + 1 : 0;
+  // A week with a special-mode day is neutral: neither clean nor not clean.
+  const neutral = (record.specialPeriods ?? []).some((p) => p.fromMs < endMs && p.toMs > startMs);
+  if (!neutral) {
+    record.cleanWeeks = isCleanWeek(deps, userId, startMs, endMs) ? record.cleanWeeks + 1 : 0;
+  }
 
   const next = record.level ? NEXT_LEVEL[record.level] : null;
   if (
@@ -157,7 +164,8 @@ export async function answerTaper(deps: MonitorDeps, event: EventEnvelope): Prom
       kind === ASK_KIND &&
       questionId === pending.questionId
     ) {
-      deps.state.supervision.set(userId, { ...record, pending: null });
+      // An unanswered ask counts as a refusal: snooze, so another full streak is needed.
+      deps.state.supervision.set(userId, { ...record, pending: null, cleanWeeks: 0 });
     }
     return;
   }
@@ -194,7 +202,31 @@ export async function answerTaper(deps: MonitorDeps, event: EventEnvelope): Prom
       pending: null,
     });
   } else if (value === "decline") {
-    // The streak is kept: the next clean week asks again.
-    deps.state.supervision.set(userId, { ...record, pending: null });
+    // Snooze: the streak restarts, so `monitor.taper_clean_weeks` more clean weeks are needed.
+    deps.state.supervision.set(userId, { ...record, pending: null, cleanWeeks: 0 });
   }
+}
+
+/** Records special-mode periods (`special_mode.started` / `special_mode.ended`) for the review. */
+export async function trackSpecialMode(deps: MonitorDeps, event: EventEnvelope): Promise<void> {
+  const userId = event.userId;
+  const stored = deps.state.supervision.get(userId);
+  const record: SupervisionRecord = stored ?? {
+    level: null,
+    cleanWeeks: 0,
+    pending: null,
+    reviewedWeeks: [],
+  };
+  const periods = [...(record.specialPeriods ?? [])];
+  if (event.type === "special_mode.started") {
+    const p = (event as EventEnvelope<"special_mode.started">).payload;
+    if (!periods.some((x) => x.periodId === p.periodId)) {
+      periods.push({ periodId: p.periodId, fromMs: Date.parse(p.from), toMs: Date.parse(p.to) });
+    }
+  } else if (event.type === "special_mode.ended") {
+    const { periodId } = (event as EventEnvelope<"special_mode.ended">).payload;
+    const end = Date.parse(event.occurredAt);
+    for (const x of periods) if (x.periodId === periodId) x.toMs = Math.min(x.toMs, end);
+  } else return;
+  deps.state.supervision.set(userId, { ...record, specialPeriods: periods });
 }
