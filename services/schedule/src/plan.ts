@@ -28,6 +28,16 @@ export interface PlanSubtask {
   done: boolean;
 }
 
+/** Chat check-in of an offline task; informational only, never a fault. */
+export interface TaskCheckIn {
+  id: string;
+  userId: string;
+  taskId: string;
+  phase: "start" | "end";
+  at: string;
+  informational: true;
+}
+
 export interface PlanWeek {
   id: string;
   userId: string;
@@ -47,6 +57,8 @@ export interface PlanStore {
   addSubtask(subtask: PlanSubtask): void;
   getSubtask(userId: string, subtaskId: string): PlanSubtask | undefined;
   subtasksOf(userId: string, taskId: string): PlanSubtask[];
+  addCheckIn(checkIn: TaskCheckIn): void;
+  checkInsOf(userId: string, taskId: string): TaskCheckIn[];
   addWeek(week: PlanWeek): void;
   getWeek(userId: string, weekId: string): PlanWeek | undefined;
   latestWeek(userId: string): PlanWeek | undefined;
@@ -57,7 +69,11 @@ export function createMemoryPlanStore(): PlanStore {
   const tasks = new Map<string, PlanTask>();
   const weeks = new Map<string, PlanWeek>();
   const subtasks = new Map<string, PlanSubtask>();
+  const checkIns: TaskCheckIn[] = [];
   return {
+    addCheckIn: (c) => void checkIns.push(c),
+    checkInsOf: (userId, taskId) =>
+      checkIns.filter((c) => c.userId === userId && c.taskId === taskId),
     addSubtask: (s) => void subtasks.set(s.id, s),
     getSubtask: (userId, id) => {
       const s = subtasks.get(id);
@@ -169,6 +185,43 @@ export async function completeTask(
     throw err;
   }
   return { ok: true, task };
+}
+
+export type CheckInResult =
+  | { ok: true; task: PlanTask; checkIn: TaskCheckIn }
+  | { ok: false; error: "not_in_plan" | "not_offline" | "invalid_state" | "subtasks_open" };
+
+/**
+ * Chat check-in of an offline task. Start moves the task to `in_progress`, end completes it,
+ * both through the normal transitions. It never opens a monitoring session and has no fault
+ * path: the record is informational only (Q-0004).
+ */
+export async function checkInOfflineTask(
+  deps: PlanDeps,
+  userId: string,
+  taskId: string,
+  phase: "start" | "end",
+): Promise<CheckInResult> {
+  const task = deps.store.getTask(userId, taskId);
+  if (!task) return { ok: false, error: "not_in_plan" };
+  if (task.kind !== "offline") return { ok: false, error: "not_offline" };
+  if (phase === "start" && task.state !== "planned") return { ok: false, error: "invalid_state" };
+  if (phase === "end" && task.state !== "in_progress") return { ok: false, error: "invalid_state" };
+  const res =
+    phase === "start"
+      ? await startTask(deps, userId, taskId)
+      : await completeTask(deps, userId, taskId);
+  if (!res.ok) return res;
+  const checkIn: TaskCheckIn = {
+    id: randomUUID(),
+    userId,
+    taskId,
+    phase,
+    at: deps.now().toISOString(),
+    informational: true,
+  };
+  deps.store.addCheckIn(checkIn);
+  return { ok: true, task: res.task, checkIn };
 }
 
 export function createWeek(deps: PlanDeps, userId: string, firstDay: string): PlanWeek {
