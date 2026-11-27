@@ -1,4 +1,4 @@
-import type { Locale } from "@my-wife/contracts";
+import { SETTINGS, type Locale } from "@my-wife/contracts";
 import { renderMessage } from "../i18n";
 
 /** Basic persona: voice text and address terms come from the locale files. */
@@ -6,11 +6,14 @@ export function buildSystemPrompt(
   locale: Locale,
   memories: readonly string[] = [],
   summaries: readonly string[] = [],
+  strictness: number = SETTINGS["ai.persona_strictness"].default,
 ): string {
   const self = renderMessage({ key: "ai.persona.address.self", params: {} }, locale);
   const user = renderMessage({ key: "ai.persona.address.user", params: {} }, locale);
   const voice = renderMessage({ key: "ai.persona.voice", params: { self, user } }, locale);
-  const lines = [voice];
+  // Tone only: the strictness level never reaches money or penalty decisions, which are code.
+  const tone = renderMessage({ key: `ai.persona.tone.${strictness}`, params: {} }, locale);
+  const lines = [voice, tone];
   const bullet = (m: string) => `- ${m.replace(/\s+/g, " ")}`;
   // Memories are stored data: listed under a header that says so, one per line.
   if (memories.length > 0) {
