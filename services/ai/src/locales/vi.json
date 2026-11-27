@@ -22,5 +22,10 @@
   "ai.wake.challenge.sink": "Chụp ảnh anh đang đứng ở bồn rửa mặt nhé.",
   "ai.wake.challenge.object": "Cầm một món đồ trong phòng và chụp ảnh anh cùng món đồ đó nhé.",
   "ai.wake.retake": "Ảnh này em chưa nhìn rõ. Anh gửi thêm một tấm khác nhé.",
-  "ai.wake.button_check_in": "Em vẫn chưa nhìn rõ qua ảnh. Anh bấm nút xác nhận giúp em nhé."
+  "ai.wake.button_check_in": "Em vẫn chưa nhìn rõ qua ảnh. Anh bấm nút xác nhận giúp em nhé.",
+  "ai.capture.task_created": "Đã thêm việc: {title}",
+  "ai.capture.task_created_day": "Đã thêm việc: {title} ({day})",
+  "ai.capture.expense_recorded": "Đã ghi khoản chi tiền mặt: {amount} VND {note}",
+  "ai.capture.failed": "Em chưa lưu được. Anh thử lại hoặc thêm trong ứng dụng nhé.",
+  "ai.capture.task_created_day_unclear": "Đã thêm việc: {title}. Em chưa hiểu anh muốn ngày nào nên việc này chưa có ngày."
 }

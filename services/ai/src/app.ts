@@ -30,6 +30,7 @@ import {
   type MemoryStore,
 } from "./memory";
 import { createSettingsReader } from "./settings";
+import { InMemoryAuditLog, ToolExecutor, type ToolBackends } from "./tools";
 import {
   createVisionModel,
   InMemoryChallengeStore,
@@ -104,6 +105,8 @@ export interface AiDeps extends ServiceDeps {
   /** Longest accepted conversation summary; defaults to `AI_SUMMARY_MAX_LENGTH`. */
   summaryMaxLength?: number;
   memoryLimits?: { maxFactLength: number; maxPerTurn: number };
+  /** REST wrappers for quick capture; none are wired yet, so a capture is audited as failed. */
+  toolBackends?: ToolBackends;
 }
 
 /** Factory used by main.ts, the dev runner and tests; no process-level globals (ADR 0007). */
@@ -138,8 +141,13 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     memory,
     conversations,
     fallback: deps.fallbackProvider,
-    readSettings,
+    tools: new ToolExecutor({
+      audit: new InMemoryAuditLog(),
+      backends: deps.toolBackends ?? {},
+      now: deps.now ?? (() => new Date()),
+    }),
     now: deps.now,
+    readSettings,
     warn: (fields, message) => app.log.warn(fields, message),
   });
   const now = deps.now ?? (() => new Date());
