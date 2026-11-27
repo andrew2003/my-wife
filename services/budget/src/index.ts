@@ -47,6 +47,13 @@ export {
 } from "./reconciliation";
 export { buildWeeklyLimitPlan, type WeeklyLimitPlanInput } from "./weekly-plan";
 export {
+  bookRefund,
+  isInternalTransferPair,
+  type PairLeg,
+  type RefundInput,
+  type RefundSplit,
+} from "./refunds";
+export {
   classifyCodedTransfer,
   createTransactionHandler,
   getCategoryBalances,
