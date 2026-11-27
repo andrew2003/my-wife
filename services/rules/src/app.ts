@@ -41,6 +41,13 @@ import {
   type TrialStore,
 } from "./trial";
 
+import {
+  createWeeklyPenaltyService,
+  InMemoryWeeklyPenaltyStore,
+  type WeeklyPenaltyStore,
+} from "./weekly-fault-penalty";
+import type { WeeklyPenaltySettings } from "./weekly-penalty";
+
 function toAppealView(a: AppealRecord) {
   return {
     id: a.id,
@@ -78,6 +85,10 @@ export type RulesDeps = ServiceDeps & {
   penaltyDebtStore?: PenaltyDebtStore;
   /** The user's `want` categories with unspent limit (budget); no allocation when absent. */
   readWantList?: PenaltyServiceDeps["readWantList"];
+  /** Weekly computations (one per user and week); in memory when absent. */
+  weeklyPenaltyStore?: WeeklyPenaltyStore;
+  /** Fault thresholds and weekly cap in force (identity `GET /settings`); registry defaults when absent. */
+  readWeeklyPenaltySettings?: (userId: string, at: Date) => Promise<WeeklyPenaltySettings>;
   appealStore?: AppealStore;
   /** Short-lived store for the consented appeal frame; frames are refused when absent. */
   appealFrameStore?: AppealFrameStore;
@@ -216,6 +227,26 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     }
     const now = (deps.now ?? (() => new Date()))();
     return { ok: true, data: await faults.onFaultDetected(parsed.data as EventEnvelope, now) };
+  });
+
+  const weeklyPenalties = createWeeklyPenaltyService({
+    faultStore,
+    weeklyStore: deps.weeklyPenaltyStore ?? new InMemoryWeeklyPenaltyStore(),
+    penalties,
+    readSettings: deps.readWeeklyPenaltySettings,
+  });
+
+  /** Internal entry for the bus bridge: `week.closed` issues the week's monitoring penalty. */
+  app.post("/events/week-closed", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (!parsed.success || parsed.data.type !== "week.closed") {
+      return reply.code(400).send({ ok: false, error: { code: "rules.invalid_event" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    return {
+      ok: true,
+      data: await weeklyPenalties.onWeekClosed(parsed.data as EventEnvelope, now),
+    };
   });
 
   /** Internal entry for the bus bridge: `contract.signed` starts the user's trial. */
