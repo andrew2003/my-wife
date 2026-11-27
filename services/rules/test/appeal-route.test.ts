@@ -83,7 +83,11 @@ describe("appeal routes", () => {
       payload: { appealId: parsed.data.appeal.id, outcome: "overturned" },
     });
     expect(decide.statusCode).toBe(200);
-    expect(events.map((e) => e.type)).toEqual(["appeal.opened", "fault.appeal_decided"]);
+    expect(events.map((e) => e.type)).toEqual([
+      "appeal.opened",
+      "fault.waived",
+      "fault.appeal_decided",
+    ]);
     const list = await app.inject({
       method: "GET",
       url: "/penalties",

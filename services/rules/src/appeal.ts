@@ -299,6 +299,19 @@ export function createAppealService(deps: AppealServiceDeps) {
               } satisfies EventPayload<"fault.appeal_decided">,
             };
       try {
+        if (kind === "decided" && appeal.status === "overturned") {
+          // An overturned fault leaves the totals: the schedule ledger drops it on this event.
+          await deps.publish?.({
+            ...base,
+            id: `fault-waived-appeal-${appeal.id}`,
+            type: "fault.waived",
+            payload: {
+              faultId: appeal.subjectId,
+              cause: "appeal",
+              kind: "system",
+            } satisfies EventPayload<"fault.waived">,
+          } as EventEnvelope);
+        }
         await deps.publish?.(event as EventEnvelope);
         deps.store.markPublished(userId, appeal.id, kind);
       } catch (err) {
