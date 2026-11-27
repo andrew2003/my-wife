@@ -5,6 +5,7 @@ import type { AppConfig } from "@my-wife/config";
 import {
   CompleteOnboardingStepRequestSchema,
   DeclareIncidentRequestSchema,
+  IsoDateTimeSchema,
   EVENT_SCHEMA_VERSION,
   ConsentKindSchema,
   ConsentRequestSchema,
@@ -816,8 +817,10 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     if (!before) return fail(reply, 404, "identity.incident_not_found");
     if (before.state !== "active") return fail(reply, 409, "identity.incident_not_active");
     const asked = (req.body as { endsAt?: unknown } | undefined)?.endsAt;
-    const endsAt = asked === undefined ? now().toISOString() : String(asked);
-    if (Number.isNaN(Date.parse(endsAt)) || Date.parse(endsAt) < Date.parse(before.startsAt))
+    const parsedEnd = asked === undefined ? undefined : IsoDateTimeSchema.safeParse(asked);
+    if (parsedEnd && !parsedEnd.success) return fail(reply, 400, "identity.incident_invalid");
+    const endsAt = parsedEnd?.data ?? now().toISOString();
+    if (Date.parse(endsAt) < Date.parse(before.startsAt))
       return fail(reply, 400, "identity.incident_invalid");
     const after: Incident = { ...before, state: "ended", endsAt: new Date(endsAt).toISOString() };
     await record(admin, "incident.ended", before, after);

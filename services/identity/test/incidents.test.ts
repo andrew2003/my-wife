@@ -124,6 +124,43 @@ describe("incident end and cancel", () => {
     expect((await end(AT("15:30"))).statusCode).toBe(409);
   });
 
+  it.each([[123], [true], [""], ["not a date"], ["2026-11-26"], [null]])(
+    "rejects a non-ISO end %j with a 400 and keeps the incident active",
+    async (endsAt) => {
+      const { declare, app, events } = setup();
+      const id = (await declare({ ...window, endsAt: null })).json().data.incident.id;
+      const before = events.length;
+      const res = await app.inject({
+        method: "POST",
+        url: `/admin/incidents/${id}/end`,
+        headers: ADMIN,
+        payload: { endsAt },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("identity.incident_invalid");
+      expect(events).toHaveLength(before);
+      const list = await app.inject({ method: "GET", url: "/admin/incidents", headers: ADMIN });
+      expect(list.json().data.incidents[0].state).toBe("active");
+    },
+  );
+
+  it("accepts an open-ended incident that starts in the future and rejects ending before it starts", async () => {
+    const { declare, app } = setup();
+    const res = await declare({ ...window, startsAt: AT("20:00"), endsAt: null });
+    expect(res.statusCode).toBe(201);
+    const id = res.json().data.incident.id;
+    expect(res.json().data.incident.state).toBe("active");
+    const end = (endsAt: string) =>
+      app.inject({
+        method: "POST",
+        url: `/admin/incidents/${id}/end`,
+        headers: ADMIN,
+        payload: { endsAt },
+      });
+    expect((await end(AT("19:00"))).statusCode).toBe(400);
+    expect((await end(AT("21:00"))).statusCode).toBe(200);
+  });
+
   it("cancels a mistaken incident so rules re-evaluate its waivers", async () => {
     const { declare, app, events } = setup();
     const id = (await declare(window)).json().data.incident.id;
