@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Writable } from "node:stream";
 import type { FastifyReply } from "fastify";
 import type { AppConfig } from "@my-wife/config";
 import {
@@ -22,6 +23,7 @@ import {
   type OnboardingStepRecord,
   type UserRecord,
 } from "./store";
+import { encryptSecret, parseKeyring } from "./secrets-crypto";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
 
 export const SERVICE_NAME = "identity";
@@ -41,7 +43,12 @@ export type IdentityDeps = ServiceDeps & {
   publish?: (event: EventEnvelope) => void | Promise<void>;
   /** The first admin signs in without an invitation. */
   bootstrapAdminEmail?: string;
+  /** Log destination; tests capture it to prove secrets never reach logs. */
+  logStream?: Writable;
 };
+
+/** Kinds of secret a user can store; values are write-only through the API. */
+const SECRET_KINDS = ["llm_key", "google_token"] as const;
 
 const MINUTE = 60_000;
 const DAY = 86_400_000;
@@ -51,7 +58,12 @@ function fail(reply: FastifyReply, status: number, code: string) {
 }
 
 export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
-  const app = createServiceApp({ name: SERVICE_NAME, logLevel: config.logLevel, nats: deps.nats });
+  const app = createServiceApp({
+    name: SERVICE_NAME,
+    logLevel: config.logLevel,
+    nats: deps.nats,
+    logStream: deps.logStream,
+  });
   const store = deps.store ?? createMemoryStore();
   const now = deps.now ?? (() => new Date());
   const setting = (key: SettingKey): number =>
@@ -432,6 +444,53 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
         skipped: record?.skipped ?? false,
       },
     };
+  });
+
+  const keyring = config.secretsMasterKey
+    ? parseKeyring({
+        currentKeyId: config.secretsKeyId,
+        masterKey: config.secretsMasterKey,
+        previousKeys: config.secretsPreviousKeys,
+      })
+    : undefined;
+  const secretKind = (req: { params: unknown }) => {
+    const kind = (req.params as { kind: string }).kind;
+    return (SECRET_KINDS as readonly string[]).includes(kind) ? kind : null;
+  };
+
+  /** Write-only: the value is encrypted at rest and no endpoint ever returns it (principle 7). */
+  app.put("/secrets/:kind", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const kind = secretKind(req);
+    if (!kind) return fail(reply, 400, "identity.invalid_secret_kind");
+    if (!keyring) return fail(reply, 503, "identity.secrets_unavailable");
+    const value = (req.body as { value?: unknown } | undefined)?.value;
+    if (typeof value !== "string" || value.length === 0)
+      return fail(reply, 400, "identity.invalid_secret");
+    const sealed = encryptSecret(value, keyring, `${userId}:${kind}`);
+    await store.saveSecret({ userId, kind, ...sealed, updatedAt: now().toISOString() });
+    return { ok: true, data: { kind, keyId: sealed.keyId } };
+  });
+
+  /** Metadata only: which secrets exist, never their values. */
+  app.get("/secrets", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const rows = await store.listSecrets(userId);
+    return {
+      ok: true,
+      data: rows.map((r) => ({ kind: r.kind, keyId: r.keyId, updatedAt: r.updatedAt })),
+    };
+  });
+
+  app.delete("/secrets/:kind", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const kind = secretKind(req);
+    if (!kind) return fail(reply, 400, "identity.invalid_secret_kind");
+    await store.deleteSecret(userId, kind);
+    return { ok: true, data: { kind } };
   });
 
   /** Internal: the gateway verifies every request's session through this. */

@@ -1,16 +1,18 @@
-import { and, asc, count, eq, gt, isNull } from "drizzle-orm";
+import { and, asc, count, eq, gt, isNull, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type {
   IdentityStore,
   InvitationRecord,
   SessionRecord,
   SettingAuditRecord,
+  SecretRecord,
   UserRecord,
 } from "./store";
 import {
   invitations,
   loginTokens,
   onboardingSteps,
+  secrets,
   sessions,
   settingAudit,
   userSettings,
@@ -48,35 +50,87 @@ const toSession = (r: typeof sessions.$inferSelect): SessionRecord => ({
   revokedAt: iso(r.revokedAt),
 });
 
-/** PostgreSQL implementation over the `identity` schema (SQL in `drizzle/`). */
-export function createDrizzleStore(db: NodePgDatabase): IdentityStore {
+type Tx = Parameters<Parameters<NodePgDatabase["transaction"]>[0]>[0];
+
+/**
+ * PostgreSQL implementation over the `identity` schema (SQL in `drizzle/`).
+ * Tables with a `user_id` are reached through `scoped`: the transaction drops to the
+ * non-bypassing `identity_app` role and sets `app.user_id`, so row-level security
+ * confines every statement to that user (spec 40 section 5).
+ */
+export function createDrizzleStore(rootDb: NodePgDatabase): IdentityStore {
+  const scoped = <T>(userId: string, fn: (db: Tx) => Promise<T>): Promise<T> =>
+    rootDb.transaction(async (tx) => {
+      await tx.execute(sql.raw("SET LOCAL ROLE identity_app"));
+      await tx.execute(sql`SELECT set_config('app.user_id', ${userId}, true)`);
+      return fn(tx);
+    });
+  const db = rootDb;
   return {
+    async saveSecret(r: SecretRecord) {
+      const row = { ...r, updatedAt: new Date(r.updatedAt) };
+      await scoped(r.userId, (tx) =>
+        tx
+          .insert(secrets)
+          .values(row)
+          .onConflictDoUpdate({
+            target: [secrets.userId, secrets.kind],
+            set: { keyId: row.keyId, payload: row.payload, updatedAt: row.updatedAt },
+          }),
+      );
+    },
+    async findSecret(userId, kind) {
+      const [r] = await scoped(userId, (tx) =>
+        tx
+          .select()
+          .from(secrets)
+          .where(and(eq(secrets.userId, userId), eq(secrets.kind, kind))),
+      );
+      return r && { ...r, updatedAt: r.updatedAt.toISOString() };
+    },
+    async listSecrets(userId) {
+      const rows = await scoped(userId, (tx) =>
+        tx.select().from(secrets).where(eq(secrets.userId, userId)),
+      );
+      return rows.map((r) => ({ ...r, updatedAt: r.updatedAt.toISOString() }));
+    },
+    async deleteSecret(userId, kind) {
+      await scoped(userId, (tx) =>
+        tx.delete(secrets).where(and(eq(secrets.userId, userId), eq(secrets.kind, kind))),
+      );
+    },
     async findOnboardingStep(userId, step) {
-      const [r] = await db
-        .select()
-        .from(onboardingSteps)
-        .where(and(eq(onboardingSteps.userId, userId), eq(onboardingSteps.step, step)));
+      const [r] = await scoped(userId, (tx) =>
+        tx
+          .select()
+          .from(onboardingSteps)
+          .where(and(eq(onboardingSteps.userId, userId), eq(onboardingSteps.step, step))),
+      );
       return r && { ...r, completedAt: r.completedAt.toISOString(), eventAt: iso(r.eventAt) };
     },
     async saveOnboardingStep(rec) {
       const row = { ...rec, completedAt: new Date(rec.completedAt), eventAt: date(rec.eventAt) };
-      await db
-        .insert(onboardingSteps)
-        .values(row)
-        .onConflictDoUpdate({
-          target: [onboardingSteps.userId, onboardingSteps.step],
-          set: { eventAt: row.eventAt },
-        });
+      await scoped(rec.userId, (tx) =>
+        tx
+          .insert(onboardingSteps)
+          .values(row)
+          .onConflictDoUpdate({
+            target: [onboardingSteps.userId, onboardingSteps.step],
+            set: { eventAt: row.eventAt },
+          }),
+      );
     },
     async getSettingOverrides(userId) {
-      const rows = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+      const rows = await scoped(userId, (tx) =>
+        tx.select().from(userSettings).where(eq(userSettings.userId, userId)),
+      );
       return Object.fromEntries(rows.map((r) => [r.key, r.value]));
     },
     async saveSetting(userId, key, value, entry) {
       await this.saveSettings(userId, [{ key, value, audit: entry }]);
     },
     async saveSettings(userId, changes) {
-      await db.transaction(async (tx) => {
+      await scoped(userId, async (tx) => {
         for (const { key, value, audit } of changes) {
           const updatedAt = new Date(audit.at);
           await tx
@@ -91,11 +145,13 @@ export function createDrizzleStore(db: NodePgDatabase): IdentityStore {
       });
     },
     async listSettingAudit(userId) {
-      const rows = await db
-        .select()
-        .from(settingAudit)
-        .where(eq(settingAudit.userId, userId))
-        .orderBy(asc(settingAudit.at));
+      const rows = await scoped(userId, (tx) =>
+        tx
+          .select()
+          .from(settingAudit)
+          .where(eq(settingAudit.userId, userId))
+          .orderBy(asc(settingAudit.at)),
+      );
       return rows.map((r): SettingAuditRecord => ({ ...r, at: r.at.toISOString() }));
     },
     async findUserByEmail(email) {

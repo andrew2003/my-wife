@@ -108,3 +108,16 @@ export const onboardingSteps = identity.table(
   },
   (t) => [primaryKey({ columns: [t.userId, t.step] })],
 );
+
+/** Ciphertext only (AES-256-GCM); `key_id` names the master key for rotation. */
+export const secrets = identity.table(
+  "secrets",
+  {
+    userId: text("user_id").notNull(),
+    kind: text("kind").notNull(),
+    keyId: text("key_id").notNull(),
+    payload: text("payload").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.kind] })],
+);
