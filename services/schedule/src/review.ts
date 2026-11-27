@@ -40,6 +40,7 @@ export interface LedgerStore {
   addTxn(row: TxnRow): void;
   setCycleFirstDay(userId: string, cycleId: string, firstDay: string): void;
   cycleFirstDay(userId: string, cycleId: string): string | undefined;
+  cycleFirstDays(userId: string): string[];
   txns(userId: string): TxnRow[];
   faults(userId: string): FaultRow[];
   overspends(userId: string): OverspendRow[];
@@ -74,6 +75,8 @@ export function createMemoryLedgerStore(): LedgerStore {
     setCycleFirstDay: (userId, cycleId, firstDay) =>
       void cycles.set(key(userId, cycleId), firstDay),
     cycleFirstDay: (userId, cycleId) => cycles.get(key(userId, cycleId)),
+    cycleFirstDays: (userId) =>
+      [...cycles].filter(([k]) => k.startsWith(`${userId}:`)).map(([, firstDay]) => firstDay),
     txns: (userId) => [...txns.values()].filter((r) => r.userId === userId),
     faults: (userId) => [...faults.values()].filter((r) => r.userId === userId),
     overspends: (userId) => [...spends.values()].filter((r) => r.userId === userId),

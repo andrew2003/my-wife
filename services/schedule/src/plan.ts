@@ -113,12 +113,33 @@ export interface PlanDeps {
   store: PlanStore;
   publish: Publish;
   now: () => Date;
+  /** First days of the cycles `budget` announced for the user (`cycle.opened`). */
+  cycleFirstDays?: (userId: string) => string[];
 }
 
 const DAY_MS = 86_400_000;
 const WEEK_DAYS = 7;
 
 const startOfDay = (isoDay: string) => Date.parse(`${isoDay}T00:00:00Z`);
+
+/**
+ * Budget and schedule share the week boundary: a week of a known cycle starts on the cycle first
+ * day plus whole weeks. `none` means no cycle starts on or before the day (nothing to share yet).
+ */
+export type CycleWeek = { kind: "none" } | { kind: "misaligned" } | { kind: "index"; index: number };
+
+export function cycleWeekOf(cycleFirstDays: string[], firstDay: string): CycleWeek {
+  const day = startOfDay(firstDay);
+  const cycle = cycleFirstDays
+    .filter((d) => startOfDay(d) <= day)
+    .sort()
+    .at(-1);
+  if (!cycle) return { kind: "none" };
+  const days = Math.round((day - startOfDay(cycle)) / DAY_MS);
+  return days % WEEK_DAYS === 0
+    ? { kind: "index", index: days / WEEK_DAYS + 1 }
+    : { kind: "misaligned" };
+}
 
 export function envelope(
   deps: PlanDeps,
@@ -237,7 +258,14 @@ export async function checkInOfflineTask(
   return { ok: true, task: res.task, checkIn };
 }
 
-export function createWeek(deps: PlanDeps, userId: string, firstDay: string): PlanWeek {
+export function createWeek(
+  deps: PlanDeps,
+  userId: string,
+  firstDay: string,
+): PlanWeek | { error: "not_aligned" } {
+  if (cycleWeekOf(deps.cycleFirstDays?.(userId) ?? [], firstDay).kind === "misaligned") {
+    return { error: "not_aligned" };
+  }
   const week: PlanWeek = {
     id: randomUUID(),
     userId,
@@ -287,6 +315,10 @@ export async function runWeekBoundary(
 ): Promise<{ closed: string[]; failed: string[] }> {
   const nowMs = deps.now().getTime();
   const result = { closed: [] as string[], failed: [] as string[] };
+  const indexOf = (week: PlanWeek) => {
+    const w = cycleWeekOf(deps.cycleFirstDays?.(week.userId) ?? [], week.firstDay);
+    return w.kind === "index" ? w.index : null;
+  };
   for (const week of deps.store.allWeeks()) {
     const first = startOfDay(week.firstDay);
     if (week.state === "planned" && nowMs >= first) week.state = "active";
@@ -299,7 +331,7 @@ export async function runWeekBoundary(
         envelope(deps, `week-closed-${week.id}`, "week.closed", week.userId, {
           weekId: week.id,
           firstDay: week.firstDay,
-          weekIndexInCycle: null,
+          weekIndexInCycle: indexOf(week),
         }),
       );
       result.closed.push(week.id);
