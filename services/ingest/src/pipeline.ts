@@ -52,13 +52,20 @@ export type PipelineDeps = {
   forwardingSenders?: ForwardingSender[];
 };
 
-export type InboundMail = { toAddress: string; raw: Buffer };
+export type InboundMail = {
+  toAddress: string;
+  raw: Buffer;
+  /** Size the sender declared; only an optimisation, the decoded size is still checked. */
+  declaredSizeBytes?: number;
+};
 
 export type InboundOutcome =
   { state: "unknown_address" } | { state: ReceiptState; receiptId: string; reason?: string };
 
 function tokenOf(address: string): string | null {
-  const m = /^u-([A-Za-z0-9_-]+)@/.exec(address.trim());
+  // Routed recipients may carry a display name, angle brackets or upper case.
+  const angle = /<([^<>]*)>/.exec(address);
+  const m = /^u-([A-Za-z0-9_-]+)@/i.exec((angle?.[1] ?? address).trim());
   return m?.[1] ?? null;
 }
 
@@ -109,7 +116,7 @@ export async function processInbound(
   // Rejected before anything is read or stored.
   const early = !user.emailConsent
     ? "no_consent"
-    : mail.raw.length > deps.settings.maxEmailBytes
+    : Math.max(mail.raw.length, mail.declaredSizeBytes ?? 0) > deps.settings.maxEmailBytes
       ? "too_large"
       : null;
   if (early) {

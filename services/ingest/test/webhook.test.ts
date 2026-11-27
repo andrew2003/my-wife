@@ -99,6 +99,62 @@ describe("POST /webhook/inbound-email", () => {
     expect(res.json()).toMatchObject({ ok: false, error: { code: "dkim_invalid" } });
   });
 
+  it.each([
+    ["upper case", "U-tok123@IN.EXAMPLE.TEST"],
+    ["angle brackets", "<u-tok123@in.example.test>"],
+    ["display name", "My Wife <u-tok123@in.example.test>"],
+    ["surrounding spaces", "  u-tok123@in.example.test \n"],
+  ])("accepts a Cloudflare recipient with %s", async (_n, toAddress) => {
+    const { app, published } = await setup();
+    const res = await app.inject({
+      method: "POST",
+      url: "/webhook/inbound-email",
+      headers: { "x-ingest-secret": SECRET },
+      payload: { ...(await payload()), toAddress },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(published).toEqual(["receipt.parsed"]);
+  });
+
+  it("rejects a declared size over the limit before decoding", async () => {
+    const { app, store, published } = await setup();
+    const res = await app.inject({
+      method: "POST",
+      url: "/webhook/inbound-email",
+      headers: { "x-ingest-secret": SECRET },
+      payload: { ...(await payload()), sizeBytes: 1048577 },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ ok: false, error: { code: "too_large" } });
+    expect(store.size()).toBe(0);
+    expect(published).toEqual(["receipt.rejected"]);
+  });
+
+  it("still answers unknown_address for an oversize declared size", async () => {
+    const { app, published } = await setup();
+    const res = await app.inject({
+      method: "POST",
+      url: "/webhook/inbound-email",
+      headers: { "x-ingest-secret": SECRET },
+      payload: { ...(await payload()), toAddress: "nobody@in.example.test", sizeBytes: 1048577 },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "unknown_address" } });
+    expect(published).toEqual([]);
+  });
+
+  it("never echoes the shared secret in a response", async () => {
+    const { app } = await setup();
+    const res = await app.inject({
+      method: "POST",
+      url: "/webhook/inbound-email",
+      headers: { "x-ingest-secret": "wrong" },
+      payload: await payload(),
+    });
+    expect(res.body).not.toContain(SECRET);
+    expect(res.body).not.toContain("wrong");
+  });
+
   it("rejects an invalid body", async () => {
     const { app } = await setup();
     const res = await app.inject({

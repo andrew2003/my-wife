@@ -51,7 +51,12 @@ export function createApp(config: AppConfig, deps: ServiceDeps & { ingest?: Inge
         return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
       }
       const outcome = await processInbound(
-        { toAddress: body.data.toAddress, raw: Buffer.from(body.data.rawBase64, "base64") },
+        {
+          toAddress: body.data.toAddress,
+          raw: Buffer.from(body.data.rawBase64, "base64"),
+          // Only an optimisation: the decoded size is still checked in the pipeline.
+          declaredSizeBytes: body.data.sizeBytes,
+        },
         { ...ingest, newId: ingest.newId ?? randomUUID },
         ingest.now(),
       );
