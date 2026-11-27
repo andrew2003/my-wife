@@ -1,6 +1,7 @@
 import { simpleParser } from "mailparser";
 import type { EventEnvelope, ReceiptState } from "@my-wife/contracts";
 import { domainAligned, type DkimVerifier } from "./dkim";
+import { assertTransition } from "./receipt-state";
 import type { IngestStore, ReceiptRecord } from "./store";
 import { fingerprintTemplate, verifyEvidence, type RegisteredTemplate } from "./templates";
 
@@ -200,6 +201,7 @@ export async function processInbound(
 
   // Consume the authorization first: if we crash before the debit is saved, a redelivered
   // debit stands alone and is still booked once, and the authorization can never re-pair.
+  if (held) assertTransition(held.state, "duplicate");
   if (held) await deps.store.save({ ...held, state: "duplicate", pairedReceiptId: receiptId });
 
   const outcome = await finish({
