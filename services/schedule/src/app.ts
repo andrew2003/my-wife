@@ -59,6 +59,11 @@ import {
   type LedgerStore,
 } from "./review";
 import {
+  createMemoryHabitStore,
+  runTaperingReview,
+  type HabitStore,
+} from "./routine-tapering";
+import {
   buildStarterRoutines,
   changeRoutineLevel,
   createMemoryRoutineStore,
@@ -114,6 +119,8 @@ export type ScheduleDeps = ServiceDeps & {
   sleepStore?: SleepStore;
   /** Routine level changes and meal reminders storage port; in memory for now. */
   routineStore?: RoutineStore;
+  /** Regular-day flags for routine tapering; in memory for now. */
+  habitStore?: HabitStore;
   /** Today's dish from the budget menu (internal REST in production); none without budget. */
   menuSource?: MenuSource;
   /** `wake` challenge storage port; in memory until the Drizzle store lands. */
@@ -134,6 +141,10 @@ declare module "fastify" {
     runSleepJob: (now: Date) => Promise<{ checked: number; failed: string[] }>;
     /** Sends the meal reminders whose window opened; the caller passes `now`. */
     runRoutineJob: (now: Date) => Promise<{ checked: number; failed: string[] }>;
+    /** Proposes lower routine levels after stable streaks; the caller passes `now`. */
+    runTaperingReview: (
+      now: Date,
+    ) => Promise<{ checked: number; proposed: number; failed: string[] }>;
     /** Sends the daily wake challenge once wake time is reached; the caller passes `now`. */
     runWakeJob: (now: Date) => Promise<{ checked: number; failed: string[] }>;
   }
@@ -689,6 +700,25 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     ...(deps.menuSource ? { menuSource: deps.menuSource } : {}),
     readSettings: readSettings as (userId: string) => Promise<Record<string, unknown>>,
   };
+  const taperDeps = { ...routineDeps, habits: deps.habitStore ?? createMemoryHabitStore() };
+  app.decorate("runTaperingReview", (at: Date) => runTaperingReview(taperDeps, at));
+  /** Records whether a routine was kept regularly on one local day (check-in sources feed it). */
+  app.post("/routines/habit-days", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const b = (req.body ?? {}) as { routineId?: unknown; date?: unknown; regular?: unknown };
+    const date = IsoDateSchema.safeParse(b.date);
+    if (
+      typeof b.routineId !== "string" ||
+      !/^[a-z][a-z0-9_]{0,39}$/.test(b.routineId) ||
+      !date.success ||
+      typeof b.regular !== "boolean"
+    ) {
+      return fail(reply, 400, "schedule.invalid_request");
+    }
+    taperDeps.habits.recordDay(userId, b.routineId, date.data, b.regular);
+    return { ok: true, data: { recorded: true } };
+  });
   app.decorate("runRoutineJob", (at: Date) => runRoutineReminderJob(routineDeps, at));
   app.post("/jobs/routines", async () => ({
     ok: true,
@@ -792,7 +822,16 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     // week.closed first; the review only follows weeks whose week.closed was announced.
     const boundary = await runWeekBoundary(plan);
     const review = await runReviewJob(plan, readSettings);
-    return { ok: true, data: { ...boundary, reviewed: review.ready, reviewFailed: review.failed } };
+    const taper = await runTaperingReview(taperDeps, now());
+    return {
+      ok: true,
+      data: {
+        ...boundary,
+        reviewed: review.ready,
+        reviewFailed: review.failed,
+        taperProposed: taper.proposed,
+      },
+    };
   });
 
   /** Internal entry for the bus bridge: `fault.recorded`, `fault.waived`, `overspend.detected`. */

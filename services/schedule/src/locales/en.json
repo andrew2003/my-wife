@@ -39,5 +39,8 @@
   "schedule.carry_over.option.roll_forward": "Move to tomorrow",
   "schedule.carry_over.option.lower_priority": "Move and lower its priority",
   "schedule.carry_over.option.skip": "Skip it",
-  "schedule.review.suggest_adjust_durations": "You went over your estimate on {count} tasks this week. Consider raising their planned durations to match the actual time."
+  "schedule.review.suggest_adjust_durations": "You went over your estimate on {count} tasks this week. Consider raising their planned durations to match the actual time.",
+  "routine.taper.question": "You have kept {routineId} steady for {streakDays} days. Want to lower it from {from} to {to}? Nothing changes unless you accept.",
+  "routine.taper.option.accept": "Lower it",
+  "routine.taper.option.keep": "Keep it as it is"
 }
