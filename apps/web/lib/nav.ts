@@ -9,6 +9,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/schedule/today", labelKey: "nav.today" },
   { href: "/schedule", labelKey: "nav.schedule" },
   { href: "/schedule/calendar", labelKey: "nav.calendar" },
+  { href: "/schedule/review", labelKey: "nav.review" },
   { href: "/budget", labelKey: "nav.budget" },
   { href: "/debts", labelKey: "nav.debts" },
   { href: "/cycle-close", labelKey: "nav.cycle_close" },
