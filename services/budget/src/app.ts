@@ -15,6 +15,7 @@ import { createPenaltySavingsWithdrawalHandler } from "./penalty-savings-withdra
 import { createRefundTransferHandler } from "./refund-wiring";
 import { buildFundRequests, createContractSignedHandler, createCycleApprover } from "./approval";
 import { createFundingHandler } from "./funding";
+import { buildTransferQr, type TransferQrOptions } from "./transfer-qr";
 import { createTransactionHandler } from "./transactions";
 import {
   createPlanPublisher,
@@ -65,6 +66,13 @@ export type BudgetDeps = ServiceDeps & {
   totalVnd?: (userId: string) => number | undefined;
   /** Reads the facts of an unknown receipt from ingest (`receipt.unknown` has no amount). */
   readReceipt?: UnknownSpendDeps["readReceipt"];
+  /** Overrides of the QR memo limit and service code (defaults live in transfer-qr.ts). */
+  qrOptions?: TransferQrOptions;
+  /** Bank and account number to pay into; budget accounts hold no bank number (decisions.md). */
+  readBankDestination?: (
+    userId: string,
+    bankAccountId: string,
+  ) => Promise<{ bankBin: string; accountNumber: string } | undefined>;
 };
 
 /** Factory used by main.ts, the dev runner and tests; no process-level globals (ADR 0007). */
@@ -477,9 +485,11 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
       accounts: record.accounts,
       categories: record.categories,
     });
-    const accounts: FundingAccountView[] = transfers.map((t) => {
+    const accounts: FundingAccountView[] = [];
+    for (const t of transfers) {
       const account = record.accounts.find((a) => a.id === t.bankAccountId)!;
-      return {
+      const destination = await deps.readBankDestination?.(userId, t.bankAccountId);
+      accounts.push({
         bankAccountId: t.bankAccountId,
         name: account.name,
         code: account.code,
@@ -491,8 +501,16 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
           record.fundings.some(
             (f) => f.bankAccountId === t.bankAccountId && f.amountVnd >= t.requiredVnd,
           ),
-      };
-    });
+        ...(destination && t.requiredVnd > 0
+          ? {
+              qrPayload: buildTransferQr(
+                { ...destination, amountVnd: t.requiredVnd, memo: t.memo },
+                deps.qrOptions,
+              ),
+            }
+          : {}),
+      });
+    }
     return { ok: true, data: { cycle: record.cycle, accounts } };
   });
   return app;
@@ -506,6 +524,8 @@ export interface FundingAccountView {
   requiredVnd: number;
   memo: string;
   funded: boolean;
+  /** VietQR payload with account, amount and transfer code; absent without a bank destination. */
+  qrPayload?: string;
 }
 
 declare module "fastify" {
