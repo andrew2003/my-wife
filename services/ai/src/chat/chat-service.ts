@@ -18,6 +18,7 @@ import type { LlmProvider } from "../llm";
 import type { ConversationStore } from "../conversation";
 import type { MemoryService } from "../memory";
 import { buildSystemPrompt } from "./persona";
+import { dayKeyOf, estimateTokens, TokenUsageStore } from "../usage";
 import { wrapUntrusted, type UntrustedSource } from "./untrusted";
 
 export interface ChatServiceDeps {
@@ -29,7 +30,8 @@ export interface ChatServiceDeps {
       | "memory.deleted"
       | "persona.updated"
       | "ai.degraded_entered"
-      | "ai.degraded_exited";
+      | "ai.degraded_exited"
+      | "ai.token_cap_reached";
     payload: unknown;
   }) => Promise<void>;
   memory?: MemoryService;
@@ -70,6 +72,7 @@ function reasonOf(error: unknown): DegradedReason {
 export class ChatService {
   private readonly states = new Map<string, FailoverState>();
   /** Last strictness seen per user and the persona version it implies (in memory for now). */
+  private readonly usage = new TokenUsageStore();
   private readonly personas = new Map<string, { strictness: number; version: number }>();
 
   constructor(private readonly deps: ChatServiceDeps) {}
@@ -87,6 +90,36 @@ export class ChatService {
       return parsed.success ? parsed.data : def.default;
     } catch {
       return def.default;
+    }
+  }
+
+  private async settingValue<K extends "ai.daily_token_cap" | "calendar.time_zone">(
+    userId: string,
+    key: K,
+  ): Promise<(typeof SETTINGS)[K]["default"]> {
+    const def = SETTINGS[key];
+    try {
+      const values = (await this.deps.readSettings?.(userId)) ?? {};
+      const parsed = def.schema.safeParse(values[key]);
+      return (parsed.success ? parsed.data : def.default) as (typeof SETTINGS)[K]["default"];
+    } catch {
+      return def.default;
+    }
+  }
+
+  /** Refuses the call and announces the cap once per user and day. */
+  private async refuseOverCap(userId: string, day: string, cap: number): Promise<void> {
+    if (!this.usage.markAnnounced(userId, day)) return;
+    try {
+      await this.deps.publish({
+        name: "ai.token_cap_reached",
+        payload: aiEvents["ai.token_cap_reached"].parse({ day, cap }),
+      });
+    } catch (error) {
+      this.deps.warn?.(
+        { errorName: error instanceof Error ? error.name : "unknown" },
+        "event publish failed",
+      );
     }
   }
 
@@ -179,6 +212,18 @@ export class ChatService {
     untrusted: UntrustedSource | null,
   ): Promise<ChatResult> {
     const messageId = (this.deps.newId ?? randomUUID)();
+    const nowAt = (this.deps.now ?? (() => new Date()))();
+    const cap = await this.settingValue(userId, "ai.daily_token_cap");
+    const day = dayKeyOf(nowAt, await this.settingValue(userId, "calendar.time_zone"));
+    if (this.usage.usedOn(userId, day) >= cap) {
+      await this.refuseOverCap(userId, day, cap);
+      return {
+        messageId,
+        reply: { key: "ai.chat.token_cap", params: {} },
+        pendingConfirmations: [],
+        degraded: false,
+      };
+    }
     const threshold = await this.threshold(userId);
     const strictness = await this.strictness(userId);
     const [memories, summaries] = await this.recallSafely(userId);
@@ -201,6 +246,12 @@ export class ChatService {
     for (const [slot, provider] of slots) {
       try {
         const response = await provider.complete(request);
+        this.usage.add(
+          userId,
+          day,
+          response.usage?.totalTokens ??
+            estimateTokens(request.system, request.userText, response.text),
+        );
         state = nextFailoverState(state, slot, true, threshold, { hasFallback: !!fallback });
         if (untrusted && response.toolCalls.length > 0)
           this.deps.warn?.(
