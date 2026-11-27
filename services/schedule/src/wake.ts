@@ -328,9 +328,7 @@ async function recordLateness(
   wakeTime: string,
   minutesLate: number,
 ): Promise<void> {
-  const level = deps.levelOf
-    ? deps.levelOf(userId, raw, deps.plan.now())
-    : wakeSettings(raw).level;
+  const level = deps.levelOf ? deps.levelOf(userId, raw, deps.plan.now()) : wakeSettings(raw).level;
   const result = evaluateLateness({
     level,
     graceMinutes: wakeGraceMinutes(raw),
@@ -338,11 +336,17 @@ async function recordLateness(
   });
   if (result.recordCheckin) {
     await deps.plan.publish(
-      envelope(deps, `routine-checkin-wake-${wakeTime}-${userId}`, "routine.checkin_recorded", userId, {
-        kind: "wake",
-        at: wakeTime,
-        minutesLate,
-      }),
+      envelope(
+        deps,
+        `routine-checkin-wake-${wakeTime}-${userId}`,
+        "routine.checkin_recorded",
+        userId,
+        {
+          kind: "wake",
+          at: wakeTime,
+          minutesLate,
+        },
+      ),
     );
   }
   if (result.fault) {
