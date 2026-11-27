@@ -1,3 +1,7 @@
 {
-  "monitor.urgent.heartbeat_lost": "Mình không thấy cửa sổ tập trung của bạn trong {seconds} giây. Cho mình biết có chuyện gì nhé."
+  "monitor.urgent.heartbeat_lost": "Mình không thấy cửa sổ tập trung của bạn trong {seconds} giây. Cho mình biết có chuyện gì nhé.",
+  "monitor.nudge.yawn": "Bạn có vẻ mệt. Vươn vai một chút rồi quay lại nhé.",
+  "monitor.nudge.head_down": "Bạn đang cúi đầu. Ngồi thẳng lên và nhìn vào màn hình nhé.",
+  "monitor.nudge.looking_away": "Mắt bạn đang nhìn đi chỗ khác. Quay lại với việc đang làm nhé.",
+  "monitor.nudge.drowsy": "Bạn có vẻ buồn ngủ. Uống một ly nước hoặc đi bộ một chút sẽ giúp ích."
 }

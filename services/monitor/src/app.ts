@@ -9,7 +9,9 @@ import {
 } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
+  createMemoryNudgeStore,
   createMemorySessionStore,
+  processSoftSignals,
   createMemoryTicketStore,
   createMemoryUrgentStore,
   endMonitoring,
@@ -55,6 +57,7 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     nats: deps.nats,
   });
   const state: MonitorState = {
+    nudges: deps.state?.nudges ?? createMemoryNudgeStore(),
     sessions: deps.state?.sessions ?? createMemorySessionStore(),
     tickets: deps.state?.tickets ?? createMemoryTicketStore(),
     urgent: deps.state?.urgent ?? createMemoryUrgentStore(),
@@ -100,7 +103,14 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     const res = recordHeartbeat(monitor, userId, parsed.data.sessionId);
     if (res === "not_found") return fail(reply, 404, "monitor.session_not_found");
     if (res === "ended") return fail(reply, 409, "monitor.session_ended");
-    return { ok: true, data: {} };
+    const session = monitor.state.sessions.get(userId, parsed.data.sessionId);
+    const nudges = session
+      ? await processSoftSignals(monitor, session, parsed.data.events, monitor.now())
+      : [];
+    return {
+      ok: true,
+      data: { nudges: nudges.map((n) => ({ signal: n.signal, messageKey: n.messageKey })) },
+    };
   });
 
   app.post("/sessions/:id/end", async (req, reply) => {
