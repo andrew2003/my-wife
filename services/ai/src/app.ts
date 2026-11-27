@@ -18,6 +18,7 @@ import {
   type KeyValidator,
   type LlmKeyStore,
 } from "./keys";
+import { runHandoverTest, type HandoverFact } from "./handover";
 import { createProvider, type LlmProvider } from "./llm";
 import { InMemoryMemoryStore, loadMemoryLimits, MemoryService, type MemoryStore } from "./memory";
 import { createSettingsReader } from "./settings";
@@ -49,7 +50,10 @@ export interface AiDeps extends ServiceDeps {
       | "memory.created"
       | "ai.photo_graded"
       | "llm_key.saved"
-      | "llm_key.invalid";
+      | "llm_key.invalid"
+      | "ai.handover_passed"
+      | "ai.handover_failed"
+      | "ai.model_changed";
     payload: unknown;
   }) => Promise<void>;
   memoryStore?: MemoryStore;
@@ -67,6 +71,13 @@ export interface AiDeps extends ServiceDeps {
   keyStore?: LlmKeyStore;
   /** Decides whether a provider accepts a key; offline shape check by default. */
   keyValidator?: KeyValidator;
+  /**
+   * The code-computed facts the handover questions are graded against, from the user's current
+   * data. Defaults to none, which makes the test pass trivially (see docs/decisions.md).
+   */
+  handoverFacts?: (userId: string) => Promise<HandoverFact[]>;
+  /** Builds the candidate provider for a handover test; the fake one by default. */
+  providerFor?: (candidate: { provider: string; model: string; apiKey: string }) => LlmProvider;
   /** Log destination, for tests that scan logs. */
   logStream?: Writable;
   now?: () => Date;
@@ -188,6 +199,60 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
         return reply.code(503).send({ ok: false, error: "secrets_unavailable" });
       throw error;
     }
+  });
+  const validator = deps.keyValidator ?? createKeyValidator();
+  // Switching a model: the candidate must pass the handover test before its key replaces the
+  // active one. A failed test leaves the old model active. The key is never echoed or logged.
+  app.post("/models/switch", async (req, reply) => {
+    const parsed = SaveLlmKeyRequestSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_request" });
+    const userId = userOf(req.headers["x-user-id"]);
+    const input = parsed.data;
+    let keyOk: boolean;
+    try {
+      keyOk = await validator.validate(input);
+    } catch {
+      keyOk = false;
+    }
+    if (!keyOk) return reply.code(422).send({ ok: false, error: "key_invalid" });
+    const settings = await readSettings(userId);
+    const ratio = SETTINGS["ai.handover_pass_ratio"].schema.safeParse(
+      settings["ai.handover_pass_ratio"],
+    );
+    const result = await runHandoverTest({
+      provider: (deps.providerFor ?? (() => createProvider()))(input),
+      facts: (await deps.handoverFacts?.(userId)) ?? [],
+      locale: config.uiLanguage,
+      role: input.role,
+      passRatio: ratio.success ? ratio.data : SETTINGS["ai.handover_pass_ratio"].default,
+    });
+    if (result.state === "failed") {
+      await publish({
+        name: "ai.handover_failed",
+        payload: {
+          role: input.role,
+          passRatio: result.passRatio,
+          failedQuestions: result.failedQuestions,
+        },
+      });
+      return { ok: true, data: result };
+    }
+    try {
+      await keys.save(userId, input);
+    } catch (error) {
+      if (error instanceof SecretsUnavailableError)
+        return reply.code(503).send({ ok: false, error: "secrets_unavailable" });
+      throw error;
+    }
+    await publish({
+      name: "ai.handover_passed",
+      payload: { role: input.role, passRatio: result.passRatio },
+    });
+    await publish({
+      name: "ai.model_changed",
+      payload: { role: input.role, provider: input.provider, model: input.model },
+    });
+    return { ok: true, data: result };
   });
   app.get("/keys", async (req) => ({
     ok: true,
