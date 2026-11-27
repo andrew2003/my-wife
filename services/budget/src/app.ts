@@ -25,6 +25,12 @@ import { createWeekClosedHandler } from "./overspend";
 import { createExceptionClaimer } from "./exceptions";
 import { createDebtOpener, toDebt } from "./debts";
 import {
+  createWishlist,
+  MemoryWishlistStore,
+  readWishlistPool,
+  type WishlistStore,
+} from "./wishlist";
+import {
   createGroupExpenseRecorder,
   createIncomeRecorder,
   incomePoolTotalVnd,
@@ -49,6 +55,7 @@ export type BudgetDeps = ServiceDeps & {
   now?: () => Date;
   readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
   publish?: (event: EventEnvelope) => void | Promise<void>;
+  wishlistStore?: WishlistStore;
   totalVnd?: (userId: string) => number | undefined;
   /** Reads the facts of an unknown receipt from ingest (`receipt.unknown` has no amount). */
   readReceipt?: UnknownSpendDeps["readReceipt"];
@@ -182,6 +189,39 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
       return reply.code(result.error.code === "budget.cycle_not_found" ? 404 : 400).send(result);
     }
     return reply.code(201).send(result);
+  });
+
+  // Wishlist (spec 10 section 10): items with progress from the future-purchases savings.
+  const wishlist = createWishlist({
+    store: deps.wishlistStore ?? new MemoryWishlistStore(),
+    now,
+    newId: randomUUID,
+    readPool: async (userId) => readWishlistPool(await store.find(userId)),
+  });
+  app.get("/budget/wishlist", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    return wishlist.list(userId);
+  });
+  app.post("/budget/wishlist", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const result = await wishlist.add(userId, req.body);
+    return reply.code(result.ok ? 201 : 400).send(result);
+  });
+  app.post("/budget/wishlist/:id/bought", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const result = await wishlist.markBought(userId, (req.params as { id: string }).id);
+    if (result.ok) return result;
+    const code = result.error.code;
+    return reply.code(code === "budget.wishlist_item_not_found" ? 404 : 409).send(result);
   });
 
   // Shared expenses and the income pool (spec 10 section 6).
