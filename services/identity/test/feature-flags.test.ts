@@ -65,7 +65,12 @@ describe("feature flags per user", () => {
     const { app, set } = setup();
     await set({ userId: "u1", flag: "wake_photo", enabled: false });
     const res = await app.inject({ method: "GET", url: "/feature-flags", headers: USER });
-    expect(res.json().data.flags.wake_photo).toBe(false);
+    expect(res.json().data.flags).toEqual({
+      camera_supervision: true,
+      wake_photo: false,
+      sync: true,
+      email_ingest: true,
+    });
     expect(res.json().data.notices).toEqual(["feature.disabled.wake_photo"]);
   });
 

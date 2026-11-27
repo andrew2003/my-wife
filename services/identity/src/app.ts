@@ -967,7 +967,8 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
   app.get("/feature-flags", async (req, reply) => {
     const userId = callerId(req.headers);
     if (!userId) return fail(reply, 401, "identity.unauthenticated");
-    const flags = await featureFlags.list(userId);
+    const stored = await featureFlags.list(userId);
+    const flags = Object.fromEntries(FeatureFlagSchema.options.map((f) => [f, stored[f] ?? true]));
     const notices = FeatureFlagSchema.options
       .filter((f) => flags[f] === false)
       .map(featureDisabledNoticeKey);
