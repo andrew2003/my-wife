@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "@my-wife/config";
+import type { EventEnvelope } from "@my-wife/contracts";
 import { createApp } from "../src/index";
+import { createOnboardingHandler, MemorySampleBudgetStore } from "../src/onboarding";
 import {
   allocateSavings,
   averageContributionVnd,
@@ -180,12 +182,60 @@ describe("wishlist routes", () => {
   });
 });
 
+describe("wishlist routes with savings", () => {
+  it("marks a funded item bought (200) and answers 404 for an unknown id", async () => {
+    const store = new MemorySampleBudgetStore();
+    const NOW = new Date("2026-03-05T10:00:00Z");
+    let n = 0;
+    await createOnboardingHandler({
+      store,
+      locale: "en",
+      now: () => NOW,
+      newId: () => `id-${++n}`,
+      publish: () => undefined,
+    })({
+      id: "e0",
+      type: "onboarding.step_completed",
+      occurredAt: NOW.toISOString(),
+      userId: "u1",
+      schemaVersion: 1,
+      payload: { step: "qa_templates", skipped: true },
+    } as EventEnvelope);
+    store.get("u1")!.cycleCloses.push({
+      cycleId: "c0",
+      allocation: { futurePurchasesVnd: 2_000_000 },
+      closedAt: NOW.toISOString(),
+      surplusAnnounced: true,
+      cycleAnnounced: true,
+    } as never);
+    const app = await createApp(config, { store, now: () => NOW });
+    const headers = { "x-user-id": "u1" };
+    const created = await app.inject({
+      method: "POST",
+      url: "/budget/wishlist",
+      headers,
+      payload: { name: "Phone", priceVnd: 1_000_000 },
+    });
+    const id = created.json().data.id;
+    const buy = await app.inject({ method: "POST", url: `/budget/wishlist/${id}/bought`, headers });
+    expect(buy.statusCode).toBe(200);
+    expect(buy.json().data).toMatchObject({ bought: true, boughtAt: NOW.toISOString() });
+    const missing = await app.inject({
+      method: "POST",
+      url: "/budget/wishlist/nope/bought",
+      headers,
+    });
+    expect(missing.statusCode).toBe(404);
+    await app.close();
+  });
+});
+
 describe("readWishlistPool (pure)", () => {
   it("adds the category limit and the surplus share of every closed cycle", () => {
     const pool = readWishlistPool({
       categories: [
-        { shortCode: "AN", cycleLimitVnd: 9 },
-        { shortCode: "TL", cycleLimitVnd: 800_000 },
+        { key: "food", cycleLimitVnd: 9 },
+        { key: "future_purchases", cycleLimitVnd: 800_000 },
       ],
       cycleCloses: [
         { allocation: { futurePurchasesVnd: 100_000 } },
@@ -196,6 +246,24 @@ describe("readWishlistPool (pure)", () => {
       savedPoolVnd: 1_700_000,
       completedContributionsVnd: [900_000, 800_000],
       plannedVnd: 800_000,
+    });
+  });
+  it("finds the category by key even when the user renamed its short code", () => {
+    const pool = readWishlistPool({
+      categories: [{ key: "future_purchases", cycleLimitVnd: 500_000, shortCode: "ZZ" } as never],
+      cycleCloses: [{ allocation: { futurePurchasesVnd: 0 } }],
+    });
+    expect(pool.plannedVnd).toBe(500_000);
+  });
+  it("counts only surplus shares when the category is missing", () => {
+    const pool = readWishlistPool({
+      categories: [{ cycleLimitVnd: 700_000 }],
+      cycleCloses: [{ allocation: { futurePurchasesVnd: 100_000 } }],
+    });
+    expect(pool).toEqual({
+      savedPoolVnd: 100_000,
+      completedContributionsVnd: [100_000],
+      plannedVnd: 0,
     });
   });
   it("is empty without a record", () => {

@@ -202,8 +202,8 @@ export function createWishlist(deps: WishlistDeps) {
   return { list, add, markBought };
 }
 
-/** Short code of the future-purchases `fund` category in the sample budget (see decisions.md). */
-export const FUTURE_PURCHASES_SHORT_CODE = "TL";
+/** Stable key of the future-purchases category (short codes are user-defined, so never matched). */
+export const FUTURE_PURCHASES_KEY = "future_purchases";
 
 /**
  * Pure: the future-purchases funding of a budget record. Each closed cycle contributes the
@@ -212,13 +212,13 @@ export const FUTURE_PURCHASES_SHORT_CODE = "TL";
 export function readWishlistPool(
   record:
     | {
-        categories: { shortCode: string; cycleLimitVnd: number }[];
+        categories: { key?: string; cycleLimitVnd: number }[];
         cycleCloses: { allocation: { futurePurchasesVnd: number } }[];
       }
     | undefined,
 ): WishlistPool {
-  const limit =
-    record?.categories.find((c) => c.shortCode === FUTURE_PURCHASES_SHORT_CODE)?.cycleLimitVnd ?? 0;
+  // Without the category only the surplus shares count (limit 0).
+  const limit = record?.categories.find((c) => c.key === FUTURE_PURCHASES_KEY)?.cycleLimitVnd ?? 0;
   const completed = (record?.cycleCloses ?? []).map((c) => limit + c.allocation.futurePurchasesVnd);
   return {
     savedPoolVnd: completed.reduce((a, b) => a + b, 0),
