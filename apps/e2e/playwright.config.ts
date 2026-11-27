@@ -18,6 +18,7 @@ export default defineConfig({
     "**/money.spec.ts",
     "**/money-extended.spec.ts",
     "**/time.spec.ts",
+    "**/time-extended.spec.ts",
     "**/routines.spec.ts",
   ],
   workers: 1,

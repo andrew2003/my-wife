@@ -8,6 +8,7 @@ export default defineConfig({
       "tests/money.spec.ts",
       "tests/money-extended.spec.ts",
       "tests/time.spec.ts",
+      "tests/time-extended.spec.ts",
       "tests/routines.spec.ts",
     ],
     maxWorkers: 1,
