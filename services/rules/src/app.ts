@@ -29,6 +29,7 @@ import {
   type PenaltySettings,
   type PenaltyStore,
 } from "./penalty";
+import { InMemoryPenaltyDebtStore, type PenaltyDebtStore } from "./penalty-source";
 import {
   createTrialService,
   InMemoryTrialStore,
@@ -70,6 +71,10 @@ export type RulesDeps = ServiceDeps & {
    * (budget account of kind `penalty_savings`). Defaults to the seeded code `PEN`.
    */
   isPenaltySavingsAccount?: PenaltyServiceDeps["isPenaltySavingsAccount"];
+  /** Penalty debt carried over (source exhaustion); in memory when absent. */
+  penaltyDebtStore?: PenaltyDebtStore;
+  /** The user's `want` categories with unspent limit (budget); no allocation when absent. */
+  readWantList?: PenaltyServiceDeps["readWantList"];
   appealStore?: AppealStore;
   /** Reads the user's appeal settings (`appeal.window_hours`); registry defaults when absent. */
   readAppealSettings?: (userId: string) => Promise<AppealSettings>;
@@ -144,6 +149,8 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     publish: deps.publish,
     readSettings: deps.readPenaltySettings,
     resolveTransferCode: deps.resolveTransferCode,
+    debtStore: deps.penaltyDebtStore ?? new InMemoryPenaltyDebtStore(),
+    readWantList: deps.readWantList,
     isPenaltySavingsAccount: deps.isPenaltySavingsAccount,
     onPublishError: (err) =>
       app.log.error(
@@ -164,6 +171,19 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     return {
       ok: true,
       data: await penalties.onOverspendDetected(parsed.data as EventEnvelope, now),
+    };
+  });
+
+  /** Internal entry for the bus bridge: a penalty savings withdrawal becomes a flagged penalty. */
+  app.post("/events/penalty-savings-withdrawal", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (!parsed.success || parsed.data.type !== "penalty_savings.withdrawal_detected") {
+      return reply.code(400).send({ ok: false, error: { code: "rules.invalid_event" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    return {
+      ok: true,
+      data: await penalties.onWithdrawalDetected(parsed.data as EventEnvelope, now),
     };
   });
 

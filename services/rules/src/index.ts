@@ -4,3 +4,4 @@ export * from "./fault";
 export * from "./penalty";
 export * from "./weekly-penalty";
 export * from "./appeal";
+export * from "./penalty-source";

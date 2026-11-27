@@ -6,6 +6,13 @@ import {
   type EventPayload,
 } from "@my-wife/contracts";
 import type { ContractStore } from "./contract";
+import {
+  allocatePenaltySource,
+  computeWithdrawalPenalty,
+  DEFAULT_WITHDRAWAL_SETTINGS,
+  type PenaltyDebtStore,
+  type WantLimit,
+} from "./penalty-source";
 import type { SettlementLine, TrialStore } from "./trial";
 
 const DAY_MS = 86_400_000;
@@ -22,11 +29,17 @@ export type NeedOverspendMode = "warn_only" | "penalize";
 export type PenaltySettings = {
   needMode: NeedOverspendMode;
   overspendPercent: number;
+  /** `penalty.want_deduction_order`; empty means the order of the want list. */
+  wantDeductionOrder?: readonly string[];
+  /** `penalty.withdrawal_extra_percent`. */
+  withdrawalExtraPercent?: number;
 };
 
 export const DEFAULT_PENALTY_SETTINGS: PenaltySettings = {
   needMode: SETTINGS["penalty.need_overspend_mode"].default,
   overspendPercent: SETTINGS["penalty.overspend_percent"].default,
+  wantDeductionOrder: SETTINGS["penalty.want_deduction_order"].default,
+  withdrawalExtraPercent: SETTINGS["penalty.withdrawal_extra_percent"].default,
 };
 
 export type OverspendPenalty = {
@@ -83,6 +96,8 @@ export type PenaltyLedgerEntry = {
   appealId?: string;
   /** Set when an accepted appeal removed the entry; reversed entries count nowhere. */
   reversedAt?: string;
+  /** Set on a withdrawal from penalty savings: a serious violation shown flagged. */
+  flagged?: true;
 };
 
 export type PenaltyAuditRecord = {
@@ -344,6 +359,16 @@ export type PenaltyServiceDeps = {
    * codes live in `budget`; without a resolver the seeded code `PEN` (any case) is accepted.
    */
   isPenaltySavingsAccount?: (userId: string, bankAccountHint: string) => Promise<boolean>;
+  /** Penalty debt carried over; without it no debt is tracked. */
+  debtStore?: PenaltyDebtStore;
+  /**
+   * The user's `want` categories with the unspent part of the limit, in the user's order.
+   * Lives in `budget`; without a reader no source allocation or debt is recorded.
+   */
+  readWantList?: (
+    userId: string,
+    ref: { cycleId: string; weekIndex: number },
+  ) => Promise<readonly WantLimit[]>;
   dueDays?: number;
   newId?: () => string;
   onPublishError?: (err: unknown) => void;
@@ -413,6 +438,38 @@ export function createPenaltyService(deps: PenaltyServiceDeps) {
     deps.isPenaltySavingsAccount ??
     (async (_u: string, hint: string) =>
       normalizeMemo(hint) === normalizeMemo(DEFAULT_PENALTY_SAVINGS_CODE));
+
+  /**
+   * Allocates the penalty plus the debt carried so far over the want list; the shortfall is
+   * the new debt. Once per penalty, so a redelivery does not change the balance.
+   */
+  async function recordSources(
+    userId: string,
+    entry: PenaltyLedgerEntry,
+    ref: { cycleId: string; weekIndex: number },
+    order: readonly string[],
+    now: Date,
+  ): Promise<void> {
+    if (!deps.debtStore || !deps.readWantList) return;
+    const done = deps.debtStore.find(userId, entry.id);
+    if (done) return;
+    const wants = await deps.readWantList(userId, ref);
+    const carriedInVnd = deps.debtStore.balance(userId);
+    const result = allocatePenaltySource({
+      penaltyVnd: entry.amountVnd + carriedInVnd,
+      wants,
+      order,
+    });
+    deps.debtStore.insertOnce(userId, {
+      id: newId(),
+      penaltyId: entry.id,
+      at: now.toISOString(),
+      carriedInVnd,
+      penaltyVnd: entry.amountVnd,
+      deductions: result.deductions,
+      shortfallVnd: result.shortfallVnd,
+    });
+  }
 
   async function emitPaid(userId: string, penaltyId: string, now: Date): Promise<void> {
     const e = deps.store.claimPaidEvent(userId, penaltyId);
@@ -549,6 +606,13 @@ export function createPenaltyService(deps: PenaltyServiceDeps) {
       const sourceKey = `overspend:${p.cycleId}:${p.weekIndex}:${p.categoryId}`;
       const existing = deps.store.findBySource(userId, sourceKey);
       if (existing) {
+        await recordSources(
+          userId,
+          existing,
+          p,
+          (await readSettings(userId)).wantDeductionOrder ?? [],
+          now,
+        );
         await emitOwed(userId, sourceKey, now);
         return {
           status: existing.status === "suspended" ? "suspended" : "due",
@@ -608,6 +672,86 @@ export function createPenaltyService(deps: PenaltyServiceDeps) {
       if (inserted && inTrial) {
         deps.trialStore.addSuspended(userId, [
           { id, source: "overspend", amountVnd: entry.amountVnd },
+        ]);
+      }
+      await recordSources(userId, entry, p, settings.wantDeductionOrder ?? [], now);
+      await emitOwed(userId, sourceKey, now);
+      return {
+        status: entry.status,
+        warnOnly: false,
+        amountVnd: entry.amountVnd,
+        duplicate: !inserted,
+      } as OverspendResult;
+    },
+
+    /**
+     * Consumes `penalty_savings.withdrawal_detected`: money left the penalty savings account.
+     * The user repays it and pays `penalty.withdrawal_extra_percent` extra, so one flagged
+     * `withdrawal` entry of repayment plus extra is issued (suspended during the trial, like
+     * every penalty). Once per bank transaction, or per event when a balance reconciliation
+     * found it without one. It is not taken from the want list and creates no debt.
+     */
+    async onWithdrawalDetected(event: EventEnvelope, now: Date): Promise<OverspendResult> {
+      const { userId } = event;
+      const p = event.payload as EventPayload<"penalty_savings.withdrawal_detected">;
+      const sourceKey = `withdrawal:${p.bankAccountId}:${p.transactionId ?? `event:${event.id}`}`;
+      const existing = deps.store.findBySource(userId, sourceKey);
+      if (existing) {
+        await emitOwed(userId, sourceKey, now);
+        return {
+          status: existing.status === "suspended" ? "suspended" : "due",
+          warnOnly: false,
+          amountVnd: existing.amountVnd,
+          duplicate: true,
+        };
+      }
+      const settings = await readSettings(userId);
+      const extraPercent =
+        settings.withdrawalExtraPercent ?? DEFAULT_WITHDRAWAL_SETTINGS.extraPercent;
+      const result = computeWithdrawalPenalty(p.amountVnd, { extraPercent });
+      if (result.totalVnd <= 0) {
+        return { status: "none", warnOnly: false, amountVnd: 0, duplicate: false };
+      }
+      const trial = deps.trialStore.find(userId);
+      const inTrial =
+        trial !== undefined && trial.state === "active" && now.getTime() < Date.parse(trial.endsAt);
+      const id = newId();
+      const entry: PenaltyLedgerEntry = {
+        id,
+        source: "withdrawal",
+        amountVnd: result.totalVnd,
+        status: inTrial ? "suspended" : "due",
+        dueDate: new Date(now.getTime() + dueDays * DAY_MS).toISOString(),
+        transferCode: `MW-PH-WD-${(p.transactionId ?? event.id).replace(/-/g, "").slice(0, 8)}`,
+        sourceKey,
+        auditRefs: [],
+        issuedAt: now.toISOString(),
+        contractId: null,
+        flagged: true,
+      };
+      const audit: PenaltyAuditRecord = {
+        id: newId(),
+        penaltyId: id,
+        action: "penalty.created",
+        at: now.toISOString(),
+        detail: {
+          sourceEventId: event.id,
+          sourceKey,
+          flagged: true,
+          bankAccountId: p.bankAccountId,
+          transactionId: p.transactionId,
+          detectedBy: p.detectedBy,
+          repaymentVnd: result.repaymentVnd,
+          extraVnd: result.extraVnd,
+          extraPercent,
+          status: entry.status,
+        },
+      };
+      entry.auditRefs.push(audit.id);
+      const inserted = deps.store.insertOnce(userId, entry, audit);
+      if (inserted && inTrial) {
+        deps.trialStore.addSuspended(userId, [
+          { id, source: "withdrawal", amountVnd: entry.amountVnd },
         ]);
       }
       await emitOwed(userId, sourceKey, now);
