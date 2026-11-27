@@ -15,7 +15,8 @@ import {
   type EventEnvelope,
 } from "@my-wife/contracts";
 import { answerCarryOver, runDayEndJob, todayOf } from "./carry-over";
-import { materializeWeekRecurrences, type StoredRecurrence } from "./recurrence";
+import { LunarRangeError } from "./lunar";
+import { lunarOccurrences, materializeWeekRecurrences, type StoredRecurrence } from "./recurrence";
 import { resolvePomodoroSettings } from "./pomodoro";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
@@ -67,6 +68,7 @@ import {
   type WakeStore,
 } from "./wake";
 import { buildSampleDay, type SampleAnswers, type SampleBlock } from "./sample-schedule";
+import { addDays } from "./week-plan";
 
 export const SERVICE_NAME = "schedule";
 
@@ -455,21 +457,25 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
       day: true,
       parentRecurrenceId: true,
     }).safeParse(body.task);
-    // Only the solar calendar here; lunar recurrences need the lunar conversion.
-    if (body.calendar !== "solar" || !pattern.success || !exceptions.success || !parsedTask.success)
+    if (
+      (body.calendar !== "solar" && body.calendar !== "lunar") ||
+      !pattern.success ||
+      !exceptions.success ||
+      !parsedTask.success
+    )
       return fail(reply, 400, "schedule.invalid_request");
-    if (pattern.data.type === "lunar_day") return fail(reply, 400, "schedule.invalid_request");
+    // The lunar pattern belongs to the lunar calendar only, and the other patterns to the solar one.
+    if ((body.calendar === "lunar") !== (pattern.data.type === "lunar_day"))
+      return fail(reply, 400, "schedule.invalid_request");
     const t = parsedTask.data;
     let minutes: number = SETTINGS["schedule.task_default_minutes"].default;
     if (t.estimatedMinutes === undefined) {
       const answer = (await readSettings(userId))["schedule.task_default_minutes"];
       if (typeof answer === "number" && Number.isInteger(answer) && answer > 0) minutes = answer;
     }
-    const stored: StoredRecurrence = {
+    const base = {
       id: randomUUID(),
       userId,
-      calendar: "solar",
-      pattern: pattern.data,
       exceptions: exceptions.data,
       task: {
         title: t.title,
@@ -481,6 +487,10 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
         kind: t.kind,
       },
     };
+    const stored: StoredRecurrence =
+      pattern.data.type === "lunar_day"
+        ? { ...base, calendar: "lunar", pattern: pattern.data }
+        : { ...base, calendar: "solar", pattern: pattern.data };
     recurrences.set(stored.id, stored);
     const { userId: _u, ...view } = stored;
     return { ok: true, data: { recurrence: view } };
@@ -504,6 +514,15 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     const found = plan.store.getWeek(userId, (req.params as { id: string }).id);
     if (!found) return fail(reply, 404, "schedule.week_not_found");
     if (found.state !== "draft") return fail(reply, 409, "schedule.week_not_draft");
+    // Compute every recurrence date first, so an unsupported lunar year changes nothing.
+    try {
+      for (const r of recurrences.values())
+        if (r.userId === userId && r.calendar === "lunar")
+          lunarOccurrences(r, found.firstDay, addDays(found.firstDay, 6));
+    } catch (error) {
+      if (error instanceof LunarRangeError) return fail(reply, 422, error.code);
+      throw error;
+    }
     const templateId = (req.body as { templateId?: unknown } | null)?.templateId;
     if (templateId !== undefined) {
       const template = typeof templateId === "string" ? templates.get(templateId) : undefined;

@@ -195,10 +195,10 @@ describe("recurring instances when the week is planned", () => {
     expect(days).toEqual(["2026-11-26"]);
   });
 
-  it("keeps recurrences private to their user and rejects lunar or invalid input", async () => {
+  it("keeps recurrences private to their user and rejects invalid input", async () => {
     const { app, weekId } = await setup();
     const bad = [
-      { calendar: "lunar", pattern: { type: "lunar_day", day: 1 }, task },
+      { calendar: "solar", pattern: { type: "lunar_day", day: 1 }, task },
       { calendar: "solar", pattern: { type: "weekly", weekdays: [7] }, task },
       { calendar: "solar", pattern: { type: "weekly", weekdays: [1] } },
     ];
