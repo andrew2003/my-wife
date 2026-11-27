@@ -135,6 +135,9 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
       case "week.closed":
         jobs.push(to("budget", () => budgetApp?.onWeekClosed(event)));
         break;
+      case "week.planned":
+        jobs.push(to("budget", () => budgetApp?.onWeekPlanned(event)));
+        break;
       case "overspend.detected":
         jobs.push(
           to("rules", () => post(`${urls.rules}/events/overspend-detected`, event, "rules")),

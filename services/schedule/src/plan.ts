@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { EventEnvelope } from "@my-wife/contracts";
+import type { EventEnvelope, WeekPlannedItem } from "@my-wife/contracts";
 
 export type WeekState = "draft" | "planned" | "active" | "reviewing" | "closed";
 export type TaskState = "planned" | "in_progress" | "done" | "skipped" | "carried" | "cancelled";
@@ -168,6 +168,7 @@ export async function approveWeek(
   deps: PlanDeps,
   userId: string,
   weekId: string,
+  plannedItems?: WeekPlannedItem[],
 ): Promise<ApproveResult> {
   const week = deps.store.getWeek(userId, weekId);
   if (!week) return { ok: false, error: "not_found" };
@@ -178,6 +179,7 @@ export async function approveWeek(
       envelope(deps, `week-planned-${week.id}`, "week.planned", userId, {
         weekId: week.id,
         firstDay: week.firstDay,
+        ...(plannedItems && plannedItems.length > 0 ? { plannedItems } : {}),
       }),
     );
   } catch (err) {

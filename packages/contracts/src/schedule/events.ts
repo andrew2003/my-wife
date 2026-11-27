@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { AskPayloadSchema } from "../budget/events";
-import { IdSchema, IsoDateSchema, IsoDateTimeSchema, TimeOfDaySchema } from "../common";
+import {
+  IdSchema,
+  IsoDateSchema,
+  IsoDateTimeSchema,
+  NonNegativeVndSchema,
+  TimeOfDaySchema,
+} from "../common";
 import { FaultTypeSchema } from "../rules/enums";
 import {
   CheckinKindSchema,
@@ -14,8 +20,16 @@ const weekRef = z.object({ weekId: IdSchema, firstDay: IsoDateSchema });
 const taskRef = z.object({ taskId: IdSchema });
 const sessionRef = z.object({ sessionId: IdSchema, taskId: IdSchema });
 
+/** One planned expense the user approved with the week; budget issues its transfer code. */
+export const WeekPlannedItemSchema = z.object({
+  categoryId: IdSchema,
+  amountVnd: NonNegativeVndSchema,
+});
+export type WeekPlannedItem = z.infer<typeof WeekPlannedItemSchema>;
+
 export const scheduleEvents = {
-  "week.planned": weekRef,
+  /** `plannedItems` is optional; budget publishes them into the budget record (ADR 0013). */
+  "week.planned": weekRef.extend({ plannedItems: z.array(WeekPlannedItemSchema).optional() }),
   /** Emitted exactly once per week; budget uses it as the shared week boundary. */
   "week.closed": weekRef.extend({ weekIndexInCycle: z.number().int().positive().nullable() }),
   "task.started": taskRef.extend({ startedAt: IsoDateTimeSchema }),

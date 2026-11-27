@@ -6,7 +6,11 @@ import { createReceiptHandler } from "./accounts";
 import { buildFundRequests, createContractSignedHandler, createCycleApprover } from "./approval";
 import { createFundingHandler } from "./funding";
 import { createTransactionHandler } from "./transactions";
-import { createPlanPublisher, parsePublishWeeklyPlanRequest } from "./plan-publish";
+import {
+  createPlanPublisher,
+  createWeekPlannedHandler,
+  parsePublishWeeklyPlanRequest,
+} from "./plan-publish";
 import { createWeekClosedHandler } from "./overspend";
 import { buildOverview, roundingFrom } from "./overview";
 import { createUnknownSpendHandlers, type UnknownSpendDeps } from "./unknown-spend";
@@ -86,6 +90,15 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
       now,
       publish: deps.publish ?? (() => undefined),
       readSettings: deps.readSettings,
+    }),
+  );
+
+  app.decorate(
+    "onWeekPlanned",
+    createWeekPlannedHandler({
+      store,
+      now,
+      publish: deps.publish ?? (() => undefined),
     }),
   );
 
@@ -230,5 +243,7 @@ declare module "fastify" {
     onContractSigned: (event: EventEnvelope) => Promise<void>;
     /** Consumer of `week.closed`; detects overspending once per week. */
     onWeekClosed: (event: EventEnvelope) => Promise<void>;
+    /** Consumer of `week.planned`; publishes the approved planned items of the week. */
+    onWeekPlanned: (event: EventEnvelope) => Promise<void>;
   }
 }

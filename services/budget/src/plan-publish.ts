@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { EventEnvelope, PlannedItem } from "@my-wife/contracts";
 import type { SampleBudgetStore } from "./onboarding";
+import { weekIndexOf } from "./overspend";
 import { issuePlannedCode } from "./transfer-codes";
 
 /** Body of `POST /budget/weekly-plan`; contracts have no request schema for it yet. */
@@ -120,5 +121,26 @@ export function createPlanPublisher(deps: PlanPublishDeps) {
       payload: { cycleId: record.cycle.id, weekIndex },
     } as EventEnvelope);
     return { ok: true, data: { cycleId: record.cycle.id, weekIndex, items: built } };
+  };
+}
+
+/**
+ * Handles `week.planned` (ADR 0013): publishes the items the user approved with the week.
+ * The week index comes from the cycle's first day; anything that does not fit (no items,
+ * no running cycle, a week outside the cycle, an invalid item, a repeated week) is ignored,
+ * so redelivery is safe and a bad payload never blocks the consumer.
+ */
+export function createWeekPlannedHandler(deps: PlanPublishDeps) {
+  const publishPlan = createPlanPublisher(deps);
+  return async function onWeekPlanned(event: EventEnvelope): Promise<void> {
+    if (event.type !== "week.planned") return;
+    const { firstDay, plannedItems } = (event as EventEnvelope<"week.planned">).payload;
+    if (!plannedItems || plannedItems.length === 0) return;
+    const record = await deps.store.find(event.userId);
+    if (!record || record.cycle.state !== "running") return;
+    const weekIndex = weekIndexOf(record.cycle.firstDay, firstDay);
+    if (weekIndex === undefined || weekIndex > record.cycle.weeks) return;
+    // Business refusals (unknown category, repeated week, ...) are dropped on purpose.
+    await publishPlan({ userId: event.userId, weekIndex, items: plannedItems });
   };
 }

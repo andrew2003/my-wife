@@ -9,6 +9,7 @@ import {
   parseEvent,
   SETTINGS,
   StartTaskRequestSchema,
+  WeekPlannedItemSchema,
   type EventEnvelope,
 } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
@@ -247,7 +248,12 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
   app.post("/weeks/:id/approve", async (req, reply) => {
     const userId = userOf(req.headers);
     if (!userId) return fail(reply, 401, "schedule.unauthenticated");
-    const res = await approveWeek(plan, userId, (req.params as { id: string }).id);
+    // Optional planned items travel on `week.planned` for budget (ADR 0013); not interpreted here.
+    const items = WeekPlannedItemSchema.array()
+      .optional()
+      .safeParse((req.body as { plannedItems?: unknown } | null | undefined)?.plannedItems);
+    if (!items.success) return fail(reply, 400, "schedule.invalid_request");
+    const res = await approveWeek(plan, userId, (req.params as { id: string }).id, items.data);
     if (!res.ok) {
       return res.error === "not_found"
         ? fail(reply, 404, "schedule.week_not_found")
