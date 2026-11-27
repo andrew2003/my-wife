@@ -5,6 +5,7 @@ import type { AppConfig } from "@my-wife/config";
 import {
   CompleteOnboardingStepRequestSchema,
   DeclareIncidentRequestSchema,
+  SenderMapEntryRequestSchema,
   IsoDateTimeSchema,
   EVENT_SCHEMA_VERSION,
   ConsentKindSchema,
@@ -43,6 +44,7 @@ import {
   type Incident,
   type IncidentStore,
 } from "./incidents";
+import { createSenderMapStore, type SenderMapEntry, type SenderMapStore } from "./sender-map";
 import { encryptSecret, parseKeyring } from "./secrets-crypto";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
 
@@ -56,6 +58,8 @@ export type IdentityDeps = ServiceDeps & {
   penalties?: PenaltyPort;
   /** Incidents and the admin audit log; in memory until the Drizzle store lands. */
   incidentStore?: IncidentStore;
+  /** The global bank sender map; in memory until the Drizzle store lands. */
+  senderMapStore?: SenderMapStore;
   /** Built export archives; in memory until the Drizzle store lands. */
   exportStore?: ExportStore;
   /** Origin used to build download links (the gateway's public address). */
@@ -210,6 +214,14 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
 
   app.get("/auth/method", async () => ({ ok: true, data: { method: config.loginMethod } }));
 
+  const invitationView = (i: InvitationRecord) => ({
+    id: i.id,
+    email: i.email,
+    expiresAt: i.expiresAt,
+    usedAt: i.usedAt,
+    revokedAt: i.revokedAt,
+  });
+
   async function announceInvited(invitation: InvitationRecord, adminId: string) {
     if (invitation.invitedEventAt) return;
     const sent = await emit("user.invited", adminId, {
@@ -229,15 +241,7 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       .toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
       return fail(reply, 400, "identity.invalid_email");
-    const view = (i: InvitationRecord) => ({
-      invitation: {
-        id: i.id,
-        email: i.email,
-        expiresAt: i.expiresAt,
-        usedAt: null,
-        revokedAt: null,
-      },
-    });
+    const view = (i: InvitationRecord) => ({ invitation: invitationView(i) });
     // Retry-safe: an open invitation is reused (its token was already handed over) and only
     // its owed user.invited event is re-sent.
     const open = await store.findOpenInvitationByEmail(email, now());
@@ -257,9 +261,14 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       revokedAt: null,
       invitedEventAt: null,
     };
+    if ((await store.countUsers()) >= setting("identity.max_users"))
+      return fail(reply, 403, "identity.user_limit_reached");
     await store.saveInvitation(invitation);
     await deps.onInvitation?.(email, token);
     await announceInvited(invitation, adminId);
+    await auditAdmin(adminId, "invitation.created", invitation.id, null, {
+      expiresAt: invitation.expiresAt,
+    });
     return reply.code(201).send({ ok: true, data: view(invitation) });
   });
 
@@ -859,6 +868,100 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     if (!incident || !incidentCoversUser(incident, userId))
       return fail(reply, 404, "identity.incident_not_found");
     return { ok: true, data: { incident } };
+  });
+
+  // ---- Admin invitations and sender map (spec 50 section 2) ----
+  async function auditAdmin(
+    actor: string,
+    action: string,
+    targetId: string,
+    before: Record<string, unknown> | null,
+    after: Record<string, unknown> | null,
+  ) {
+    await incidents.addAudit({
+      id: randomUUID(),
+      actorId: actor,
+      action,
+      targetId,
+      before,
+      after,
+      at: now().toISOString(),
+    });
+  }
+
+  app.get("/admin/invitations", async (req, reply) => {
+    if (!adminId(req.headers)) return fail(reply, 403, "identity.forbidden");
+    const all = await store.listInvitations();
+    return { ok: true, data: { invitations: all.map(invitationView) } };
+  });
+
+  app.post("/admin/invitations/:id/revoke", async (req, reply) => {
+    const admin = adminId(req.headers);
+    if (!admin) return fail(reply, 403, "identity.forbidden");
+    const invitation = await store.findInvitationById((req.params as { id: string }).id);
+    if (!invitation) return fail(reply, 404, "identity.invitation_not_found");
+    if (invitation.usedAt) return fail(reply, 409, "identity.invitation_used");
+    if (invitation.revokedAt) return { ok: true, data: { invitation: invitationView(invitation) } };
+    const revoked = { ...invitation, revokedAt: now().toISOString() };
+    await store.saveInvitation(revoked);
+    await auditAdmin(
+      admin,
+      "invitation.revoked",
+      revoked.id,
+      { revokedAt: null },
+      { revokedAt: revoked.revokedAt },
+    );
+    await emit("invitation.revoked", admin, { invitationId: revoked.id });
+    return { ok: true, data: { invitation: invitationView(revoked) } };
+  });
+
+  const senderMap = deps.senderMapStore ?? createSenderMapStore();
+
+  /** Read by ingest and by users choosing their bank; any identified caller. */
+  app.get("/sender-map", async (req, reply) => {
+    if (!callerId(req.headers)) return fail(reply, 401, "identity.unauthenticated");
+    return { ok: true, data: { entries: await senderMap.list() } };
+  });
+
+  app.put("/admin/sender-map", async (req, reply) => {
+    const admin = adminId(req.headers);
+    if (!admin) return fail(reply, 403, "identity.forbidden");
+    const parsed = SenderMapEntryRequestSchema.safeParse(req.body);
+    if (!parsed.success) return fail(reply, 400, "identity.sender_map_invalid");
+    const entry: SenderMapEntry = {
+      senderKey: parsed.data.senderKey.trim(),
+      senderAddress: parsed.data.senderAddress.trim().toLowerCase(),
+      dkimDomain: parsed.data.dkimDomain.trim().toLowerCase(),
+    };
+    if (!entry.senderKey || !entry.senderAddress || !entry.dkimDomain)
+      return fail(reply, 400, "identity.sender_map_invalid");
+    const before = await senderMap.find(entry.senderKey);
+    await senderMap.save(entry);
+    await auditAdmin(admin, "sender_map.saved", entry.senderKey, before ?? null, { ...entry });
+    await emit("sender_map.changed", admin, {
+      senderKey: entry.senderKey,
+      removed: false,
+      on: now().toISOString().slice(0, 10),
+    });
+    return before
+      ? { ok: true, data: { entry } }
+      : reply.code(201).send({ ok: true, data: { entry } });
+  });
+
+  app.delete("/admin/sender-map/:senderKey", async (req, reply) => {
+    const admin = adminId(req.headers);
+    if (!admin) return fail(reply, 403, "identity.forbidden");
+    const key = (req.params as { senderKey: string }).senderKey;
+    const before = await senderMap.find(key);
+    if (!before) return fail(reply, 404, "identity.sender_map_not_found");
+    await senderMap.remove(key);
+    await auditAdmin(admin, "sender_map.removed", key, { ...before }, null);
+    await emit("sender_map.changed", admin, {
+      senderKey: key,
+      removed: true,
+      on: now().toISOString().slice(0, 10),
+    });
+    return { ok: true, data: { removed: key } };
   });
 
   return app;

@@ -18,6 +18,8 @@ export interface IncidentStore {
   save(incident: Incident, audit: AuditEntry): Promise<void>;
   find(id: string): Promise<Incident | undefined>;
   list(): Promise<Incident[]>;
+  /** Appends an audit entry that belongs to no incident (invitations, sender map). */
+  addAudit(entry: AuditEntry): Promise<void>;
   listAudit(): Promise<AuditEntry[]>;
 }
 
@@ -35,6 +37,9 @@ export function createIncidentStore(): IncidentStore {
     },
     async list() {
       return [...incidents.values()].map((i) => ({ ...i }));
+    },
+    async addAudit(entry) {
+      audit.push(entry);
     },
     async listAudit() {
       return [...audit];

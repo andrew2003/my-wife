@@ -77,6 +77,8 @@ export interface IdentityStore {
   saveUser(user: UserRecord): Promise<void>;
   saveInvitation(invitation: InvitationRecord): Promise<void>;
   findInvitationByTokenHash(hash: string): Promise<InvitationRecord | undefined>;
+  findInvitationById(id: string): Promise<InvitationRecord | undefined>;
+  listInvitations(): Promise<InvitationRecord[]>;
   findOpenInvitationByEmail(email: string, now: Date): Promise<InvitationRecord | undefined>;
   saveLoginToken(token: LoginTokenRecord): Promise<void>;
   findLoginToken(hash: string): Promise<LoginTokenRecord | undefined>;
@@ -198,6 +200,12 @@ export function createMemoryStore(): IdentityStore {
     },
     async findInvitationByTokenHash(hash) {
       return [...invitations.values()].find((i) => i.tokenHash === hash);
+    },
+    async findInvitationById(id) {
+      return invitations.get(id);
+    },
+    async listInvitations() {
+      return [...invitations.values()];
     },
     async findOpenInvitationByEmail(email, now) {
       return [...invitations.values()].find(
