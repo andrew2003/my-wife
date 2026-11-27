@@ -6,7 +6,10 @@ import {
   MonitorStartSessionRequestSchema,
   type EventEnvelope,
   type OutboundMessage,
+  SETTINGS,
+  parseEvent,
   type SettingKey,
+  type SupervisionLevel,
 } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
@@ -31,6 +34,12 @@ import {
   type MonitorDeps,
   type MonitorState,
 } from "./monitoring";
+import {
+  answerTaper,
+  createMemorySupervisionStore,
+  reviewWeek,
+  trackSpecialMode,
+} from "./tapering";
 
 export const SERVICE_NAME = "monitor";
 
@@ -56,6 +65,14 @@ declare module "fastify" {
     /** Sends, escalates and expires urgent messages; the caller passes `now`. */
     runUrgentJob: (now: Date) => Promise<{ failed: string[] }>;
     monitorState: MonitorState;
+    /** Consumer of `week.closed`; the weekly review that may ask `ask.supervision_taper`. */
+    onWeekClosed: (event: EventEnvelope) => Promise<void>;
+    /** Consumer of `notify.reply_received` and `notify.question_expired` for the taper question. */
+    onReplyReceived: (event: EventEnvelope) => Promise<void>;
+    /** Consumer of `special_mode.started` and `special_mode.ended`; such weeks are neutral for tapering. */
+    onSpecialMode: (event: EventEnvelope) => Promise<void>;
+    /** The supervision level and clean streak of a user (the setting's level until reviewed). */
+    supervisionOf: (userId: string) => { level: SupervisionLevel; cleanWeeks: number };
     /** Starts a planned pause (pomodoro, meal); internal callers only, no HTTP route. */
     startScheduledBreak: (
       userId: string,
@@ -80,6 +97,7 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     sessions: deps.state?.sessions ?? createMemorySessionStore(),
     tickets: deps.state?.tickets ?? createMemoryTicketStore(),
     urgent: deps.state?.urgent ?? createMemoryUrgentStore(),
+    supervision: deps.state?.supervision ?? createMemorySupervisionStore(),
   };
   const monitor: MonitorDeps = {
     state,
@@ -196,6 +214,25 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
   app.decorate("runGapCheck", (at: Date) => runGapCheck(monitor, at));
   app.decorate("runUrgentJob", (at: Date) => runUrgentJob(monitor, at));
   app.decorate("monitorState", state);
+  app.decorate("onWeekClosed", (event: EventEnvelope) => reviewWeek(monitor, event));
+  app.decorate("onSpecialMode", (event: EventEnvelope) => trackSpecialMode(monitor, event));
+  app.decorate("onReplyReceived", (event: EventEnvelope) => answerTaper(monitor, event));
+  app.decorate("supervisionOf", (userId: string) => {
+    const r = state.supervision.get(userId);
+    return {
+      level: r?.level ?? SETTINGS["monitor.supervision_level"].default,
+      cleanWeeks: r?.cleanWeeks ?? 0,
+    };
+  });
+  /** Internal entry for the contracts envelope until the NATS bridge lands. */
+  app.post("/events/week-closed", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (!parsed.success || parsed.data.type !== "week.closed") {
+      return fail(reply, 400, "monitor.invalid_request");
+    }
+    await reviewWeek(monitor, parsed.data as EventEnvelope);
+    return { ok: true };
+  });
   app.post("/jobs/gap-check", async () => ({
     ok: true,
     data: await runGapCheck(monitor, monitor.now()),

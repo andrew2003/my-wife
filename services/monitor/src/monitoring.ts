@@ -12,6 +12,7 @@ import {
   type MonitoringProfileSchema,
   type ReasonTicketStateSchema,
 } from "@my-wife/contracts";
+import type { SupervisionStore } from "./tapering";
 import { decideReasonOutcome, localWeekStart } from "./reason-quota";
 
 type Profile = (typeof MonitoringProfileSchema)["_output"];
@@ -242,6 +243,7 @@ export interface MonitorState {
   sessions: SessionStore;
   tickets: TicketStore;
   urgent: UrgentStore;
+  supervision: SupervisionStore;
 }
 
 export interface MonitorDeps {
