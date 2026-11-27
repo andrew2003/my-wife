@@ -11,6 +11,7 @@ import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { createReceiptHandler } from "./accounts";
 import { createBankEventHandler } from "./bank-event-wiring";
 import { createForeignCardHandler } from "./foreign-card";
+import { createPenaltySavingsWithdrawalHandler } from "./penalty-savings-withdrawal";
 import { createRefundTransferHandler } from "./refund-wiring";
 import { buildFundRequests, createContractSignedHandler, createCycleApprover } from "./approval";
 import { createFundingHandler } from "./funding";
@@ -107,6 +108,10 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     publish: deps.publish ?? (() => undefined),
     readSettings: deps.readSettings,
   });
+  const detectPenaltyWithdrawal = createPenaltySavingsWithdrawalHandler({
+    store,
+    publish: deps.publish ?? (() => undefined),
+  });
   app.decorate("onReceiptParsed", async (event: EventEnvelope) => {
     await confirmAccount(event);
     await fundAccount(event);
@@ -114,6 +119,7 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     await recordBankEvent(event);
     await recordForeignCard(event);
     await recordRefundOrTransfer(event);
+    await detectPenaltyWithdrawal(event);
   });
   const unknownSpend = createUnknownSpendHandlers({
     store,
