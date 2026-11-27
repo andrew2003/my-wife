@@ -13,6 +13,7 @@ import { recordFailure, recordMatch, parserFromData, type LearningDeps } from ".
 import { assertTransition } from "./receipt-state";
 import type { IngestStore, ReceiptRecord } from "./store";
 import { fingerprintTemplate, verifyEvidence, type RegisteredTemplate } from "./templates";
+import { stepAt, withSteps } from "./unknown-pipeline";
 
 export type SenderMapEntry = { senderKey: string; senderAddress: string; dkimDomain: string };
 
@@ -43,6 +44,8 @@ export type PipelineDeps = {
     templatePromotionMatches?: number;
     templateDemotionFailures?: number;
     templateFirstConfirmation?: boolean;
+    /** Failed verifications of model reads before a receipt is `failed`; default 2. */
+    llmReadAttempts?: number;
   };
   /** Template learning; without it an unknown layout only waits for the user (no LLM read). */
   learning?: LearningDeps;
@@ -232,13 +235,21 @@ export async function processInbound(
     if (entry && deps.learning) {
       await emit("template.read_requested", { receiptId, templateFingerprint: fingerprint });
     }
-    return finish({
-      ...authed,
-      state: "needs_confirmation",
-      fingerprint,
-      ...(entry ? { senderKey: entry.senderKey } : {}),
-      mail: { subject, body },
-    });
+    return finish(
+      withSteps(
+        {
+          ...authed,
+          state: "needs_confirmation" as const,
+          fingerprint,
+          ...(entry ? { senderKey: entry.senderKey } : {}),
+          mail: { subject, body },
+        },
+        stepAt("authenticate", "pass", now),
+        stepAt("deduplicate_message", "pass", now),
+        stepAt("fingerprint", "unknown", now),
+        ...(entry && deps.learning ? [stepAt("read", "requested", now)] : []),
+      ),
+    );
   };
   if (!entry || !template) return routeToReading();
 

@@ -24,6 +24,7 @@ const ALLOWED: Array<[ReceiptState, ReceiptState]> = [
   ["needs_confirmation", "parsing"],
   ["needs_confirmation", "parsed"],
   ["needs_confirmation", "failed"],
+  ["needs_confirmation", "duplicate"],
 ];
 
 describe("receipt state machine", () => {

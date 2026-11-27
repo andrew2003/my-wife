@@ -1,6 +1,7 @@
 import type { ReceiptState } from "@my-wife/contracts";
 import type { VerifiedRead } from "./learning";
 import type { ParsedFields } from "./templates";
+import type { StepRecord } from "./unknown-pipeline";
 
 /** Receipt metadata and normalized facts. The raw message body is not kept here. */
 export type ReceiptRecord = {
@@ -20,6 +21,10 @@ export type ReceiptRecord = {
   source?: "parser" | "llm";
   /** A model read that passed verification, waiting for the user to confirm it. */
   llmRead?: VerifiedRead;
+  /** Audit trace of the unknown-receipt pipeline steps this receipt has been through. */
+  steps?: StepRecord[];
+  /** Model reads of this mail that failed verification. */
+  readAttempts?: number;
   templateId?: string;
   templateVersion?: number;
   bankTransactionRef?: string;
