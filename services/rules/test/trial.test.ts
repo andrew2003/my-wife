@@ -214,4 +214,83 @@ describe("trial lifecycle", () => {
     await service.runJob(later);
     expect(events.map((e) => e.type)).toEqual(["trial.started", "trial.ended", "trial.settled"]);
   });
+
+  describe("held entries (appeal open or reversed)", () => {
+    function withHeld(held: Set<string>, opts = { installmentsK: 2 }) {
+      const events: EventEnvelope[] = [];
+      const store = new InMemoryTrialStore();
+      const service = createTrialService({
+        store,
+        publish: (e) => void events.push(e),
+        newId: ids(),
+        readSettings: async () => ({ weeks: 1, finalAppealHours: 0, ...opts }),
+        isHeld: async (_u, id) => held.has(id),
+      });
+      return { events, store, service };
+    }
+    it("settles only unheld entries and totals only what was settled", async () => {
+      const held = new Set(["b"]);
+      const { events, store, service } = withHeld(held);
+      await service.onContractSigned(signed(), T0);
+      store.addSuspended(USER, [entry("a", 30_000), entry("b", 20_000)]);
+      await service.runJob(new Date(T0.getTime() + 2 * WEEK));
+      expect(store.entries(USER).map((e) => e.status)).toEqual(["due", "suspended"]);
+      expect(events.find((e) => e.type === "trial.ended")!.payload).toMatchObject({
+        suspendedTotalVnd: 30_000,
+      });
+      expect(events.find((e) => e.type === "trial.settled")!.payload).toEqual({
+        totalVnd: 30_000,
+        installmentsK: 2,
+      });
+    });
+    it("settles a released entry on a later run without a second trial.settled", async () => {
+      const held = new Set(["b"]);
+      const { events, store, service } = withHeld(held);
+      await service.onContractSigned(signed(), T0);
+      store.addSuspended(USER, [entry("a", 30_000), entry("b", 20_001)]);
+      await service.runJob(new Date(T0.getTime() + 2 * WEEK));
+      held.delete("b");
+      const later = new Date(T0.getTime() + 3 * WEEK);
+      await service.runJob(later);
+      await service.runJob(later);
+      const b = store.entries(USER)[1]!;
+      expect(b.status).toBe("due");
+      expect(b.installments.map((i) => i.amountVnd)).toEqual([10_000, 10_001]);
+      expect(b.installments[0]!.dueDate).toBe(later.toISOString());
+      expect(events.filter((e) => e.type === "trial.settled")).toHaveLength(1);
+    });
+  });
+
+  describe("turning the trial off early", () => {
+    const cases = [{ reason: "turned_off" as const }, { reason: "account_closing" as const }];
+    it.each(cases)(
+      "ends at once with reason $reason, then settles after the appeal window",
+      async ({ reason }) => {
+        const { events, store, service } = setup({ weeks: 4, installmentsK: 1 });
+        await service.onContractSigned(signed(), T0);
+        store.addSuspended(USER, [entry("a", 40_000)]);
+        const off = new Date(T0.getTime() + 2 * HOUR);
+        expect(await service.endEarly(USER, reason, off)).toEqual({ ended: true });
+        const ended = events.find((e) => e.type === "trial.ended")!;
+        expect(ended.payload).toEqual({
+          reason,
+          suspendedTotalVnd: 40_000,
+          finalAppealEndsAt: new Date(off.getTime() + 72 * HOUR).toISOString(),
+        });
+        await service.runJob(new Date(off.getTime() + 71 * HOUR));
+        expect(store.entries(USER)[0]!.status).toBe("suspended");
+        await service.runJob(new Date(off.getTime() + 72 * HOUR));
+        expect(store.entries(USER)[0]!.status).toBe("due");
+        expect(events.filter((e) => e.type === "trial.settled")).toHaveLength(1);
+      },
+    );
+    it("is a no-op without a trial, after the trial ended, or on a repeat", async () => {
+      const { events, service } = setup();
+      expect(await service.endEarly(USER, "turned_off", T0)).toEqual({ ended: false });
+      await service.onContractSigned(signed(), T0);
+      expect(await service.endEarly(USER, "turned_off", T0)).toEqual({ ended: true });
+      expect(await service.endEarly(USER, "turned_off", T0)).toEqual({ ended: false });
+      expect(events.filter((e) => e.type === "trial.ended")).toHaveLength(1);
+    });
+  });
 });
