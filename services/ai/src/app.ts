@@ -61,6 +61,7 @@ export interface AiDeps extends ServiceDeps {
       | "ai.message_sent"
       | "memory.created"
       | "memory.deleted"
+      | "persona.updated"
       | "ai.photo_graded"
       | "llm_key.saved"
       | "llm_key.invalid"

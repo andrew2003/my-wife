@@ -26,6 +26,7 @@ export interface ChatServiceDeps {
       | "ai.message_sent"
       | "memory.created"
       | "memory.deleted"
+      | "persona.updated"
       | "ai.degraded_entered"
       | "ai.degraded_exited";
     payload: unknown;
@@ -67,6 +68,8 @@ function reasonOf(error: unknown): DegradedReason {
  */
 export class ChatService {
   private readonly states = new Map<string, FailoverState>();
+  /** Last strictness seen per user and the persona version it implies (in memory for now). */
+  private readonly personas = new Map<string, { strictness: number; version: number }>();
 
   constructor(private readonly deps: ChatServiceDeps) {}
 
@@ -116,12 +119,48 @@ export class ChatService {
     }
   }
 
+  /**
+   * Current strictness (registry default when unset or invalid). A change since the last reply
+   * bumps the persona version and announces `persona.updated`; the first sight is the baseline.
+   */
+  private async strictness(userId: string): Promise<number> {
+    const def = SETTINGS["ai.persona_strictness"];
+    let value: number = def.default;
+    try {
+      const values = (await this.deps.readSettings?.(userId)) ?? {};
+      const parsed = def.schema.safeParse(values["ai.persona_strictness"]);
+      if (parsed.success) value = parsed.data;
+    } catch {
+      // Keep the default.
+    }
+    const seen = this.personas.get(userId);
+    if (!seen) {
+      this.personas.set(userId, { strictness: value, version: 1 });
+    } else if (seen.strictness !== value) {
+      const next = { strictness: value, version: seen.version + 1 };
+      this.personas.set(userId, next);
+      try {
+        await this.deps.publish({
+          name: "persona.updated",
+          payload: aiEvents["persona.updated"].parse({ version: next.version }),
+        });
+      } catch (error) {
+        this.deps.warn?.(
+          { errorName: error instanceof Error ? error.name : "unknown" },
+          "event publish failed",
+        );
+      }
+    }
+    return value;
+  }
+
   async handleMessage(text: string, locale: Locale, userId: string): Promise<ChatResult> {
     const messageId = (this.deps.newId ?? randomUUID)();
     const threshold = await this.threshold(userId);
+    const strictness = await this.strictness(userId);
     const [memories, summaries] = await this.recallSafely(userId);
     const request = {
-      system: buildSystemPrompt(locale, memories, summaries),
+      system: buildSystemPrompt(locale, memories, summaries, strictness),
       userText: text,
       locale,
     };
