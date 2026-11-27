@@ -74,6 +74,11 @@ function time(raw: Record<string, unknown>, key: "routine.wake.time" | "routine.
   return parsed.success ? parsed.data : (SETTINGS[key].default as string);
 }
 
+/** Wake time (`HH:MM`) of a local day, with the weekend override of its day profile. */
+export function wakeTimeOf(raw: Record<string, unknown>, isoDay: string): string {
+  return time(profileSettings(raw, dayProfileOf(raw, isoDay)), "routine.wake.time");
+}
+
 /**
  * Pure: the earliest gap inside `window` that fits `durationMinutes` between the busy ranges.
  * Returns null when no gap is long enough.
