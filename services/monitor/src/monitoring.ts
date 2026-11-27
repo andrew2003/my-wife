@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   SETTINGS,
+  SoftSignalSchema,
+  type FocusEventSchema,
   type SettingKey,
   type EventEnvelope,
   type Locale,
@@ -13,6 +15,8 @@ import {
 
 type Profile = (typeof MonitoringProfileSchema)["_output"];
 type ReasonKind = (typeof ReasonKindSchema)["_output"];
+type SoftSignal = (typeof SoftSignalSchema)["_output"];
+type FocusEvent = (typeof FocusEventSchema)["_output"];
 type TicketState = (typeof ReasonTicketStateSchema)["_output"];
 
 const SECOND_MS = 1000;
@@ -112,7 +116,32 @@ export function createMemoryUrgentStore(): UrgentStore {
   return { add: (m) => void messages.push(m), all: () => [...messages] };
 }
 
+/** A nudge given for a soft signal. It is a hint only: no ticket, no fault, no urgent message. */
+export interface Nudge {
+  /** Stable key of the signal occurrence; one nudge per key. */
+  signalRef: string;
+  userId: string;
+  sessionId: string;
+  signal: SoftSignal;
+  messageKey: string;
+  createdAt: string;
+}
+export interface NudgeStore {
+  add(n: Nudge): void;
+  hasRef(signalRef: string): boolean;
+  all(): Nudge[];
+}
+export function createMemoryNudgeStore(): NudgeStore {
+  const nudges: Nudge[] = [];
+  return {
+    add: (n) => void nudges.push(n),
+    hasRef: (ref) => nudges.some((n) => n.signalRef === ref),
+    all: () => [...nudges],
+  };
+}
+
 export interface MonitorState {
+  nudges: NudgeStore;
   sessions: SessionStore;
   tickets: TicketStore;
   urgent: UrgentStore;
@@ -211,6 +240,54 @@ export async function endMonitoring(
     );
   }
   return s;
+}
+
+/**
+ * Soft signals (looking away, head down, yawn, drowsy) only nudge (principle 3): each accepted
+ * event is announced as `focus.signal_detected` (soft class) and answered with a nudge key the
+ * client turns into a locale text. Nothing here opens a ticket, an urgent message or a fault.
+ * Events below `monitor.ambiguous_confidence_below` are ignored; a repeat of the same event
+ * (session, signal, start time) gives no second nudge. Hard signals are not handled here.
+ */
+export async function processSoftSignals(
+  deps: MonitorDeps,
+  session: MonitoringSession,
+  events: FocusEvent[],
+  now: Date,
+): Promise<Nudge[]> {
+  const answer = (await deps.readSettings(session.userId))["monitor.ambiguous_confidence_below"];
+  const minConfidence =
+    typeof answer === "number" && answer >= 0 && answer <= 1
+      ? answer
+      : SETTINGS["monitor.ambiguous_confidence_below"].default;
+  const given: Nudge[] = [];
+  for (const e of events) {
+    const parsed = SoftSignalSchema.safeParse(e.type);
+    if (!parsed.success || parsed.data === "late_night") continue;
+    if (e.confidence < minConfidence) continue;
+    const signalRef = `${parsed.data}-${session.id}-${e.startedAt}`;
+    if (deps.state.nudges.hasRef(signalRef)) continue;
+    await deps.publish(
+      envelope(now, `focus-signal-${signalRef}`, "focus.signal_detected", session.userId, {
+        sessionId: session.id,
+        signal: parsed.data,
+        signalClass: "soft",
+        startedAt: e.startedAt,
+        confidence: e.confidence,
+      }),
+    );
+    const nudge: Nudge = {
+      signalRef,
+      userId: session.userId,
+      sessionId: session.id,
+      signal: parsed.data,
+      messageKey: `monitor.nudge.${parsed.data}`,
+      createdAt: now.toISOString(),
+    };
+    deps.state.nudges.add(nudge);
+    given.push(nudge);
+  }
+  return given;
 }
 
 type PositiveKey =

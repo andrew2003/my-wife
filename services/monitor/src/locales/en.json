@@ -1,3 +1,7 @@
 {
-  "monitor.urgent.heartbeat_lost": "No sign of your focus window for {seconds} seconds. Tell me what happened."
+  "monitor.urgent.heartbeat_lost": "No sign of your focus window for {seconds} seconds. Tell me what happened.",
+  "monitor.nudge.yawn": "You look tired. Stretch for a moment, then come back.",
+  "monitor.nudge.head_down": "Your head is down. Sit up and look at the screen.",
+  "monitor.nudge.looking_away": "Your eyes drifted away. Bring them back to the task.",
+  "monitor.nudge.drowsy": "You seem sleepy. A glass of water or a short walk may help."
 }
