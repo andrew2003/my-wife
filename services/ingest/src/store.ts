@@ -1,4 +1,5 @@
 import type { ReceiptState } from "@my-wife/contracts";
+import type { VerifiedRead } from "./learning";
 import type { ParsedFields } from "./templates";
 
 /** Receipt metadata and normalized facts. The raw message body is not kept here. */
@@ -13,6 +14,12 @@ export type ReceiptRecord = {
   dkimResult: "pass" | "fail" | "none";
   rejectReason?: string;
   fingerprint?: string;
+  /** Key of the mapped bank sender; set with the fingerprint for an unknown layout. */
+  senderKey?: string;
+  /** Where the booked fields came from; the first confirmed read is `llm`. */
+  source?: "parser" | "llm";
+  /** A model read that passed verification, waiting for the user to confirm it. */
+  llmRead?: VerifiedRead;
   templateId?: string;
   templateVersion?: number;
   bankTransactionRef?: string;

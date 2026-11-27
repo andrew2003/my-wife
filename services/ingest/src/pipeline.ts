@@ -9,6 +9,7 @@ import {
   type ForwardingSender,
   type ForwardingStore,
 } from "./forwarding";
+import { recordFailure, recordMatch, parserFromData, type LearningDeps } from "./learning";
 import { assertTransition } from "./receipt-state";
 import type { IngestStore, ReceiptRecord } from "./store";
 import { fingerprintTemplate, verifyEvidence, type RegisteredTemplate } from "./templates";
@@ -37,7 +38,14 @@ export type PipelineDeps = {
     holdMatchWindowHours: number;
     /** `ingest.forward_confirmation_ttl_hours` (admin); the registry default applies when absent. */
     forwardConfirmationTtlHours?: number;
+    /** `ingest.llm_confidence_floor`, `ingest.template_*`; registry defaults apply when absent. */
+    llmConfidenceFloor?: number;
+    templatePromotionMatches?: number;
+    templateDemotionFailures?: number;
+    templateFirstConfirmation?: boolean;
   };
+  /** Template learning; without it an unknown layout only waits for the user (no LLM read). */
+  learning?: LearningDeps;
   /** Where a pending Gmail forwarding confirmation is kept for the user to see. */
   forwarding?: ForwardingStore;
   /** Senders of the Gmail forwarding confirmation; defaults to Gmail's own sender. */
@@ -196,22 +204,36 @@ export async function processInbound(
 
   // 3. Fingerprint the template; an unmapped sender or unknown layout is not parsed.
   const fingerprint = fingerprintTemplate({ sender: from, subject, body });
-  const template = entry
+  const staticTemplate = entry
     ? deps.templates.find((t) => t.senderKey === entry.senderKey && t.fingerprint === fingerprint)
     : undefined;
-  if (!entry || !template) {
+  const learned =
+    !staticTemplate && entry && deps.learning
+      ? await deps.learning.templates.find(user.userId, entry.senderKey, fingerprint)
+      : null;
+  const template =
+    staticTemplate ??
+    (learned ? parserFromData(learned.id, learned.version, learned.parserData) : undefined);
+
+  /** Unknown layout, or a learned parser that failed: the mail waits and the LLM may read it. */
+  const routeToReading = async (): Promise<InboundOutcome> => {
     await emit("receipt.unknown", {
       receiptId,
       templateFingerprint: fingerprint,
       sender: entry?.senderKey ?? from,
     });
+    if (entry && deps.learning) {
+      await emit("template.read_requested", { receiptId, templateFingerprint: fingerprint });
+    }
     return finish({
       ...authed,
       state: "needs_confirmation",
       fingerprint,
+      ...(entry ? { senderKey: entry.senderKey } : {}),
       mail: { subject, body },
     });
-  }
+  };
+  if (!entry || !template) return routeToReading();
 
   // 4. Parse and verify: evidence must appear verbatim in the email.
   const result = template.parse(body);
@@ -221,6 +243,10 @@ export async function processInbound(
       ? "not_verbatim"
       : null;
   if (!result.ok || failure) {
+    if (learned) {
+      await recordFailure(deps, learned, now);
+      return routeToReading();
+    }
     await emit("receipt.failed", { receiptId, reason: failure ?? "parse_error" });
     return finish({ ...authed, state: "failed", fingerprint, templateId: template.id });
   }
@@ -230,6 +256,8 @@ export async function processInbound(
   if (await deps.store.findParsedByRef(user.userId, ref)) {
     return finish({ ...authed, state: "duplicate", fingerprint, bankTransactionRef: ref });
   }
+
+  if (learned) await recordMatch(deps, learned, now);
 
   // 6. Foreign card: an authorization is held, never booked; the debit carries the final VND.
   const foreign = result.foreign;
