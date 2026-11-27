@@ -1,0 +1,16 @@
+# Overlay for the demo deploy through Cloudflare Tunnel. Used together with
+# docker-compose.yml by scripts/deploy-demo.sh. The tunnel runs with a connector
+# token; the public hostname (https://<APP_SUBDOMAIN>.<DOMAIN>) must route to
+# http://web:3100 in the Cloudflare Zero Trust dashboard (see docs/deploy.md).
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    mem_limit: 128m
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on: [web]
+
+# Published ports are bound to loopback by scripts/deploy-demo.sh (BIND_ADDR=127.0.0.1),
+# so the tunnel is the only way in from outside the machine.
