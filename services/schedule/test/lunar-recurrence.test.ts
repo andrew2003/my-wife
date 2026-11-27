@@ -194,6 +194,53 @@ describe("lunar recurrence through the API", () => {
     expect(days).toEqual(["2023-03-22"]);
   });
 
+  it.each(["2101-01-04", "1899-01-02"])(
+    "refuses to plan the week of %s with 422 and persists nothing",
+    async (firstDay) => {
+      const app = await createApp(config, {
+        now: () => new Date("2023-03-20T01:00:00Z"),
+        readSettings: async () => ({}),
+      });
+      const week = await app.inject({
+        method: "POST",
+        url: "/weeks",
+        headers: H,
+        payload: { firstDay },
+      });
+      const weekId = week.json().data.week.id as string;
+      await app.inject({
+        method: "POST",
+        url: "/recurrences",
+        headers: H,
+        payload: { calendar: "lunar", pattern: { type: "lunar_day", day: 1 }, task },
+      });
+      const tpl = await app.inject({
+        method: "POST",
+        url: "/templates",
+        headers: H,
+        payload: { name: "t", tasks: [{ ...task, dayOffset: 0 }] },
+      });
+      const templateId = tpl.json().data?.template?.id as string;
+      expect(templateId).toBeTruthy();
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const res = await app.inject({
+          method: "POST",
+          url: `/weeks/${weekId}/plan`,
+          headers: H,
+          payload: { templateId },
+        });
+        expect(res.statusCode).toBe(422);
+        expect(res.json().error.code).toBe("schedule.lunar_out_of_range");
+      }
+      const checklist = await app.inject({
+        method: "GET",
+        url: `/checklist?date=${firstDay}`,
+        headers: H,
+      });
+      expect(checklist.json().data.tasks).toEqual([]);
+    },
+  );
+
   it("rejects a calendar that does not match the pattern", async () => {
     const app = await createApp(config, { readSettings: async () => ({}) });
     for (const payload of [

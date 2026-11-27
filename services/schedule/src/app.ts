@@ -15,7 +15,8 @@ import {
   type EventEnvelope,
 } from "@my-wife/contracts";
 import { answerCarryOver, runDayEndJob, todayOf } from "./carry-over";
-import { materializeWeekRecurrences, type StoredRecurrence } from "./recurrence";
+import { LunarRangeError } from "./lunar";
+import { lunarOccurrences, materializeWeekRecurrences, type StoredRecurrence } from "./recurrence";
 import { resolvePomodoroSettings } from "./pomodoro";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
@@ -67,6 +68,7 @@ import {
   type WakeStore,
 } from "./wake";
 import { buildSampleDay, type SampleAnswers, type SampleBlock } from "./sample-schedule";
+import { addDays } from "./week-plan";
 
 export const SERVICE_NAME = "schedule";
 
@@ -512,6 +514,15 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     const found = plan.store.getWeek(userId, (req.params as { id: string }).id);
     if (!found) return fail(reply, 404, "schedule.week_not_found");
     if (found.state !== "draft") return fail(reply, 409, "schedule.week_not_draft");
+    // Compute every recurrence date first, so an unsupported lunar year changes nothing.
+    try {
+      for (const r of recurrences.values())
+        if (r.userId === userId && r.calendar === "lunar")
+          lunarOccurrences(r, found.firstDay, addDays(found.firstDay, 6));
+    } catch (error) {
+      if (error instanceof LunarRangeError) return fail(reply, 422, error.code);
+      throw error;
+    }
     const templateId = (req.body as { templateId?: unknown } | null)?.templateId;
     if (templateId !== undefined) {
       const template = typeof templateId === "string" ? templates.get(templateId) : undefined;
