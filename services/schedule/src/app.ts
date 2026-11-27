@@ -45,6 +45,7 @@ import {
 } from "./sessions";
 import {
   buildReview,
+  type ReviewOverrunOptions,
   createMemoryLedgerStore,
   recordLedgerEvent,
   runReviewJob,
@@ -75,6 +76,8 @@ export type ScheduleDeps = ServiceDeps & {
   publish?: (event: EventEnvelope) => void | Promise<void>;
   /** How long a carry-over question stays open; defaults to 24 hours (ADR pending for a setting). */
   carryOverAskExpiryMs?: number;
+  /** Overrun thresholds of the weekly review duration suggestion; defaults in `review.ts`. */
+  reviewOverrun?: Partial<ReviewOverrunOptions>;
   /** Plan storage port; in memory until the Drizzle store lands. */
   planStore?: PlanStore;
   /** Session storage port; in memory until the Drizzle store lands. */
@@ -612,7 +615,12 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     const week = plan.store.getWeek(userId, (req.params as { id: string }).id);
     if (!week) return fail(reply, 404, "schedule.week_not_found");
     if (!week.closedAnnounced) return fail(reply, 409, "schedule.review_not_ready");
-    return { ok: true, data: { review: buildReview(plan.store, ledgers, week) } };
+    return {
+      ok: true,
+      data: {
+        review: buildReview(plan.store, ledgers, week, sessionDeps.sessions, deps.reviewOverrun),
+      },
+    };
   });
   return app;
 }
