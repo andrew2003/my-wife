@@ -77,6 +77,39 @@ describe("template read", () => {
     expect(JSON.stringify(warnings)).not.toContain("35,000");
   });
 
+  it.each([
+    ["amountVnd", 35000, true],
+    ["amountVnd", 0, true],
+    ["amountVnd", -1, false],
+    ["amountVnd", 12.5, false],
+    ["amountVnd", "35000", false],
+    ["direction", "in", true],
+    ["direction", "out", true],
+    ["direction", "sideways", false],
+    ["occurredAt", "2026-11-27T01:00:00.000Z", true],
+    ["occurredAt", "not a date", false],
+    ["occurredAt", 5, false],
+  ])("field %s = %j is kept: %s", async (key, value, kept) => {
+    const { service, events } = setup(() => json({ fields: { [key]: value }, confidence: 0.9 }));
+    await service.read("u1", REQ);
+    const p = aiEvents["ai.template_read_result"].parse(events[0]!.payload);
+    expect(p.fields).toEqual(kept ? { [key]: value } : {});
+  });
+
+  it("cuts the mail body to the configured cap", async () => {
+    const events: unknown[] = [];
+    const provider = new FakeLlmProvider({ reply: () => json({ fields: {}, confidence: 0.5 }) });
+    const service = new TemplateReadService({
+      provider,
+      fetchEmail: async () => ({ ...EMAIL, body: "a".repeat(100) + "TAIL" }),
+      publish: async (e) => void events.push(e),
+      maxBodyChars: 100,
+    });
+    await service.read("u1", REQ);
+    expect(provider.requests[0]!.userText).not.toContain("TAIL");
+    expect(provider.requests[0]!.userText).toContain("a".repeat(100));
+  });
+
   it("emits null fields when the email cannot be fetched", async () => {
     const { service, events } = setup(() => json({ fields: {}, confidence: 1 }), null);
     await service.read("u1", REQ);

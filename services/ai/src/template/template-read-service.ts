@@ -1,4 +1,4 @@
-import { aiEvents } from "@my-wife/contracts";
+import { aiEvents, DirectionSchema } from "@my-wife/contracts";
 import type { LlmProvider } from "../llm";
 
 /** Raw mail as stored by ingest. Untrusted data: it is quoted, never obeyed. */
@@ -22,6 +22,9 @@ export const TEMPLATE_FIELD_KEYS = [
   "occurredAt",
 ] as const;
 
+/** Default cap on mail body characters sent to the model; override with `maxBodyChars`. */
+export const DEFAULT_MAX_BODY_CHARS = 20_000;
+
 export interface TemplateReadRequest {
   receiptId: string;
   templateFingerprint: string;
@@ -32,6 +35,8 @@ export interface TemplateReadOptions {
   /** Reads the raw mail from ingest; null when it is gone. */
   fetchEmail: (userId: string, receiptId: string) => Promise<RawEmail | null>;
   publish: (event: { name: "ai.template_read_result"; payload: unknown }) => Promise<void>;
+  /** Longest mail body (characters) sent to the model; the rest is cut. */
+  maxBodyChars?: number;
   /** Structured logger; receives ids and error names only, never mail content. */
   warn?: (fields: Record<string, unknown>, message: string) => void;
 }
@@ -47,6 +52,14 @@ const SYSTEM_PROMPT = [
 
 type Fields = Record<string, string | number | boolean | null>;
 
+/** Per-field sanity checks; a field that fails is dropped, never repaired. */
+function fieldIsSane(key: string, v: string | number | boolean | null): boolean {
+  if (key === "amountVnd") return typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
+  if (key === "direction") return DirectionSchema.safeParse(v).success;
+  if (key === "occurredAt") return typeof v === "string" && !Number.isNaN(Date.parse(v));
+  return true;
+}
+
 function sanitize(raw: string): { fields: Fields; confidence: number } | null {
   let parsed: unknown;
   try {
@@ -61,9 +74,9 @@ function sanitize(raw: string): { fields: Fields; confidence: number } | null {
   const clean: Fields = {};
   for (const key of TEMPLATE_FIELD_KEYS) {
     const v = (fields as Record<string, unknown>)[key];
-    if (v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
-      clean[key] = v;
-    }
+    const scalar =
+      v === null || typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+    if (scalar && fieldIsSane(key, v)) clean[key] = v;
   }
   return { fields: clean, confidence };
 }
@@ -95,12 +108,13 @@ export class TemplateReadService {
         system: SYSTEM_PROMPT,
         userText: `<email sender=${JSON.stringify(email.sender)} subject=${JSON.stringify(
           email.subject,
-        )}>\n${email.body}\n</email>`,
+        )}>\n${email.body.slice(0, this.o.maxBodyChars ?? DEFAULT_MAX_BODY_CHARS)}\n</email>`,
         locale: "en",
       });
       // Tool calls and memories in the response are ignored on purpose.
       const out = sanitize(response.text);
-      if (!out) this.o.warn?.({ receiptId: req.receiptId }, "template read returned invalid output");
+      if (!out)
+        this.o.warn?.({ receiptId: req.receiptId }, "template read returned invalid output");
       return out;
     } catch (error) {
       this.o.warn?.(

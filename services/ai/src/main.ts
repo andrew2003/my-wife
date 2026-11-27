@@ -23,7 +23,12 @@ void runTemplateReadConsumer({
     warn: (fields, message) => app.log.warn(fields, message),
   }),
   log: app.log,
-});
+}).catch((error: unknown) =>
+  app.log.error(
+    { errorName: error instanceof Error ? error.name : "unknown" },
+    "template read consumer stopped",
+  ),
+);
 
 await app.listen({ host: "0.0.0.0", port: Number(process.env.PORT ?? servicePort(SERVICE_NAME)) });
 
