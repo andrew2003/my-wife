@@ -366,3 +366,126 @@ export async function injectEmails(
   }
   return results;
 }
+
+/** Facts of one mail in the labelled layout that the ingest "basic bank" and "foreign card" templates read. */
+export type LabelledMail =
+  | {
+      kind: "debit";
+      id: string;
+      amountVnd: number;
+      reference: string;
+      at: Date;
+      accountTail: string;
+      memo: string;
+      extraLabel?: [string, string];
+    }
+  | {
+      kind: "credit";
+      id: string;
+      amountVnd: number;
+      reference: string;
+      at: Date;
+      /** Last digits of the account; the budget account code must equal them. */
+      accountTail: string;
+      memo: string;
+      /** An extra label changes the layout, so the template fingerprint no longer matches. */
+      extraLabel?: [string, string];
+    }
+  | {
+      kind: "card_authorization";
+      id: string;
+      foreignAmount: string;
+      reference: string;
+      at: Date;
+      accountTail: string;
+      authCode: string;
+      merchant: string;
+    }
+  | {
+      kind: "card_debit";
+      id: string;
+      amountVnd: number;
+      foreignAmount: string;
+      reference: string;
+      at: Date;
+      accountTail: string;
+      authCode: string;
+      merchant: string;
+      memo: string;
+    };
+
+const stampWithSeconds = (d: Date) => `${localStamp(d)}:${pad(d.getUTCSeconds())}`;
+
+/** The body of a labelled mail as plain text (one "Label: value" per line). */
+export function labelledMailBody(m: LabelledMail): string {
+  const common = (account: string, ref: string, at: Date): Array<[string, string]> => [
+    ["Account", `****${account}`],
+    ["Ref", ref],
+    ["Time", stampWithSeconds(at)],
+  ];
+  let rows: Array<[string, string]>;
+  if (m.kind === "debit" || m.kind === "credit") {
+    rows = [
+      [m.kind === "debit" ? "Debit" : "Credit", `${vnd(m.amountVnd)} VND`],
+      ...common(m.accountTail, m.reference, m.at),
+      ["Details", m.memo],
+      ...(m.extraLabel ? [m.extraLabel] : []),
+    ];
+  } else if (m.kind === "card_authorization") {
+    rows = [
+      ["Authorization", m.foreignAmount],
+      ["Merchant", m.merchant],
+      ["Auth code", m.authCode],
+      ...common(m.accountTail, m.reference, m.at),
+    ];
+  } else {
+    rows = [
+      ["Debit", `${vnd(m.amountVnd)} VND`],
+      ["Foreign amount", m.foreignAmount],
+      ["Merchant", m.merchant],
+      ["Auth code", m.authCode],
+      ...common(m.accountTail, m.reference, m.at),
+      ["Details", m.memo],
+    ];
+  }
+  return rows.map(([k, v]) => `${k}: ${v}`).join(CRLF);
+}
+
+const LABELLED_SUBJECTS: Record<LabelledMail["kind"], string> = {
+  debit: "Balance change notice",
+  credit: "Balance change notice",
+  card_authorization: "Card authorization",
+  card_debit: "Card debit",
+};
+
+export function labelledMailSubject(kind: LabelledMail["kind"]): string {
+  return LABELLED_SUBJECTS[kind];
+}
+
+/**
+ * A synthetic, DKIM-signed bank mail in the labelled layout. Unlike the generic fixtures it
+ * can be parsed by the ingest templates, so scenarios can drive the money flow end to end.
+ */
+export async function buildLabelledEmail(
+  m: LabelledMail,
+  opts: { bankKey: DkimKey; toAddress: string },
+): Promise<EmailFixture> {
+  const at = m.at;
+  const message = [
+    `From: Example Bank <${BANK_SENDER}>`,
+    `To: ${opts.toAddress}`,
+    `Subject: ${labelledMailSubject(m.kind)}`,
+    `Date: ${at.toUTCString()}`,
+    `Message-ID: <${m.id}@bank.example.test>`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="utf-8"',
+    "",
+    labelledMailBody(m),
+    "",
+  ].join(CRLF);
+  return {
+    name: m.id,
+    raw: await signEmail(message, { domain: BANK_DKIM_DOMAIN, key: opts.bankKey, signTime: at }),
+    expect: { dkim: "pass", state: "parsed" },
+  };
+}

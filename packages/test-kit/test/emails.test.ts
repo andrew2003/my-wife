@@ -7,9 +7,11 @@ import {
   BANK_DKIM_DOMAIN,
   BANK_SENDER,
   buildEmailFixtures,
+  buildLabelledEmail,
   createDkimKey,
   dkimDnsResolver,
   injectEmails,
+  labelledMailBody,
   signEmail,
 } from "../src/emails";
 
@@ -198,5 +200,59 @@ describe("injectEmails", () => {
     await expect(
       injectEmails(fixtures, { url: "http://127.0.0.1:1", secret: "x", only: ["nope"] }),
     ).rejects.toThrow(/unknown fixture/);
+  });
+});
+
+describe("labelled bank mail", () => {
+  const at = new Date("2026-12-01T03:15:30.000Z");
+  const to = "u-tok123@in.example.test";
+
+  it("writes one label per line in the layout the ingest templates read", () => {
+    const body = labelledMailBody({
+      kind: "debit",
+      id: "m1",
+      amountVnd: 150_000,
+      reference: "FT26335AAA01",
+      at,
+      accountTail: "1111",
+      memo: "AN",
+    });
+    expect(body.split("\r\n")).toEqual([
+      "Debit: 150,000 VND",
+      "Account: ****1111",
+      "Ref: FT26335AAA01",
+      "Time: 01/12/2026 10:15:30",
+      "Details: AN",
+    ]);
+  });
+
+  it("is signed by the bank key and verifies", async () => {
+    const mail = await buildLabelledEmail(
+      {
+        kind: "credit",
+        id: "m2",
+        amountVnd: 5_000,
+        reference: "FT26335AAA02",
+        at,
+        accountTail: "2222",
+        memo: "test",
+      },
+      { bankKey, toAddress: to },
+    );
+    expect(mail.raw).toContain(`To: ${to}`);
+    expect(await verdict(mail.raw)).toBe("pass");
+  });
+
+  it("an extra label changes the layout", () => {
+    const base = {
+      kind: "debit" as const,
+      id: "m3",
+      amountVnd: 1,
+      reference: "FT26335AAA03",
+      at,
+      accountTail: "1111",
+      memo: "x",
+    };
+    expect(labelledMailBody({ ...base, extraLabel: ["Channel", "QR"] })).toContain("Channel: QR");
   });
 });
