@@ -33,6 +33,7 @@ import {
   evaluateConsent,
   type ConsentStore,
 } from "./consents";
+import { buildExportArchive, createExportStore, type ExportStore } from "./export";
 import { encryptSecret, parseKeyring } from "./secrets-crypto";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
 
@@ -42,6 +43,10 @@ export type IdentityDeps = ServiceDeps & {
   store?: IdentityStore;
   /** Consents and their audit trail; in memory until the Drizzle store lands. */
   consentStore?: ConsentStore;
+  /** Built export archives; in memory until the Drizzle store lands. */
+  exportStore?: ExportStore;
+  /** Origin used to build download links (the gateway's public address). */
+  exportBaseUrl?: string;
   /** Current consent text version per kind (default 1); raising it asks for consent again. */
   consentTextVersions?: Partial<Record<ConsentKind, number>>;
   /** Time is a parameter so tests can simulate it. */
@@ -607,6 +612,47 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
         cameraAvailable,
       },
     };
+  });
+
+  const exportStore = deps.exportStore ?? createExportStore();
+  const exportBase = (deps.exportBaseUrl ?? "http://localhost").replace(/\/+$/, "");
+
+  /** Builds the archive now, keeps it for `identity.export_ttl_hours`, then announces it. */
+  app.post("/export", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const user = await store.findUserById(userId);
+    if (!user) return fail(reply, 404, "identity.user_not_found");
+    const at = now();
+    const archive = buildExportArchive({
+      user,
+      settings: await readSettings(userId),
+      settingAudit: await store.listSettingAudit(userId),
+      consents: await consents.list(userId),
+      consentAudit: await consents.listAudit(userId),
+      onboarding: await store.listOnboardingSteps(userId),
+      now: at,
+    });
+    const ttlMs = setting("identity.export_ttl_hours") * 3_600_000;
+    const expiresAt = new Date(at.getTime() + ttlMs).toISOString();
+    const token = newToken();
+    await exportStore.save(hashToken(token), { userId, expiresAt, archive });
+    // The link is returned only to the caller; the event carries just the expiry.
+    await emit("export.ready", userId, { expiresAt });
+    return { ok: true, data: { downloadUrl: `${exportBase}/exports/${token}`, expiresAt } };
+  });
+
+  app.get("/exports/:token", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const token = String((req.params as { token?: string }).token ?? "");
+    const record = await exportStore.find(hashToken(token));
+    if (!record || record.userId !== userId) return fail(reply, 404, "identity.export_not_found");
+    if (new Date(record.expiresAt).getTime() <= now().getTime())
+      return fail(reply, 410, "identity.export_expired");
+    return reply
+      .header("content-disposition", 'attachment; filename="my-wife-export.json"')
+      .send(record.archive);
   });
 
   /** Internal: the gateway verifies every request's session through this. */
