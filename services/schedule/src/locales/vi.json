@@ -39,5 +39,8 @@
   "schedule.carry_over.option.roll_forward": "Dồn sang ngày mai",
   "schedule.carry_over.option.lower_priority": "Dồn và hạ ưu tiên",
   "schedule.carry_over.option.skip": "Bỏ qua",
-  "schedule.review.suggest_adjust_durations": "Tuần này bạn làm quá thời gian ước tính ở {count} việc. Hãy cân nhắc tăng thời lượng dự kiến cho sát với thực tế."
+  "schedule.review.suggest_adjust_durations": "Tuần này bạn làm quá thời gian ước tính ở {count} việc. Hãy cân nhắc tăng thời lượng dự kiến cho sát với thực tế.",
+  "routine.taper.question": "Bạn đã giữ {routineId} đều đặn {streakDays} ngày. Muốn hạ từ {from} xuống {to} không? Sẽ không có gì thay đổi nếu bạn không đồng ý.",
+  "routine.taper.option.accept": "Hạ mức",
+  "routine.taper.option.keep": "Giữ nguyên"
 }
