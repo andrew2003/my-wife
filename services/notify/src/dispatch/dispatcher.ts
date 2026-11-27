@@ -1,4 +1,12 @@
-import { notifyEvents, type OutboundMessage, type TimeRange } from "@my-wife/contracts";
+import { notifyEvents, SETTINGS, type OutboundMessage, type TimeRange } from "@my-wife/contracts";
+
+type DeliveryChannel = (typeof notifyEvents)["notify.delivery_failed"]["_output"]["channel"];
+
+/**
+ * Seconds to wait before each retry; the last value repeats. The registry has no key for it
+ * (contracts are frozen), so it is a service option with this default, like `sync`'s backoff.
+ */
+export const DEFAULT_RETRY_BACKOFF_SECONDS: readonly number[] = [30, 120, 600];
 
 export type DigestKind = "morning" | "evening";
 
@@ -6,6 +14,10 @@ export type DigestKind = "morning" | "evening";
 export interface DispatchSettings {
   quietHours: TimeRange;
   timeZone: string;
+  /** `notify.delivery_retries`; defaults to the registry default. */
+  deliveryRetries?: number;
+  /** Channel named in `notify.delivery_failed`; defaults to `notify.channel`'s default. */
+  channel?: DeliveryChannel;
 }
 
 export interface InboxEntry {
@@ -42,7 +54,7 @@ export class InMemoryInbox implements Inbox {
 }
 
 export interface DispatchEvent {
-  name: "digest.sent";
+  name: "digest.sent" | "notify.delivery_failed";
   payload: unknown;
 }
 
@@ -56,6 +68,8 @@ export interface DispatcherDeps {
   /** Sends one digest message that batches the held items. */
   deliverDigest: (userId: string, items: InboxEntry[], kind: DigestKind) => Promise<void>;
   publish: (event: DispatchEvent) => Promise<void>;
+  /** Seconds before each retry (last value repeats). */
+  retryBackoffSeconds?: readonly number[];
 }
 
 export interface Dispatcher {
@@ -65,6 +79,16 @@ export interface Dispatcher {
   ): Promise<{ messageId: string; deferredToDigest: boolean }>;
   /** Batches the held items into a digest; returns the item count (0 sends nothing). */
   flushDigest(userId: string, kind: DigestKind): Promise<number>;
+  /** Retries every failed delivery that is due at `now()`; run it from a timer. */
+  runRetries(): Promise<void>;
+}
+
+interface PendingRetry {
+  userId: string;
+  message: OutboundMessage;
+  /** Delivery attempts made so far. */
+  attempts: number;
+  nextAt: number;
 }
 
 function minutesOfDay(time: string): number {
@@ -93,7 +117,52 @@ export function isInQuietHours(at: Date, range: TimeRange, timeZone: string): bo
 }
 
 export function createDispatcher(deps: DispatcherDeps): Dispatcher {
+  const backoff = deps.retryBackoffSeconds?.length
+    ? deps.retryBackoffSeconds
+    : DEFAULT_RETRY_BACKOFF_SECONDS;
+  const retries = new Map<string, PendingRetry>();
+
+  /** One delivery attempt; on failure schedules a retry or, when exhausted, announces it. */
+  async function attempt(userId: string, message: OutboundMessage, made: number): Promise<void> {
+    const settings = await deps.settings.get(userId);
+    const maxRetries = settings.deliveryRetries ?? SETTINGS["notify.delivery_retries"].default;
+    try {
+      await deps.deliver(userId, message);
+      retries.delete(message.id);
+      return;
+    } catch {
+      // Chat delivery failed: the inbox entry keeps the message visible.
+    }
+    const attempts = made + 1;
+    if (attempts - 1 < maxRetries) {
+      const delay = backoff[Math.min(attempts - 1, backoff.length - 1)] ?? 0;
+      retries.set(message.id, {
+        userId,
+        message,
+        attempts,
+        nextAt: deps.now().getTime() + delay * 1000,
+      });
+      return;
+    }
+    retries.delete(message.id);
+    await deps.publish({
+      name: "notify.delivery_failed",
+      payload: notifyEvents["notify.delivery_failed"].parse({
+        messageId: message.id,
+        channel: settings.channel ?? SETTINGS["notify.channel"].default,
+        attempts,
+      }),
+    });
+  }
+
   return {
+    async runRetries() {
+      const nowMs = deps.now().getTime();
+      for (const retry of [...retries.values()]) {
+        if (retry.nextAt <= nowMs) await attempt(retry.userId, retry.message, retry.attempts);
+      }
+    },
+
     async send(userId, message) {
       const settings = await deps.settings.get(userId);
       const quiet = isInQuietHours(deps.now(), settings.quietHours, settings.timeZone);
@@ -102,11 +171,7 @@ export function createDispatcher(deps: DispatcherDeps): Dispatcher {
       const deferred = message.class === "digest" || (quiet && !passes);
       await deps.inbox.add(userId, { message, pendingDigest: deferred });
       if (!deferred) {
-        try {
-          await deps.deliver(userId, message);
-        } catch {
-          // Chat delivery failed: the inbox entry above keeps the message visible.
-        }
+        await attempt(userId, message, 0);
       }
       return { messageId: message.id, deferredToDigest: deferred };
     },
