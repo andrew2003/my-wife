@@ -13,6 +13,7 @@ import { RESERVED_SHORT_CODES } from "./transfer-codes";
 import { buildSampleBudget, type SampleCategoryTemplate } from "./sample-budget";
 import type { TransactionRecord } from "./transactions";
 import type { AnomalyRecord } from "./unknown-spend";
+import type { DebtRecord } from "./debts";
 import type { LimitAdjustment, OverspendRecord, PenaltyDebt, WeekCloseOutcome } from "./overspend";
 
 /**
@@ -37,7 +38,9 @@ export interface AuditRecord {
     | "week_closed"
     | "weekly_plan_published"
     | "anomaly_opened"
-    | "anomaly_resolved";
+    | "anomaly_resolved"
+    | "debt_opened"
+    | "debt_written_off";
   detail: Record<string, string | number>;
 }
 
@@ -73,6 +76,8 @@ export interface SampleBudgetRecord {
   penaltyDebts: PenaltyDebt[];
   /** Unknown spend waiting for a category, or resolved by the user's answer (MW-025). */
   anomalies: AnomalyRecord[];
+  /** Debt ledger: receivables and payables (spec 10 section 6, MW-061). */
+  debts: DebtRecord[];
   /** Planned items of the weekly plan with their issued transfer codes (#304). */
   plannedItems: PlannedItem[];
   /** Week indexes whose planned items were published (#307); a week is published once. */
@@ -249,6 +254,21 @@ export interface SampleBudgetStore {
   /** Releases claims after a failed publish so the next delivery retries. */
   releaseOverspendClaims(userId: string, cycleId: string, weekIndex: number): Promise<void>;
   markOverspendAnnounced(userId: string, overspendId: string): Promise<void>;
+  /** Stores a new debt with an audit record. */
+  openDebt(userId: string, debt: DebtRecord, at: Date): Promise<"opened" | "not_found">;
+  markDebtOpenedAnnounced(userId: string, debtId: string): Promise<void>;
+  /**
+   * Atomically writes off the open part of a receivable: books `txn` (an expense of its funding
+   * category), marks the debt `written_off` and writes an audit record. A debt that is not an
+   * open receivable, or whose cycle is not running, changes nothing.
+   */
+  writeOffDebt(
+    userId: string,
+    debtId: string,
+    txn: TransactionRecord,
+    at: Date,
+  ): Promise<"written_off" | "not_open" | "not_found" | "not_running">;
+  markDebtWrittenOffAnnounced(userId: string, debtId: string): Promise<void>;
 }
 
 export class MemorySampleBudgetStore implements SampleBudgetStore {
@@ -667,6 +687,63 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     if (o) o.announced = true;
   }
 
+  async openDebt(userId: string, debt: DebtRecord, at: Date) {
+    const r = this.records.get(userId);
+    if (!r) return "not_found" as const;
+    r.debts.push({ ...debt });
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "debt_opened",
+      detail: {
+        debtId: debt.id,
+        kind: debt.kind,
+        amountVnd: debt.amountVnd,
+        dueAt: debt.dueAt ?? "",
+      },
+    });
+    return "opened" as const;
+  }
+
+  async markDebtOpenedAnnounced(userId: string, debtId: string) {
+    const d = this.records.get(userId)?.debts.find((x) => x.id === debtId);
+    if (d) d.openedAnnounced = true;
+  }
+
+  async writeOffDebt(userId: string, debtId: string, txn: TransactionRecord, at: Date) {
+    const r = this.records.get(userId);
+    const debt = r?.debts.find((d) => d.id === debtId);
+    if (!r || !debt) return "not_found" as const;
+    if (r.cycle.id !== txn.cycleId || r.cycle.state !== "running") return "not_running" as const;
+    if (
+      debt.kind !== "receivable" ||
+      (debt.state !== "open" && debt.state !== "partially_settled")
+    ) {
+      return "not_open" as const;
+    }
+    r.transactions.push({ ...txn });
+    debt.state = "written_off";
+    debt.writeOffTransactionId = txn.id;
+    debt.writtenOffAnnounced = false;
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "debt_written_off",
+      detail: {
+        debtId,
+        transactionId: txn.id,
+        amountVnd: txn.amountVnd,
+        categoryId: txn.categoryId ?? "",
+      },
+    });
+    return "written_off" as const;
+  }
+
+  async markDebtWrittenOffAnnounced(userId: string, debtId: string) {
+    const d = this.records.get(userId)?.debts.find((x) => x.id === debtId);
+    if (d) d.writtenOffAnnounced = true;
+  }
+
   /** Sync helpers for tests. */
   get(userId: string) {
     return this.records.get(userId);
@@ -816,6 +893,7 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       anomalies: [],
       plannedItems: [],
       publishedPlanWeeks: [],
+      debts: [],
       transactions: [],
       incomePool: [],
       pendingLegs: [],

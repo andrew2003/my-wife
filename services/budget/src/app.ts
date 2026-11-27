@@ -15,6 +15,7 @@ import {
   parsePublishWeeklyPlanRequest,
 } from "./plan-publish";
 import { createWeekClosedHandler } from "./overspend";
+import { createDebtOpener, toDebt } from "./debts";
 import { buildOverview, roundingFrom } from "./overview";
 import {
   createUnknownDeadlineJob,
@@ -132,10 +133,38 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     createWeekClosedHandler({
       store,
       now,
+      newId: randomUUID,
       publish: deps.publish ?? (() => undefined),
       readSettings: deps.readSettings,
     }),
   );
+  const debts = createDebtOpener({
+    store,
+    now,
+    newId: randomUUID,
+    publish: deps.publish ?? (() => undefined),
+    readSettings: deps.readSettings,
+  });
+  // Debt ledger (spec 10 section 6): list, and open a loan to a friend or a borrow.
+  app.get("/budget/debts", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const record = await store.find(userId);
+    return { ok: true, data: { debts: (record?.debts ?? []).map(toDebt) } };
+  });
+  app.post("/budget/debts", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const result = await debts.open(userId, req.body);
+    if (!result.ok) {
+      return reply.code(result.error.code === "budget.cycle_not_found" ? 404 : 400).send(result);
+    }
+    return reply.code(201).send(result);
+  });
 
   app.decorate(
     "onWeekPlanned",
