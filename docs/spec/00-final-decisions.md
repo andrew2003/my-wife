@@ -71,7 +71,7 @@ Use these English terms in identifiers, contracts and documentation.
 ## Principles
 
 - Every setting is user-configurable; every number in the spec is a default.
-- The web app is where users view and edit. Sheets and Google Calendar are one-way mirrors.
+- The web app is where users view and edit, including in-app sheet views. The Google Sheet is kept in sync both ways for plan data only (see `41-sync.md` and ADR 0015); calendars (Google or Apple) are one-way mirrors.
 - The bot never moves money.
 - Money rules, fault points and penalties are decided by code; the LLM only proposes.
 - The end goal is habit: supervision tapers until the user "graduates".
