@@ -88,3 +88,9 @@ export {
   type WeeklyMenu,
   type WeeklyMenuStore,
 } from "./weekly-menu";
+export {
+  buildTransferQr,
+  crc16Ccitt,
+  type TransferQrInput,
+  type TransferQrOptions,
+} from "./transfer-qr";
