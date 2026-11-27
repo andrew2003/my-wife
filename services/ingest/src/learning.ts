@@ -2,6 +2,7 @@ import { SETTINGS, type EventEnvelope } from "@my-wife/contracts";
 import { assertTransition } from "./receipt-state";
 import type { PipelineDeps } from "./pipeline";
 import type { ReceiptRecord } from "./store";
+import { llmReadAttempts, stepAt, withSteps } from "./unknown-pipeline";
 import {
   parseAmountVnd,
   toUtcIso,
@@ -348,7 +349,24 @@ export async function handleTemplateReadResult(
     body: record.mail.body,
     confidenceFloor: learningSettings(deps.settings).confidenceFloor,
   });
+  const received = stepAt("read", "received", now);
   if (!verdict.ok) {
+    const attempts = (record.readAttempts ?? 0) + 1;
+    const verify = stepAt("verify", verdict.reason, now);
+    if (attempts >= llmReadAttempts(deps.settings.llmReadAttempts)) {
+      // Verification failed too often: nothing is booked and the anomaly inbox keeps the mail.
+      assertTransition(record.state, "failed");
+      await deps.store.save(
+        withSteps(
+          { ...record, state: "failed" as const, readAttempts: attempts },
+          received,
+          verify,
+        ),
+      );
+      await emit("receipt.failed", { receiptId, reason: verdict.reason });
+      return;
+    }
+    await deps.store.save(withSteps({ ...record, readAttempts: attempts }, received, verify));
     await emit("receipt.unknown", {
       receiptId,
       templateFingerprint: record.fingerprint ?? "unknown",
@@ -356,7 +374,30 @@ export async function handleTemplateReadResult(
     });
     return;
   }
-  await deps.store.save({ ...record, llmRead: verdict.read });
+  // Step 6: the bank reference may already be booked from another mail.
+  const ref = verdict.read.fields.bankTransactionRef;
+  if (await deps.store.findParsedByRef(record.userId, ref)) {
+    assertTransition(record.state, "duplicate");
+    const { mail: _mail, ...rest } = record;
+    await deps.store.save(
+      withSteps(
+        { ...rest, state: "duplicate" as const, bankTransactionRef: ref },
+        received,
+        stepAt("verify", "pass", now),
+        stepAt("deduplicate_reference", "duplicate", now),
+      ),
+    );
+    return;
+  }
+  await deps.store.save(
+    withSteps(
+      { ...record, llmRead: verdict.read },
+      received,
+      stepAt("verify", "pass", now),
+      stepAt("deduplicate_reference", "pass", now),
+      stepAt("learn", "parser_generated", now),
+    ),
+  );
   if (!learningSettings(deps.settings).firstConfirmation)
     await confirmTemplateRead(deps, record.userId, receiptId, now);
 }
@@ -422,15 +463,20 @@ async function finishConfirmed(
 ): Promise<void> {
   const read = record.llmRead as VerifiedRead;
   const { mail: _mail, llmRead: _read, ...rest } = record;
-  await deps.store.save({
-    ...rest,
-    state: "parsed",
-    fields: read.fields,
-    bankTransactionRef: read.fields.bankTransactionRef,
-    templateId: tpl.id,
-    templateVersion: tpl.version,
-    source: "llm",
-  });
+  await deps.store.save(
+    withSteps(
+      {
+        ...rest,
+        state: "parsed" as const,
+        fields: read.fields,
+        bankTransactionRef: read.fields.bankTransactionRef,
+        templateId: tpl.id,
+        templateVersion: tpl.version,
+        source: "llm" as const,
+      },
+      stepAt("emit", "receipt.parsed", now),
+    ),
+  );
   await emitter(
     deps,
     record.userId,

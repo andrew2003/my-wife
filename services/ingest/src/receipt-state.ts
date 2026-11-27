@@ -8,7 +8,7 @@ import type { ReceiptState } from "@my-wife/contracts";
 const TRANSITIONS: Record<ReceiptState, readonly ReceiptState[]> = {
   received: ["rejected", "duplicate", "parsing", "needs_confirmation"],
   parsing: ["parsed", "needs_confirmation", "failed", "duplicate"],
-  needs_confirmation: ["parsing", "parsed", "failed"],
+  needs_confirmation: ["parsing", "parsed", "failed", "duplicate"],
   rejected: [],
   duplicate: [],
   parsed: [],
