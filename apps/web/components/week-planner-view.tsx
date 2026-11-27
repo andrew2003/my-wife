@@ -34,7 +34,8 @@ export interface WeekPlannerViewProps {
 
 /** Presentational week board: template picker, overload banner and the seven days. */
 export function WeekPlannerView(props: WeekPlannerViewProps) {
-  const { locale, status, week, templates, tasks, load, selectedTemplateId, busy, errorKey } = props;
+  const { locale, status, week, templates, tasks, load, selectedTemplateId, busy, errorKey } =
+    props;
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(locale, key, params);
 
@@ -53,9 +54,12 @@ export function WeekPlannerView(props: WeekPlannerViewProps) {
 
   const tag = locale === "vi" ? "vi-VN" : "en-US";
   const dayLabel = (day: string) =>
-    new Intl.DateTimeFormat(tag, { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(
-      new Date(`${day}T00:00:00.000Z`),
-    );
+    new Intl.DateTimeFormat(tag, {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      timeZone: "UTC",
+    }).format(new Date(`${day}T00:00:00.000Z`));
   const duration = (minutes: number) => {
     const { hours, minutes: m } = splitMinutes(minutes);
     return hours > 0

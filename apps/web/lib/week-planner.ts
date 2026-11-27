@@ -38,8 +38,7 @@ export type PlannerResult =
 
 export type PlannerAction = { ok: true } | { ok: false; errorKey: string };
 export type ApplyResult =
-  | { ok: true; overloaded: boolean; overloadMinutes: number }
-  | { ok: false; errorKey: string };
+  { ok: true; overloaded: boolean; overloadMinutes: number } | { ok: false; errorKey: string };
 
 /** The seven UTC days of a week, from its first day (schedule days are UTC dates). */
 export function weekDays(firstDay: string): string[] {

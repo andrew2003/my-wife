@@ -53,7 +53,10 @@ describe("loadPlanner", () => {
       if (url.startsWith("/api/templates"))
         return json(200, { ok: true, data: { templates: TEMPLATES } });
       const date = new URL(url, "http://x").searchParams.get("date");
-      return json(200, { ok: true, data: { date, tasks: date === "2026-11-30" ? [task({})] : [] } });
+      return json(200, {
+        ok: true,
+        data: { date, tasks: date === "2026-11-30" ? [task({})] : [] },
+      });
     });
     const res = await loadPlanner(doFetch);
     expect(res.status).toBe("ready");
