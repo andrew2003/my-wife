@@ -3,6 +3,7 @@
   "sync.error.invalid_state": "The authorization request is invalid or expired. Please start again.",
   "sync.error.link_failed": "Linking your Google account failed. Please try again.",
   "sync.error.bad_request": "The request is invalid.",
+  "sync.calendar.masked_title": "Busy",
   "sync.sheet.banner": "This sheet is a read-only mirror. Edits are overwritten from the app on the next sync.",
   "sync.tab.categories": "Budget categories",
   "sync.tab.accounts": "Bank accounts",
