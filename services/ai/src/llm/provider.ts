@@ -15,6 +15,8 @@ export interface LlmResponse {
   toolCalls: AiToolCall[];
   /** Stable facts the model proposes to remember; code validates and stores them. */
   memories?: string[];
+  /** Tokens the call used, when the provider reports them; otherwise code estimates. */
+  usage?: { totalTokens: number };
 }
 
 /** One interface for every provider. Real providers arrive in M4 (MW-125). */
