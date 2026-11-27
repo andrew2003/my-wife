@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { SETTINGS, type ChannelKind, type CycleState, type SettingKey } from "@my-wife/contracts";
 import { buildSampleBudget, DEFAULT_SAMPLE_TOTAL_VND } from "@my-wife/budget";
 import type { IdentityStore } from "@my-wife/identity";
@@ -64,9 +65,8 @@ export function buildDemoState(now: Date): DemoState {
   const rounding = SETTINGS["budget.weekly_limit_rounding_vnd"].default as number;
   const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const budget = buildSampleBudget({ totalVnd: DEFAULT_SAMPLE_TOTAL_VND, roundingVnd: rounding });
-  const answers = settings;
-  const wake = (answers["routine.wake.time"] ?? SETTINGS["routine.wake.time"].default) as string;
-  const sleep = (answers["routine.sleep.start"] ??
+  const wake = (settings["routine.wake.time"] ?? SETTINGS["routine.wake.time"].default) as string;
+  const sleep = (settings["routine.sleep.start"] ??
     SETTINGS["routine.sleep.start"].default) as string;
   return {
     user: { id: DEMO_USER_ID, email: DEMO_USER_EMAIL, locale: "vi" },
@@ -85,7 +85,7 @@ export function buildDemoState(now: Date): DemoState {
         cycleLimitVnd: c.cycleLimitVnd,
       })),
     },
-    schedule: buildSampleDay(answers),
+    schedule: buildSampleDay(settings),
     routines: [
       {
         key: "wake",
@@ -160,7 +160,8 @@ export async function resetDemoState(opts: ResetOptions): Promise<DemoState> {
       key,
       value,
       audit: {
-        id: `demo-${key}-${at}`,
+        // A random suffix keeps the id unique when DEMO_NOW pins `at` across resets.
+        id: `demo-${key}-${at}-${randomUUID()}`,
         userId: state.user.id,
         actorId: DEMO_ACTOR,
         key,

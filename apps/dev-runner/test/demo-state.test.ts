@@ -102,4 +102,32 @@ describe("demo state", () => {
     expect(a.cycle.startsAt).not.toBe(b.cycle.startsAt);
     expect(buildDemoState(NOW)).toEqual(buildDemoState(NOW));
   });
+
+  it("gives every setting audit entry a unique id when the time is pinned", async () => {
+    const store = createMemoryStore();
+    const world = createDemoWorld();
+    await resetDemoState({ store, world, now: NOW });
+    await store.saveSetting(DEMO_USER_ID, "notify.channel", "discord", {
+      id: "dirty",
+      userId: DEMO_USER_ID,
+      actorId: DEMO_USER_ID,
+      key: "notify.channel",
+      before: "telegram",
+      after: "discord",
+      at: NOW.toISOString(),
+    });
+    await resetDemoState({ store, world, now: NOW });
+    await store.saveSetting(DEMO_USER_ID, "notify.channel", "discord", {
+      id: "dirty-2",
+      userId: DEMO_USER_ID,
+      actorId: DEMO_USER_ID,
+      key: "notify.channel",
+      before: "telegram",
+      after: "discord",
+      at: NOW.toISOString(),
+    });
+    await resetDemoState({ store, world, now: NOW });
+    const ids = (await store.listSettingAudit(DEMO_USER_ID)).map((a) => a.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });
