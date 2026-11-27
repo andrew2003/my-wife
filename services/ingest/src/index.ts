@@ -17,3 +17,11 @@ export {
   type RegisteredTemplate,
   type TemplateParser,
 } from "./templates";
+export {
+  confirmTemplateRead,
+  handleTemplateReadResult,
+  MemoryTemplateStore,
+  verifyLlmRead,
+  type LearnedTemplate,
+  type TemplateStore,
+} from "./learning";

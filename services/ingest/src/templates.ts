@@ -84,7 +84,7 @@ export function verifyEvidence(raw: RawEvidence, body: string): boolean {
 const TIME_RE = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2}):(\d{2})$/;
 
 /** Local bank time to a UTC ISO string; null for impossible dates. */
-function toUtcIso(raw: string, offsetMinutes: number): string | null {
+export function toUtcIso(raw: string, offsetMinutes: number): string | null {
   const m = TIME_RE.exec(raw);
   if (!m) return null;
   const [d, mo, y, h, mi, s] = m.slice(1).map(Number) as [
@@ -102,7 +102,7 @@ function toUtcIso(raw: string, offsetMinutes: number): string | null {
   return new Date(ms - offsetMinutes * 60_000).toISOString();
 }
 
-function valuesOf(body: string): Map<string, string> {
+export function valuesOf(body: string): Map<string, string> {
   const out = new Map<string, string>();
   for (const line of body.split(/\r?\n/)) {
     const m = /^\s*([A-Za-z][A-Za-z ]{0,40}):(.*)$/.exec(line);

@@ -2,6 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { AppConfig } from "@my-wife/config";
 import { InboundEmailWebhookRequestSchema } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
+import { confirmTemplateRead } from "./learning";
 import { processInbound, type PipelineDeps } from "./pipeline";
 
 export const SERVICE_NAME = "ingest";
@@ -10,6 +11,7 @@ export const WEBHOOK_PATH = "/webhook/inbound-email";
 
 export const USER_HEADER = "x-user-id";
 export const RAW_EMAIL_PATH = "/receipts/:receiptId/raw-email";
+export const CONFIRM_TEMPLATE_PATH = "/receipts/:receiptId/confirm-template";
 export const FORWARDING_PENDING_PATH = "/forwarding/pending";
 
 export type IngestDeps = Omit<PipelineDeps, "newId"> & {
@@ -99,6 +101,25 @@ export function createApp(config: AppConfig, deps: ServiceDeps & { ingest?: Inge
         ok: true,
         data: { sender: record.sender, subject: record.mail.subject, body: record.mail.body },
       };
+    });
+  }
+
+  if (ingest?.learning) {
+    // The user confirms the first model read of a new layout; the receipt is then booked.
+    app.post<{ Params: { receiptId: string } }>(CONFIRM_TEMPLATE_PATH, async (req, reply) => {
+      const userId = req.headers[USER_HEADER];
+      if (typeof userId !== "string" || userId.length === 0) {
+        return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+      }
+      const result = await confirmTemplateRead(
+        { ...ingest, newId: ingest.newId ?? randomUUID },
+        userId,
+        req.params.receiptId,
+        ingest.now(),
+      );
+      if (result.ok) return { ok: true, data: { state: "parsed" } };
+      const status = result.code === "not_found" ? 404 : 409;
+      return reply.code(status).send({ ok: false, error: { code: result.code } });
     });
   }
   return app;
