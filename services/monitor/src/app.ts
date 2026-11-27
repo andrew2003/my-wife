@@ -11,6 +11,7 @@ import {
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import {
   createMemoryBreakStore,
+  type BreakResult,
   endBreak,
   startBreak,
   createMemoryNudgeStore,
@@ -50,6 +51,12 @@ declare module "fastify" {
     /** Sends, escalates and expires urgent messages; the caller passes `now`. */
     runUrgentJob: (now: Date) => Promise<{ failed: string[] }>;
     monitorState: MonitorState;
+    /** Starts a planned pause (pomodoro, meal); internal callers only, no HTTP route. */
+    startScheduledBreak: (
+      userId: string,
+      sessionId: string,
+      minutes: number,
+    ) => Promise<BreakResult>;
   }
 }
 
@@ -153,23 +160,13 @@ export function createApp(config: AppConfig, deps: MonitorServiceDeps = {}) {
     const input = { sessionId: parsed.data.sessionId, kind: "manual" as const };
     return breakReply(reply, await startBreak(monitor, userId, input, monitor.now()));
   });
-  /** Local port until the schedule break event is decided (#389): pomodoro and meal breaks. */
-  app.post("/breaks/scheduled", async (req, reply) => {
-    const userId = userOf(req.headers);
-    if (!userId) return fail(reply, 401, "monitor.unauthenticated");
-    const parsed = StartBreakRequestSchema.safeParse(req.body);
-    const minutes = (req.body as { minutes?: unknown } | null)?.minutes;
-    if (
-      !parsed.success ||
-      typeof minutes !== "number" ||
-      !Number.isInteger(minutes) ||
-      minutes < 1
-    ) {
-      return fail(reply, 400, "monitor.invalid_request");
-    }
-    const input = { sessionId: parsed.data.sessionId, kind: "scheduled" as const, minutes };
-    return breakReply(reply, await startBreak(monitor, userId, input, monitor.now()));
-  });
+  /**
+   * In-process port for pomodoro and meal breaks until schedule's break state is consumed (#389).
+   * Deliberately not an HTTP route: a user-facing call must not choose its own break length.
+   */
+  app.decorate("startScheduledBreak", (userId: string, sessionId: string, minutes: number) =>
+    startBreak(monitor, userId, { sessionId, kind: "scheduled", minutes }, monitor.now()),
+  );
   app.post("/breaks/end", async (req, reply) => {
     const userId = userOf(req.headers);
     if (!userId) return fail(reply, 401, "monitor.unauthenticated");

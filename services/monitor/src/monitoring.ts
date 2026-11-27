@@ -153,11 +153,19 @@ export interface Break {
 }
 export interface BreakStore {
   add(b: Break): void;
+  remove(id: string): void;
   all(): Break[];
 }
 export function createMemoryBreakStore(): BreakStore {
   const breaks: Break[] = [];
-  return { add: (b) => void breaks.push(b), all: () => [...breaks] };
+  return {
+    add: (b) => void breaks.push(b),
+    remove: (id) => {
+      const i = breaks.findIndex((b) => b.id === id);
+      if (i >= 0) breaks.splice(i, 1);
+    },
+    all: () => [...breaks],
+  };
 }
 
 export interface MonitorState {
@@ -331,7 +339,8 @@ async function positiveSetting(
 }
 const MINUTE_MS = 60 * SECOND_MS;
 
-const runningBreak = (deps: MonitorDeps, sessionId: string) =>
+/** The break not yet closed; it may be past its allowed end (the gap check needs that case). */
+const openBreak = (deps: MonitorDeps, sessionId: string) =>
   deps.state.breaks.all().find((b) => b.sessionId === sessionId && b.endedAt === null);
 
 /** Same UTC calendar day; the user's time zone is not known to monitor yet (see decisions.md). */
@@ -362,7 +371,17 @@ export async function startBreak(
 ): Promise<BreakResult> {
   const s = deps.state.sessions.get(userId, input.sessionId);
   if (!s || s.endedAt !== null) return { ok: false, error: "session.not_found" };
-  if (runningBreak(deps, s.id)) return { ok: false, error: "break.already_running" };
+  const open = openBreak(deps, s.id);
+  if (open) {
+    // A break past its allowed end no longer blocks a new one; it is closed without a sign of life.
+    if (Date.parse(open.allowedUntil) > now.getTime()) {
+      return { ok: false, error: "break.already_running" };
+    }
+    await deps.publish(
+      envelope(now, `break-ended-${open.id}`, "break.ended", userId, { sessionId: s.id }),
+    );
+    open.endedAt = open.allowedUntil;
+  }
   const maxMinutes = await positiveSetting(deps, userId, "monitor.break_max_minutes");
   let minutes = maxMinutes;
   if (input.kind === "manual") {
@@ -387,13 +406,19 @@ export async function startBreak(
     allowedUntil: new Date(now.getTime() + minutes * MINUTE_MS).toISOString(),
     endedAt: null,
   };
-  await deps.publish(
-    envelope(now, `break-started-${b.id}`, "break.started", userId, {
-      sessionId: s.id,
-      maxMinutes: minutes,
-    }),
-  );
+  // Stored before publishing so a concurrent start sees it; undone if the event is not sent.
   deps.state.breaks.add(b);
+  try {
+    await deps.publish(
+      envelope(now, `break-started-${b.id}`, "break.started", userId, {
+        sessionId: s.id,
+        maxMinutes: minutes,
+      }),
+    );
+  } catch (err) {
+    deps.state.breaks.remove(b.id);
+    throw err;
+  }
   return { ok: true, break: b };
 }
 
@@ -406,7 +431,7 @@ export async function endBreak(
 ): Promise<BreakResult> {
   const s = deps.state.sessions.get(userId, sessionId);
   if (!s || s.endedAt !== null) return { ok: false, error: "session.not_found" };
-  const b = runningBreak(deps, s.id);
+  const b = openBreak(deps, s.id);
   if (!b) return { ok: false, error: "break.not_running" };
   await deps.publish(
     envelope(now, `break-ended-${b.id}`, "break.ended", userId, { sessionId: s.id }),
@@ -433,7 +458,7 @@ export async function runGapCheck(
     try {
       const seconds = await gapSeconds(deps, s.userId);
       // During a break the gap starts at the end of the allowed break (never retroactive).
-      const pause = runningBreak(deps, s.id);
+      const pause = openBreak(deps, s.id);
       const lastSign =
         pause && Date.parse(pause.allowedUntil) > Date.parse(s.lastHeartbeatAt)
           ? pause.allowedUntil

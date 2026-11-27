@@ -93,10 +93,51 @@ describe("breaks and pauses", () => {
   it("scheduled breaks (pomodoro, meal) last their planned minutes and use no quota", async () => {
     const s = await setup({ "monitor.breaks_per_day": 0 });
     const sessionId = await s.start();
-    const res = await s.post("/breaks/scheduled", { sessionId, minutes: 30 });
-    expect(res.statusCode).toBe(200);
+    const res = await s.app.startScheduledBreak("u1", sessionId, 30);
+    expect(res.ok).toBe(true);
     expect((await s.gap(30 * 60 - 1)).tickets).toEqual([]);
     expect((await s.gap(30 * 60 + DEFAULT_GAP)).tickets).toHaveLength(1);
+  });
+
+  it("offers no user-facing route to choose a break length", async () => {
+    const s = await setup();
+    const sessionId = await s.start();
+    const res = await s.post("/breaks/scheduled", { sessionId, minutes: 100000 });
+    expect(res.statusCode).toBe(404);
+    expect((await s.gap(BREAK_MIN * 60 + DEFAULT_GAP)).tickets).toHaveLength(1);
+  });
+
+  it("does not let an expired break block a new one", async () => {
+    const s = await setup();
+    const sessionId = await s.start();
+    await s.post("/breaks/start", { sessionId });
+    s.setNow(BREAK_MIN * 60 + 1);
+    const res = await s.post("/breaks/start", { sessionId });
+    expect(res.statusCode).toBe(200);
+    expect(s.events.filter((e) => e.type === "break.ended")).toHaveLength(1);
+  });
+
+  it("stores no break when the start event cannot be published", async () => {
+    let fail = true;
+    const app = await createApp(config, {
+      now: () => new Date(T0),
+      publish: (e: EventEnvelope) => {
+        if (fail && e.type === "break.started") throw new Error("bus down");
+      },
+    });
+    const h = { "x-user-id": "u1" };
+    const started = await app.inject({
+      method: "POST",
+      url: "/sessions/start",
+      headers: h,
+      payload: { taskId: "t1", profile: "camera", deviceId: "d" },
+    });
+    const sessionId = started.json().data.sessionId as string;
+    const start = () =>
+      app.inject({ method: "POST", url: "/breaks/start", headers: h, payload: { sessionId } });
+    expect((await start()).statusCode).toBe(500);
+    fail = false;
+    expect((await start()).statusCode).toBe(200);
   });
 
   it("refuses a second break while one is running and unknown sessions", async () => {
