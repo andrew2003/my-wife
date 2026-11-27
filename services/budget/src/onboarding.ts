@@ -55,7 +55,8 @@ export interface SampleBudgetRecord {
   userId: string;
   cycle: BudgetCycle;
   accounts: BankAccount[];
-  categories: BudgetCategory[];
+  /** `key` is the stable sample key (for example `future_purchases`); user-created categories have none. */
+  categories: (BudgetCategory & { key?: string })[];
   audit: AuditRecord[];
   /** False until `cycle.draft_created` was published, so a failed publish is retried. */
   announced: boolean;
@@ -1133,6 +1134,7 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       accounts,
       categories: draft.categories.map((c) => ({
         id: deps.newId(),
+        key: c.key,
         name: t(`budget.sample.category.${c.key}`, deps.locale),
         shortCode: c.shortCode,
         priority: c.priority,
