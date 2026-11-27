@@ -52,6 +52,7 @@ import {
   featureDisabledNoticeKey,
   type FeatureFlagStore,
 } from "./feature-flags";
+import { STARTER_PACKS } from "./starter-packs";
 import {
   CHECKLIST_STEPS,
   resolveItem,
@@ -421,23 +422,12 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     "budget.cycle_weeks",
   ];
 
-  app.post("/onboarding/setup-answers", async (req, reply) => {
-    const userId = callerId(req.headers);
-    if (!userId) return fail(reply, 401, "identity.unauthenticated");
-    const raw = (req.body as { answers?: unknown } | undefined)?.answers;
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw))
-      return fail(reply, 400, "identity.invalid_setting");
-    const entries = Object.entries(raw);
-    if (entries.length === 0) return fail(reply, 400, "identity.invalid_setting");
-    const checked: [SettingKey, unknown][] = [];
-    for (const [key, value] of entries) {
-      if (!(SETUP_ANSWER_KEYS as readonly string[]).includes(key))
-        return fail(reply, 400, "identity.invalid_setting");
-      const result = validateSettingValue(key as SettingKey, value);
-      if (!result.success) return fail(reply, 400, "identity.invalid_setting");
-      checked.push([key as SettingKey, result.data]);
-    }
-    // Everything is validated before anything is written: a bad answer stores nothing.
+  /** Stores validated values in one transaction and emits one `user.updated`; returns changed keys. */
+  async function applySettings(
+    userId: string,
+    checked: [SettingKey, unknown][],
+  ): Promise<SettingKey[]> {
+    // Callers validate everything first: a bad value stores nothing.
     const current = await readSettings(userId);
     const at = now().toISOString();
     const changes = checked
@@ -460,7 +450,54 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     if (changes.length > 0) await store.saveSettings(userId, changes);
     const changedKeys = changes.map((c) => c.key);
     if (changedKeys.length > 0) await emit("user.updated", userId, { changedKeys });
+    return changedKeys;
+  }
+
+  app.post("/onboarding/setup-answers", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const raw = (req.body as { answers?: unknown } | undefined)?.answers;
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+      return fail(reply, 400, "identity.invalid_setting");
+    const entries = Object.entries(raw);
+    if (entries.length === 0) return fail(reply, 400, "identity.invalid_setting");
+    const checked: [SettingKey, unknown][] = [];
+    for (const [key, value] of entries) {
+      if (!(SETUP_ANSWER_KEYS as readonly string[]).includes(key))
+        return fail(reply, 400, "identity.invalid_setting");
+      const result = validateSettingValue(key as SettingKey, value);
+      if (!result.success) return fail(reply, 400, "identity.invalid_setting");
+      checked.push([key as SettingKey, result.data]);
+    }
+    const changedKeys = await applySettings(userId, checked);
     return { ok: true, data: { changedKeys } };
+  });
+
+  app.get("/onboarding/packs", async (req, reply) => {
+    if (!callerId(req.headers)) return fail(reply, 401, "identity.unauthenticated");
+    const packs = STARTER_PACKS.map((p) => ({
+      id: p.id,
+      nameKey: p.nameKey,
+      descriptionKey: p.descriptionKey,
+      settings: p.settings,
+    }));
+    return { ok: true, data: { packs } };
+  });
+
+  app.post("/onboarding/packs/:id/apply", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const { id } = req.params as { id: string };
+    const pack = STARTER_PACKS.find((p) => p.id === id);
+    if (!pack) return fail(reply, 404, "identity.pack_not_found");
+    const checked: [SettingKey, unknown][] = [];
+    for (const [key, value] of Object.entries(pack.settings)) {
+      const result = validateSettingValue(key as SettingKey, value);
+      if (!result.success) return fail(reply, 500, "identity.pack_invalid");
+      checked.push([key as SettingKey, result.data]);
+    }
+    const changedKeys = await applySettings(userId, checked);
+    return { ok: true, data: { packId: pack.id, changedKeys } };
   });
 
   app.post("/onboarding/steps", async (req, reply) => {
