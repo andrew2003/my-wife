@@ -1,9 +1,4 @@
-import {
-  notifyEvents,
-  SETTINGS,
-  type OutboundMessage,
-  type TimeRange,
-} from "@my-wife/contracts";
+import { notifyEvents, SETTINGS, type OutboundMessage, type TimeRange } from "@my-wife/contracts";
 
 type DeliveryChannel = (typeof notifyEvents)["notify.delivery_failed"]["_output"]["channel"];
 
