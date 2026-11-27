@@ -352,5 +352,22 @@
   "weekplan.error.already_applied": "Tuần này đã áp dụng một mẫu.",
   "weekplan.error.template_missing": "Mẫu này không còn tồn tại.",
   "weekplan.error.not_draft": "Chỉ sửa được tuần ở trạng thái nháp.",
-  "weekplan.error.approve": "Không duyệt được kế hoạch. Vui lòng thử lại."
+  "weekplan.error.approve": "Không duyệt được kế hoạch. Vui lòng thử lại.",
+  "nav.calendar": "Lịch",
+  "calendar.title": "Lịch dương và âm",
+  "calendar.loading": "Đang tải lịch...",
+  "calendar.error": "Không hiển thị được lịch.",
+  "calendar.prev": "Tháng trước",
+  "calendar.next": "Tháng sau",
+  "calendar.today": "Hôm nay",
+  "calendar.lunar_unavailable": "Chưa có ngày âm lịch cho năm này.",
+  "calendar.lunar_title": "Ngày âm lịch {date}",
+  "calendar.legend": "Số lớn: ngày dương. Số nhỏ: ngày/tháng âm lịch (L là tháng nhuận).",
+  "calendar.weekday.mon": "T2",
+  "calendar.weekday.tue": "T3",
+  "calendar.weekday.wed": "T4",
+  "calendar.weekday.thu": "T5",
+  "calendar.weekday.fri": "T6",
+  "calendar.weekday.sat": "T7",
+  "calendar.weekday.sun": "CN"
 }
