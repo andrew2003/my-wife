@@ -4,6 +4,8 @@ import type { FastifyReply } from "fastify";
 import type { AppConfig } from "@my-wife/config";
 import {
   CompleteOnboardingStepRequestSchema,
+  DeclareIncidentRequestSchema,
+  IsoDateTimeSchema,
   EVENT_SCHEMA_VERSION,
   ConsentKindSchema,
   ConsentRequestSchema,
@@ -35,6 +37,12 @@ import {
 } from "./consents";
 import { anonymisedEmail, type PenaltyPort } from "./deletion";
 import { buildExportArchive, createExportStore, type ExportStore } from "./export";
+import {
+  createIncidentStore,
+  incidentCoversUser,
+  type Incident,
+  type IncidentStore,
+} from "./incidents";
 import { encryptSecret, parseKeyring } from "./secrets-crypto";
 import { hashToken, newToken, signSession, verifySession } from "./tokens";
 
@@ -46,6 +54,8 @@ export type IdentityDeps = ServiceDeps & {
   consentStore?: ConsentStore;
   /** Open (suspended or due) penalties of a user, from `rules`. Without it none are assumed. */
   penalties?: PenaltyPort;
+  /** Incidents and the admin audit log; in memory until the Drizzle store lands. */
+  incidentStore?: IncidentStore;
   /** Built export archives; in memory until the Drizzle store lands. */
   exportStore?: ExportStore;
   /** Origin used to build download links (the gateway's public address). */
@@ -746,6 +756,109 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
       ok: true,
       data: { user: publicUser(user), expiresAt: new Date(payload.exp * 1000).toISOString() },
     };
+  });
+
+  // ---- Admin incidents (spec 50 section 3) ----
+  const incidents = deps.incidentStore ?? createIncidentStore();
+
+  const adminId = (headers: Record<string, unknown>) =>
+    headers["x-user-role"] === "admin" ? callerId(headers) : null;
+
+  async function record(
+    actor: string,
+    action: string,
+    before: Incident | null,
+    after: Incident,
+  ): Promise<void> {
+    const snap = (i: Incident | null) =>
+      i && {
+        state: i.state,
+        startsAt: i.startsAt,
+        endsAt: i.endsAt,
+        scope: i.scope,
+        reason: i.reason,
+      };
+    await incidents.save(after, {
+      id: randomUUID(),
+      actorId: actor,
+      action,
+      targetId: after.id,
+      before: snap(before),
+      after: snap(after),
+      at: now().toISOString(),
+    });
+  }
+
+  app.post("/admin/incidents", async (req, reply) => {
+    const admin = adminId(req.headers);
+    if (!admin) return fail(reply, 403, "identity.forbidden");
+    const parsed = DeclareIncidentRequestSchema.safeParse(req.body);
+    const reason = parsed.success ? parsed.data.reason.trim() : "";
+    if (!parsed.success || !reason) return fail(reply, 400, "identity.incident_invalid");
+    const { startsAt, endsAt, scope } = parsed.data;
+    if (endsAt !== null && Date.parse(endsAt) < Date.parse(startsAt))
+      return fail(reply, 400, "identity.incident_invalid");
+    const incident: Incident = {
+      id: randomUUID(),
+      state: endsAt === null ? "active" : "ended",
+      startsAt,
+      endsAt,
+      scope,
+      reason,
+    };
+    await record(admin, "incident.declared", null, incident);
+    await emit("incident.declared", admin, { incidentId: incident.id, startsAt, endsAt, scope });
+    return reply.code(201).send({ ok: true, data: { incident } });
+  });
+
+  app.get("/admin/incidents", async (req, reply) => {
+    if (!adminId(req.headers)) return fail(reply, 403, "identity.forbidden");
+    return { ok: true, data: { incidents: await incidents.list() } };
+  });
+
+  app.get("/admin/audit", async (req, reply) => {
+    if (!adminId(req.headers)) return fail(reply, 403, "identity.forbidden");
+    return { ok: true, data: { entries: await incidents.listAudit() } };
+  });
+
+  app.post("/admin/incidents/:id/end", async (req, reply) => {
+    const admin = adminId(req.headers);
+    if (!admin) return fail(reply, 403, "identity.forbidden");
+    const before = await incidents.find((req.params as { id: string }).id);
+    if (!before) return fail(reply, 404, "identity.incident_not_found");
+    if (before.state !== "active") return fail(reply, 409, "identity.incident_not_active");
+    const asked = (req.body as { endsAt?: unknown } | undefined)?.endsAt;
+    const parsedEnd = asked === undefined ? undefined : IsoDateTimeSchema.safeParse(asked);
+    if (parsedEnd && !parsedEnd.success) return fail(reply, 400, "identity.incident_invalid");
+    const endsAt = parsedEnd?.data ?? now().toISOString();
+    if (Date.parse(endsAt) < Date.parse(before.startsAt))
+      return fail(reply, 400, "identity.incident_invalid");
+    const after: Incident = { ...before, state: "ended", endsAt: new Date(endsAt).toISOString() };
+    await record(admin, "incident.ended", before, after);
+    await emit("incident.ended", admin, { incidentId: after.id, endsAt: after.endsAt as string });
+    return { ok: true, data: { incident: after } };
+  });
+
+  app.post("/admin/incidents/:id/cancel", async (req, reply) => {
+    const admin = adminId(req.headers);
+    if (!admin) return fail(reply, 403, "identity.forbidden");
+    const before = await incidents.find((req.params as { id: string }).id);
+    if (!before) return fail(reply, 404, "identity.incident_not_found");
+    if (before.state === "cancelled") return fail(reply, 409, "identity.incident_cancelled");
+    const after: Incident = { ...before, state: "cancelled" };
+    await record(admin, "incident.cancelled", before, after);
+    await emit("incident.cancelled", admin, { incidentId: after.id });
+    return { ok: true, data: { incident: after } };
+  });
+
+  /** An affected user (or an internal reader such as the weekly report) reads the reason. */
+  app.get("/incidents/:id", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const incident = await incidents.find((req.params as { id: string }).id);
+    if (!incident || !incidentCoversUser(incident, userId))
+      return fail(reply, 404, "identity.incident_not_found");
+    return { ok: true, data: { incident } };
   });
 
   return app;
