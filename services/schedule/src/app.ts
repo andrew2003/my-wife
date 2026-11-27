@@ -131,10 +131,12 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
   });
   const now = deps.now ?? (() => new Date());
   const readSettings = deps.readSettings ?? defaultReader;
+  const ledgers = deps.ledgerStore ?? createMemoryLedgerStore();
   const plan: PlanDeps = {
     store: deps.planStore ?? createMemoryPlanStore(),
     publish: deps.publish ?? (() => undefined),
     now,
+    cycleFirstDays: (userId) => ledgers.cycleFirstDays(userId),
   };
   const samples = new Map<string, SampleSchedule>();
 
@@ -365,12 +367,9 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (!userId) return fail(reply, 401, "schedule.unauthenticated");
     const day = IsoDateSchema.safeParse((req.body as { firstDay?: string } | null)?.firstDay);
     if (!day.success) return fail(reply, 400, "schedule.invalid_request");
-    const {
-      closedAnnounced: _c,
-      reviewAnnounced: _r,
-      userId: _u,
-      ...week
-    } = createWeek(plan, userId, day.data);
+    const created = createWeek(plan, userId, day.data);
+    if ("error" in created) return fail(reply, 409, "schedule.week_not_aligned");
+    const { closedAnnounced: _c, reviewAnnounced: _r, userId: _u, ...week } = created;
     return { ok: true, data: { week } };
   });
   app.post("/weeks/:id/approve", async (req, reply) => {
@@ -593,7 +592,6 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
   }));
 
   /** Internal entry for the scheduler (BullMQ in production); safe to run any number of times. */
-  const ledgers = deps.ledgerStore ?? createMemoryLedgerStore();
   app.post("/jobs/week-boundary", async () => {
     // week.closed first; the review only follows weeks whose week.closed was announced.
     const boundary = await runWeekBoundary(plan);

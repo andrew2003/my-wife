@@ -40,6 +40,7 @@ export interface LedgerStore {
   addTxn(row: TxnRow): void;
   setCycleFirstDay(userId: string, cycleId: string, firstDay: string): void;
   cycleFirstDay(userId: string, cycleId: string): string | undefined;
+  cycleFirstDays(userId: string): string[];
   txns(userId: string): TxnRow[];
   faults(userId: string): FaultRow[];
   overspends(userId: string): OverspendRow[];
@@ -51,6 +52,7 @@ export function createMemoryLedgerStore(): LedgerStore {
   const spends = new Map<string, OverspendRow>();
   const txns = new Map<string, TxnRow>();
   const cycles = new Map<string, string>();
+  const cyclesOfUser = new Map<string, Map<string, string>>();
   const key = (userId: string, id: string) => `${userId}:${id}`;
   return {
     addFault: (r) => {
@@ -71,9 +73,14 @@ export function createMemoryLedgerStore(): LedgerStore {
       const k = key(r.userId, r.transactionId);
       if (!txns.has(k)) txns.set(k, r);
     },
-    setCycleFirstDay: (userId, cycleId, firstDay) =>
-      void cycles.set(key(userId, cycleId), firstDay),
+    setCycleFirstDay: (userId, cycleId, firstDay) => {
+      cycles.set(key(userId, cycleId), firstDay);
+      const own = cyclesOfUser.get(userId) ?? new Map<string, string>();
+      own.set(cycleId, firstDay);
+      cyclesOfUser.set(userId, own);
+    },
     cycleFirstDay: (userId, cycleId) => cycles.get(key(userId, cycleId)),
+    cycleFirstDays: (userId) => [...(cyclesOfUser.get(userId)?.values() ?? [])],
     txns: (userId) => [...txns.values()].filter((r) => r.userId === userId),
     faults: (userId) => [...faults.values()].filter((r) => r.userId === userId),
     overspends: (userId) => [...spends.values()].filter((r) => r.userId === userId),
