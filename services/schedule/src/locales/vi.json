@@ -26,5 +26,6 @@
   "schedule.carry_over.question": "\"{title}\" chưa xong (đã dồn {carriedCount}/{maxTimes} lần). Bạn muốn xử lý thế nào?",
   "schedule.carry_over.option.roll_forward": "Dồn sang ngày mai",
   "schedule.carry_over.option.lower_priority": "Dồn và hạ ưu tiên",
-  "schedule.carry_over.option.skip": "Bỏ qua"
+  "schedule.carry_over.option.skip": "Bỏ qua",
+  "schedule.review.suggest_adjust_durations": "Tuần này bạn làm quá thời gian ước tính ở {count} việc. Hãy cân nhắc tăng thời lượng dự kiến cho sát với thực tế."
 }
