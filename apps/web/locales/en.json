@@ -487,5 +487,17 @@
   "admin.sender_map.remove": "Remove",
   "admin.audit.title": "Audit log",
   "admin.audit.intro": "Admin actions with personal content removed.",
-  "admin.audit.empty": "No admin actions recorded."
+  "admin.audit.empty": "No admin actions recorded.",
+  "nav.contract": "Contract and rewards",
+  "contract.page.loading": "Loading your contract...",
+  "contract.page.empty": "No budget cycle is open yet, so there is no contract to sign.",
+  "contract.page.error": "Could not load your contract. Please try again.",
+  "contract.page.retry": "Try again",
+  "contract.page.signed": "The contract for this cycle is signed. Signed versions cannot be edited.",
+  "contract.page.locked_until": "Loosening a rule is locked until {date}. Tightening applies at once.",
+  "contract.page.rewards": "Rewards",
+  "contract.page.rule": "A clean streak of {days} days unlocks {amount}.",
+  "contract.page.rewards_empty": "No reward unlocked yet. Keep your weeks clean to earn one.",
+  "contract.page.reward_fund": "to the penalty fund",
+  "contract.page.reward_category": "to a want category"
 }

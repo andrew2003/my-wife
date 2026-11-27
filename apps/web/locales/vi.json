@@ -487,5 +487,17 @@
   "admin.sender_map.remove": "Xóa",
   "admin.audit.title": "Nhật ký kiểm toán",
   "admin.audit.intro": "Các thao tác quản trị, đã loại bỏ nội dung cá nhân.",
-  "admin.audit.empty": "Chưa có thao tác quản trị nào."
+  "admin.audit.empty": "Chưa có thao tác quản trị nào.",
+  "nav.contract": "Cam kết và phần thưởng",
+  "contract.page.loading": "Đang tải bản cam kết...",
+  "contract.page.empty": "Chưa có chu kỳ ngân sách nào đang mở nên chưa có bản cam kết để ký.",
+  "contract.page.error": "Không tải được bản cam kết. Vui lòng thử lại.",
+  "contract.page.retry": "Thử lại",
+  "contract.page.signed": "Bản cam kết của chu kỳ này đã được ký. Bản đã ký không thể sửa.",
+  "contract.page.locked_until": "Nới lỏng quy tắc bị khóa đến {date}. Siết chặt có hiệu lực ngay.",
+  "contract.page.rewards": "Phần thưởng",
+  "contract.page.rule": "Chuỗi {days} ngày sạch sẽ mở khóa {amount}.",
+  "contract.page.rewards_empty": "Chưa mở khóa phần thưởng nào. Giữ các tuần sạch để nhận thưởng.",
+  "contract.page.reward_fund": "vào quỹ phạt",
+  "contract.page.reward_category": "vào nhóm muốn"
 }
