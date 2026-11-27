@@ -36,7 +36,7 @@ Extra arguments go to Playwright, for example
 `pnpm --filter @my-wife/e2e test tests/onboarding.spec.ts`.
 
 The automated scenario files are `apps/e2e/tests/onboarding.spec.ts`, `money.spec.ts`,
-`money-extended.spec.ts`, `time.spec.ts`, `time-extended.spec.ts` and `routines.spec.ts`. Each
+`money-extended.spec.ts`, `time.spec.ts`, `time-extended.spec.ts`, `routines.spec.ts` and `onboarding-extended.spec.ts` (account lifecycle: checklist, contract per cycle, export, deletion, admin incident). Each
 step name in them matches a step below. A scenario passes when every step passes.
 
 ## 2. Manual path: start the demo

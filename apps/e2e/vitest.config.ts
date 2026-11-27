@@ -12,6 +12,7 @@ export default defineConfig({
       "tests/routines.spec.ts",
       "tests/routines-extended.spec.ts",
       "tests/ai-extended.spec.ts",
+      "tests/onboarding-extended.spec.ts",
     ],
     maxWorkers: 1,
     fileParallelism: false,
