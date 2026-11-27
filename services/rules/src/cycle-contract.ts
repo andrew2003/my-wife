@@ -28,9 +28,11 @@ export function evaluateCycleContract(
   now: Date,
 ): CycleContractStatus {
   const end = nextCycleStart(input.cycle.firstDay, input.cycleWeeks, input.timeZone);
+  const open = now.getTime() < end.getTime();
   return {
-    contractRequired: !input.signed,
-    looseningLockedUntil: now.getTime() < end.getTime() ? end.toISOString() : null,
+    // Once the cycle is over nothing is owed for it; the next cycle.opened brings its own.
+    contractRequired: open && !input.signed,
+    looseningLockedUntil: open ? end.toISOString() : null,
   };
 }
 
@@ -58,7 +60,10 @@ export type CycleContractServiceDeps = {
 
 export function createCycleContractService(deps: CycleContractServiceDeps) {
   return {
-    /** `cycle.opened`: the newest cycle wins; redelivery and late older cycles change nothing. */
+    /**
+     * `cycle.opened`: the newest cycle wins; redelivery, late older cycles and a different
+     * cycle id on the same first day (the first one seen wins) change nothing.
+     */
     onCycleOpened(userId: string, cycle: OpenedCycle) {
       const current = deps.store.latest(userId);
       if (current && current.firstDay >= cycle.firstDay) return;

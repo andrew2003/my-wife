@@ -28,6 +28,27 @@ describe("nextCycleStart", () => {
       weeks: 4,
       expected: "2026-11-29T17:00:00.000Z",
     },
+    {
+      name: "Sydney across DST start (UTC+11 from 2026-10-04 02:00)",
+      firstDay: "2026-09-21",
+      weeks: 2,
+      tz: "Australia/Sydney",
+      expected: "2026-10-04T13:00:00.000Z",
+    },
+    {
+      name: "New York across DST end (UTC-5 after 2026-11-01)",
+      firstDay: "2026-10-26",
+      weeks: 2,
+      tz: "America/New_York",
+      expected: "2026-11-09T05:00:00.000Z",
+    },
+    {
+      name: "UTC, 6 weeks",
+      firstDay: "2026-11-02",
+      weeks: 6,
+      tz: "UTC",
+      expected: "2026-12-14T00:00:00.000Z",
+    },
     { name: "1 week", firstDay: "2026-11-02", weeks: 1, expected: "2026-11-08T17:00:00.000Z" },
     {
       name: "crosses a year",
@@ -36,8 +57,9 @@ describe("nextCycleStart", () => {
       expected: "2027-01-10T17:00:00.000Z",
     },
   ];
-  it.each(rows)("$name", ({ firstDay, weeks, expected }) => {
-    expect(nextCycleStart(firstDay, weeks, TZ).toISOString()).toBe(expected);
+  it.each(rows)("$name", ({ firstDay, weeks, expected, ...rest }) => {
+    const tz = "tz" in rest ? (rest as { tz: string }).tz : TZ;
+    expect(nextCycleStart(firstDay, weeks, tz).toISOString()).toBe(expected);
   });
 });
 
@@ -61,6 +83,12 @@ describe("evaluateCycleContract", () => {
       signed: true,
       now: "2026-11-29T16:59:59.999Z",
       expected: { contractRequired: false, looseningLockedUntil: "2026-11-29T17:00:00.000Z" },
+    },
+    {
+      name: "an unsigned cycle that ended no longer reports a required contract",
+      signed: false,
+      now: "2026-11-29T17:00:00.000Z",
+      expected: { contractRequired: false, looseningLockedUntil: null },
     },
     {
       name: "at the next cycle start the lock is over",
@@ -167,6 +195,13 @@ describe("cycle contract service", () => {
     expect(service.status(USER, new Date("2026-11-30T01:00:00.000Z"))?.cycleId).toBe(CYCLE2);
   });
 
+  it("the same first day with another cycle id keeps the first one seen", () => {
+    const { service } = setup();
+    service.onCycleOpened(USER, opened(CYCLE, "2026-11-02"));
+    service.onCycleOpened(USER, opened(CYCLE2, "2026-11-02"));
+    expect(service.status(USER, new Date("2026-11-03T01:00:00.000Z"))?.cycleId).toBe(CYCLE);
+  });
+
   it("no cycle means no status", () => {
     expect(setup().service.status(USER, new Date())).toBeUndefined();
   });
@@ -192,6 +227,26 @@ describe("cycle contract routes", () => {
       headers: { "x-user-id": USER },
     });
     expect(status.json().data).toMatchObject({ cycleId: CYCLE, contractRequired: true });
+    const noUser = await app.inject({ method: "GET", url: "/contracts/status" });
+    expect(noUser.statusCode).toBe(401);
+    expect(status.json().data.looseningLockedUntil).toBe("2026-11-29T17:00:00.000Z");
+    const signed = await app.inject({
+      method: "POST",
+      url: "/contracts/sign",
+      headers: { "x-user-id": USER },
+      payload: { cycleId: CYCLE },
+    });
+    expect(signed.statusCode).toBe(200);
+    const after = await app.inject({
+      method: "GET",
+      url: "/contracts/status",
+      headers: { "x-user-id": USER },
+    });
+    expect(after.json().data).toEqual({
+      cycleId: CYCLE,
+      contractRequired: false,
+      looseningLockedUntil: "2026-11-29T17:00:00.000Z",
+    });
     const bad = await app.inject({
       method: "POST",
       url: "/events/cycle-opened",
