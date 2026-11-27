@@ -14,6 +14,12 @@ export class GoogleRateLimitError extends Error {
   }
 }
 
+/** Injected side effects; the caller publishes `sync.failed` / `sync.link_revoked` and notifies. */
+export type SyncLinkHooks = {
+  onFailed?: (err: unknown, now: Date) => void;
+  onRevoked?: () => void;
+};
+
 /**
  * Per-link sync state machine (spec 41 section 4). Time is always a parameter.
  * Work stays queued until a write succeeds, so a 429 never loses data; writes are idempotent.
@@ -28,10 +34,16 @@ export class SyncLink<T = string> {
   constructor(
     private readonly settings: SyncLinkSettings,
     private readonly write: (batch: T[]) => Promise<void>,
+    private readonly hooks: SyncLinkHooks = {},
   ) {}
 
   get pending() {
     return this.queue.length;
+  }
+
+  /** Separate method so the check is not narrowed away across the awaited write. */
+  private isRevoked() {
+    return this.state === "revoked";
   }
 
   markReady() {
@@ -40,10 +52,12 @@ export class SyncLink<T = string> {
 
   /** Token or consent revoked: no further writes. */
   revoke() {
+    const already = this.state === "revoked";
     this.state = "revoked";
     this.queue = [];
     this.dueAt = null;
     this.nextAttemptAt = null;
+    if (!already) this.hooks.onRevoked?.();
   }
 
   enqueue(item: T, now: Date) {
@@ -70,13 +84,17 @@ export class SyncLink<T = string> {
     try {
       await this.write(batch);
     } catch (err) {
+      if (this.isRevoked()) return;
       this.onFailure(err, now);
       return;
     }
+    if (this.isRevoked()) return;
     this.queue = this.queue.slice(batch.length);
     this.attempts = 0;
     this.nextAttemptAt = null;
-    this.dueAt = null;
+    // Items enqueued during the write wait for a fresh debounce instead of being stranded.
+    this.dueAt =
+      this.queue.length > 0 ? new Date(now.getTime() + this.settings.debounceSeconds * 1000) : null;
     this.state = "ready";
   }
 
@@ -85,6 +103,8 @@ export class SyncLink<T = string> {
     if (backoff === undefined) {
       this.state = "error";
       this.nextAttemptAt = null;
+      this.dueAt = null;
+      this.hooks.onFailed?.(err, now);
       return;
     }
     this.attempts += 1;

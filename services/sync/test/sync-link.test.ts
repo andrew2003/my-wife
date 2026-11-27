@@ -93,4 +93,71 @@ describe("SyncLink state machine", () => {
     expect(link.state).toBe("revoked");
     expect(written).toEqual([]);
   });
+  it("keeps the revoked state when revoked during a pending write", async () => {
+    const written: string[] = [];
+    let release!: () => void;
+    const link: SyncLink = new SyncLink(SETTINGS, async (batch) => {
+      await new Promise<void>((r) => (release = r));
+      written.push(...batch);
+    });
+    link.markReady();
+    link.enqueue("a", T0);
+    const running = link.tick(at(5));
+    link.revoke();
+    release();
+    await running;
+    expect(link.state).toBe("revoked");
+    expect(link.pending).toBe(0);
+  });
+
+  it("does not strand an item enqueued during an in-flight write", async () => {
+    const written: string[][] = [];
+    let release!: () => void;
+    let first = true;
+    const link: SyncLink = new SyncLink(SETTINGS, async (batch) => {
+      if (first) {
+        first = false;
+        await new Promise<void>((r) => (release = r));
+      }
+      written.push([...batch]);
+    });
+    link.markReady();
+    link.enqueue("a", T0);
+    const running = link.tick(at(5));
+    link.enqueue("b", at(6));
+    release();
+    await running;
+    expect(link.pending).toBe(1);
+    await link.tick(at(10));
+    expect(written).toEqual([["a"], ["b"]]);
+    expect(link.pending).toBe(0);
+  });
+
+  it("calls onFailed once when retries are exhausted", async () => {
+    const failed: unknown[] = [];
+    const link = new SyncLink(
+      { debounceSeconds: 5, retryBackoffSeconds: [10] },
+      async () => {
+        throw new GoogleRateLimitError();
+      },
+      { onFailed: (err) => void failed.push(err) },
+    );
+    link.markReady();
+    link.enqueue("a", T0);
+    await link.tick(at(5));
+    expect(failed).toHaveLength(0);
+    await link.tick(at(15));
+    expect(link.state).toBe("error");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toBeInstanceOf(GoogleRateLimitError);
+  });
+
+  it("calls onRevoked once on revoke", () => {
+    let calls = 0;
+    const link = new SyncLink(SETTINGS, async () => {}, { onRevoked: () => void calls++ });
+    link.markReady();
+    link.revoke();
+    link.revoke();
+    expect(calls).toBe(1);
+  });
 });
