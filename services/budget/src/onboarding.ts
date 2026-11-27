@@ -93,6 +93,18 @@ export interface SampleBudgetRecord {
   publishedPlanWeeks: number[];
   /** The surplus split of each closed cycle, with the flags of its two events (MW-065). */
   cycleCloses: CycleCloseRecord[];
+  /**
+   * The cycle before the current one, kept while the current one is `awaiting_funds` so spending
+   * in the gap can still be booked to it (spec 10 section 3). Its categories are a snapshot of
+   * their ids and short codes. Absent when there is no earlier cycle.
+   */
+  previousCycle?: PreviousCycleRef;
+}
+
+export interface PreviousCycleRef {
+  id: string;
+  state: "closing" | "closed";
+  categories: { id: string; shortCode: string }[];
 }
 
 export interface IncomePoolEntry {
@@ -201,6 +213,17 @@ export interface SampleBudgetStore {
     /** A system category created together with the transaction (the bank fees category). */
     newCategory?: BudgetCategory,
   ): Promise<"recorded" | "duplicate" | "not_running">;
+  /**
+   * Books a transaction to the previous cycle while the current cycle is `awaiting_funds`
+   * (spec 10 section 3). Append-only: no existing record of the previous cycle is edited. A
+   * `bankTransactionRef` already recorded is `duplicate`; no previous cycle or a current cycle
+   * that is not `awaiting_funds` is `not_awaiting`.
+   */
+  recordAwaitingFundsTransaction(
+    userId: string,
+    txn: TransactionRecord,
+    at: Date,
+  ): Promise<"recorded" | "duplicate" | "not_awaiting">;
   markTransactionAnnounced(userId: string, transactionId: string): Promise<void>;
   markIncomeAnnounced(userId: string, entryId: string): Promise<void>;
   /** Keeps a receipt leg until its pair arrives; the same `bankTransactionRef` is kept once. */
@@ -526,6 +549,34 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
         },
       });
     }
+    return "recorded" as const;
+  }
+
+  async recordAwaitingFundsTransaction(userId: string, txn: TransactionRecord, at: Date) {
+    const r = this.records.get(userId);
+    if (!r || !r.previousCycle || r.cycle.state !== "awaiting_funds") {
+      return "not_awaiting" as const;
+    }
+    if (txn.cycleId !== r.previousCycle.id) return "not_awaiting" as const;
+    if (r.transactions.some((t) => t.bankTransactionRef === txn.bankTransactionRef)) {
+      return "duplicate" as const;
+    }
+    r.transactions.push({ ...txn });
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "transaction_recorded",
+      detail: {
+        cycleId: txn.cycleId,
+        transactionId: txn.id,
+        receiptId: txn.receiptId,
+        bankTransactionRef: txn.bankTransactionRef,
+        categoryId: txn.categoryId ?? "",
+        amountVnd: txn.amountVnd,
+        reconciliationResult: txn.reconciliationResult,
+        awaitingFunds: 1,
+      },
+    });
     return "recorded" as const;
   }
 
