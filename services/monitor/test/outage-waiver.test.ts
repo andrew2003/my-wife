@@ -102,6 +102,27 @@ describe("outage waiver", () => {
   });
 });
 
+describe("margin edges", () => {
+  const end = GAP + SILENT;
+  const cases: [string, number | null, number, number | undefined, boolean][] = [
+    // name, outage start, outage end (sec from session start), margin setting, waived
+    ["end side exactly at the margin", -MARGIN - 100, -MARGIN, undefined, true],
+    ["end side one second beyond the margin", -MARGIN - 100, -MARGIN - 1, undefined, false],
+    ["margin 0: outage ends when the gap starts", -100, 0, 0, true],
+    ["margin 0: outage ends one second before the gap", -100, -1, 0, false],
+    ["margin 0: outage starts when the gap ends", end, end + 100, 0, true],
+    ["margin 0: outage starts one second after the gap", end + 1, end + 100, 0, false],
+  ];
+  it.each(cases)("%s", async (_name, from, to, margin, waived) => {
+    const s = await setup(
+      [{ id: "o1", source: "platform", startedAt: iso(from ?? 0), endedAt: iso(to as number) }],
+      margin === undefined ? {} : { "monitor.outage_gap_margin_seconds": margin },
+    );
+    await s.expire();
+    expect(s.fault()?.payload).toMatchObject({ overlapsOutage: waived });
+  });
+});
+
 describe("heartbeat history", () => {
   it("records every server heartbeat and merges close ones into presence intervals", async () => {
     const s = await setup([]);

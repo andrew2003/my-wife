@@ -411,11 +411,7 @@ async function outageMarginSeconds(deps: MonitorDeps, userId: string): Promise<n
  * inclusive; an open outage lasts until now). The first overlapping outage is recorded as the
  * audit cause, once per signal. Rules turns the flag into `waived_system`.
  */
-async function overlapsOutage(
-  deps: MonitorDeps,
-  t: ReasonTicket,
-  gapEnd: Date,
-): Promise<boolean> {
+async function overlapsOutage(deps: MonitorDeps, t: ReasonTicket, gapEnd: Date): Promise<boolean> {
   const margin = await outageMarginSeconds(deps, t.userId);
   const marginMs = margin * SECOND_MS;
   const gapStart = Date.parse(t.occurredAt);
