@@ -337,7 +337,7 @@ describe("refunds in the week close (spec 10 acceptance 7)", () => {
       receiptId: "r-refund",
       bankTransactionRef: "ref-refund",
       direction: "in",
-      amountVnd: 300_000,
+      amountVnd: Math.max(restored, 1),
       transactionType: "refund",
       refundOfTransactionId: original.id,
       restoredVnd: restored,
@@ -351,6 +351,55 @@ describe("refunds in the week close (spec 10 acceptance 7)", () => {
       expect(events).toHaveLength(1);
       expect(events[0]!.payload).toMatchObject({ spentVnd: spent, excessVnd: excess });
     }
+  });
+
+  const refundOf = (s: Awaited<ReturnType<typeof seeded>>, restored: number, at: Date) => {
+    const record = s.store.get("u1")!;
+    const original = record.transactions.at(-1)!;
+    record.transactions.push({
+      ...original,
+      id: `refund-${restored}-${at.getTime()}`,
+      direction: "in",
+      amountVnd: restored,
+      occurredAt: at.toISOString(),
+      transactionType: "refund",
+      refundOfTransactionId: original.id,
+      restoredVnd: restored,
+    });
+  };
+
+  it("floors spent at 0 when restored exceeds spending in the same week", async () => {
+    const s = await seeded();
+    await s.book(50_000);
+    refundOf(s, 80_000, NOW);
+    await s.handle(s.weekClosed(1));
+    expect(overspends(s.published)).toHaveLength(0);
+  });
+
+  it("a week-2 refund of a week-1 original with no week-2 spending gives spent 0, no event", async () => {
+    const s = await seeded();
+    await s.book(80_000, new Date("2026-03-03T10:00:00Z"));
+    await s.handle(s.weekClosed(1));
+    refundOf(s, 80_000, new Date("2026-03-10T10:00:00Z"));
+    await s.handle(s.weekClosed(2, "2026-03-09"));
+    expect(overspends(s.published)).toHaveLength(0);
+    expect(s.store.get("u1")!.limitAdjustments).toEqual([]);
+  });
+
+  it("a week-2 refund of a week-1 original nets against real week-2 spending", async () => {
+    const s = await seeded();
+    await s.book(80_000, new Date("2026-03-03T10:00:00Z"));
+    await s.handle(s.weekClosed(1));
+    refundOf(s, 80_000, new Date("2026-03-10T10:00:00Z"));
+    await s.book(200_000, new Date("2026-03-11T10:00:00Z"));
+    await s.handle(s.weekClosed(2, "2026-03-09"));
+    const events = overspends(s.published);
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({
+      weekIndex: 2,
+      spentVnd: 120_000,
+      excessVnd: 20_000,
+    });
   });
 
   it("ignores a refund linked to a transaction outside the cycle", async () => {
