@@ -6,6 +6,7 @@ import {
   type EventEnvelope,
   type Locale,
   type PlannedItem,
+  type SurplusAllocation,
   type SettingKey,
 } from "@my-wife/contracts";
 import { t } from "./i18n";
@@ -16,6 +17,7 @@ import type { AnomalyRecord } from "./unknown-spend";
 import type { DebtRecord } from "./debts";
 import type { LimitAdjustment, OverspendRecord, PenaltyDebt, WeekCloseOutcome } from "./overspend";
 import type { ExceptionClaim } from "./exceptions";
+import type { CycleCloseRecord } from "./surplus";
 
 /**
  * Default total of the sample budget when the user gave no answer (decisions.md, MW-013).
@@ -43,7 +45,8 @@ export interface AuditRecord {
     | "anomaly_opened"
     | "anomaly_resolved"
     | "debt_opened"
-    | "debt_written_off";
+    | "debt_written_off"
+    | "cycle_closed";
   detail: Record<string, string | number>;
 }
 
@@ -87,6 +90,8 @@ export interface SampleBudgetRecord {
   plannedItems: PlannedItem[];
   /** Week indexes whose planned items were published (#307); a week is published once. */
   publishedPlanWeeks: number[];
+  /** The surplus split of each closed cycle, with the flags of its two events (MW-065). */
+  cycleCloses: CycleCloseRecord[];
 }
 
 export interface IncomePoolEntry {
@@ -295,6 +300,21 @@ export interface SampleBudgetStore {
     at: Date,
   ): Promise<"written_off" | "not_open" | "not_found" | "not_running">;
   markDebtWrittenOffAnnounced(userId: string, debtId: string): Promise<void>;
+  /**
+   * Atomically closes a `closing` cycle with its surplus allocation and an audit record. A cycle
+   * that is already closed returns `duplicate` and writes nothing.
+   */
+  closeCycle(
+    userId: string,
+    cycleId: string,
+    allocation: SurplusAllocation,
+    at: Date,
+  ): Promise<"closed" | "duplicate" | "not_closing">;
+  markCycleCloseAnnounced(
+    userId: string,
+    cycleId: string,
+    event: "surplus" | "cycle",
+  ): Promise<void>;
 }
 
 export class MemorySampleBudgetStore implements SampleBudgetStore {
@@ -853,6 +873,43 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     if (d) d.writtenOffAnnounced = true;
   }
 
+  async closeCycle(userId: string, cycleId: string, allocation: SurplusAllocation, at: Date) {
+    const r = this.records.get(userId);
+    if (!r || r.cycle.id !== cycleId) return "not_closing" as const;
+    if (r.cycleCloses.some((c) => c.cycleId === cycleId)) return "duplicate" as const;
+    if (r.cycle.state !== "closing") return "not_closing" as const;
+    r.cycle.state = "closed";
+    r.cycle.closedAt = at.toISOString();
+    r.cycleCloses.push({
+      cycleId,
+      allocation: { ...allocation },
+      closedAt: at.toISOString(),
+      surplusAnnounced: false,
+      cycleAnnounced: false,
+    });
+    r.audit.push({
+      at: at.toISOString(),
+      userId,
+      action: "cycle_closed",
+      detail: {
+        cycleId,
+        totalVnd: allocation.totalVnd,
+        savingsVnd: allocation.savingsVnd,
+        futurePurchasesVnd: allocation.futurePurchasesVnd,
+        remainderVnd: allocation.remainderVnd,
+        remainderTarget: allocation.remainderTarget,
+      },
+    });
+    return "closed" as const;
+  }
+
+  async markCycleCloseAnnounced(userId: string, cycleId: string, event: "surplus" | "cycle") {
+    const c = this.records.get(userId)?.cycleCloses.find((x) => x.cycleId === cycleId);
+    if (!c) return;
+    if (event === "surplus") c.surplusAnnounced = true;
+    else c.cycleAnnounced = true;
+  }
+
   /** Sync helpers for tests. */
   get(userId: string) {
     return this.records.get(userId);
@@ -1003,6 +1060,7 @@ export function createOnboardingHandler(deps: OnboardingDeps) {
       anomalies: [],
       plannedItems: [],
       publishedPlanWeeks: [],
+      cycleCloses: [],
       debts: [],
       transactions: [],
       incomePool: [],

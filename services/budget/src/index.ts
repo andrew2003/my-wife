@@ -61,6 +61,13 @@ export {
   type TransactionRecord,
 } from "./transactions";
 export {
+  createCycleCloser,
+  splitSurplus,
+  surplusTotalVnd,
+  type CloseCycleResult,
+  type CycleCloseRecord,
+} from "./surplus";
+export {
   createDebtOpener,
   isPastWriteOffPrompt,
   receivablesToWriteOff,
