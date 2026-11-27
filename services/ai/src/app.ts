@@ -26,9 +26,11 @@ import { createSettingsReader } from "./settings";
 import {
   createVisionModel,
   InMemoryChallengeStore,
+  InMemoryFailedPhotoStore,
   WakeError,
   WakeService,
   type ChallengeStore,
+  type FailedPhotoStore,
   type VisionModel,
 } from "./wake";
 
@@ -65,6 +67,8 @@ export interface AiDeps extends ServiceDeps {
   /** Effective user settings (identity `GET /settings`); defaults to an HTTP reader. */
   readSettings?: (userId: string) => Promise<Record<string, unknown>>;
   challengeStore?: ChallengeStore;
+  /** Encrypted failing wake photos kept until the appeal window ends; in memory for now. */
+  failedPhotoStore?: FailedPhotoStore;
   /** Vision model for wake photos; the fake one until M4. */
   visionModel?: VisionModel;
   /**
@@ -123,7 +127,16 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
   const now = deps.now ?? (() => new Date());
   const userOf = (header: unknown) =>
     typeof header === "string" && header !== "" ? header : "local";
+  const ring = config.secretsMasterKey
+    ? parseKeyring({
+        currentKeyId: config.secretsKeyId,
+        masterKey: config.secretsMasterKey,
+        previousKeys: config.secretsPreviousKeys,
+      })
+    : null;
   const wake = new WakeService({
+    failedPhotos: deps.failedPhotoStore ?? new InMemoryFailedPhotoStore(),
+    ring,
     store: deps.challengeStore ?? new InMemoryChallengeStore(),
     vision: deps.visionModel ?? createVisionModel(),
     publish,
@@ -167,13 +180,25 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
       if (typeof body?.imageBase64 !== "string")
         return reply.code(400).send({ ok: false, error: "invalid_request" });
       try {
-        const grade = await wake.submitPhoto(
+        const outcome = await wake.submitPhoto(
           userOf(req.headers["x-user-id"]),
           req.params.id,
           Buffer.from(body.imageBase64, "base64"),
           now(),
         );
-        return { ok: true, data: { grade } };
+        const hint = (
+          { retake: "ai.wake.retake", button_check_in: "ai.wake.button_check_in" } as Record<
+            string,
+            string
+          >
+        )[outcome.next];
+        return {
+          ok: true,
+          data: {
+            ...outcome,
+            ...(hint ? { text: renderMessage({ key: hint, params: {} }, config.uiLanguage) } : {}),
+          },
+        };
       } catch (error) {
         if (error instanceof WakeError)
           return reply.code(WAKE_STATUS[error.code]).send({ ok: false, error: error.code });
@@ -181,16 +206,20 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
       }
     },
   );
+  // Periodic job: deletes failing photos whose appeal window has ended.
+  app.post("/jobs/wake-photos", async () => ({
+    ok: true,
+    data: { deleted: await wake.purgeExpired(now()) },
+  }));
+  // The `wake_photo` consent was revoked: delete every kept photo at once.
+  app.delete("/wake/photos", async (req) => ({
+    ok: true,
+    data: { deleted: await wake.deleteAllFor(userOf(req.headers["x-user-id"])) },
+  }));
   const keys = new LlmKeyService({
     store: deps.keyStore ?? new InMemoryLlmKeyStore(),
     validator: deps.keyValidator ?? createKeyValidator(),
-    ring: config.secretsMasterKey
-      ? parseKeyring({
-          currentKeyId: config.secretsKeyId,
-          masterKey: config.secretsMasterKey,
-          previousKeys: config.secretsPreviousKeys,
-        })
-      : null,
+    ring,
     publish,
   });
   app.decorate("llmKeys", keys);
