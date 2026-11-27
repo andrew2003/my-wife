@@ -33,6 +33,10 @@ export interface TransactionRecord {
   restoredVnd?: number;
   /** Cash withdrawal only: when it must be allocated to categories (spec 10 section 5). */
   allocationDeadlineAt?: string;
+  /** Foreign card only: the ISO currency of the purchase. */
+  currency?: string;
+  /** Foreign card only: the amount in the currency's minor units, as printed in the email. */
+  foreignAmountMinor?: number;
   /** False until `txn.recorded` was published, so a failed publish is retried. */
   announced: boolean;
 }
