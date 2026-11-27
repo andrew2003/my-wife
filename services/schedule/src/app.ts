@@ -669,9 +669,10 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     const { userId: _u, ...view } = night;
     return { ok: true, data: { night: view } };
   });
+  const routineStore = deps.routineStore ?? createMemoryRoutineStore();
   const routineDeps = {
     plan,
-    store: deps.routineStore ?? createMemoryRoutineStore(),
+    store: routineStore,
     readSettings: readSettings as (userId: string) => Promise<Record<string, unknown>>,
   };
   app.decorate("runRoutineJob", (at: Date) => runRoutineReminderJob(routineDeps, at));
@@ -727,6 +728,10 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     generateChallenge: deps.generateWakeChallenge ?? fakeChallengeGenerator,
     sendPhotoRequest: deps.sendPhotoRequest ?? (async () => undefined),
     sendReply: deps.sendReply ?? (async () => undefined),
+    levelOf: (userId, raw, at) => {
+      const wake = buildStarterRoutines(raw).find((r) => r.id === "wake");
+      return wake ? effectiveLevel(routineStore, userId, wake, at) : "off";
+    },
   };
   app.decorate("runWakeJob", (at: Date) => runWakeJob(wakeDeps, at));
   app.post("/jobs/wake", async () => ({ ok: true, data: await runWakeJob(wakeDeps, now()) }));
