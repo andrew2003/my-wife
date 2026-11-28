@@ -8,7 +8,16 @@ export const USER_ID_HEADER = "x-user-id";
 
 export type GatewayOptions = {
   fetch?: typeof fetch;
-  upstreams?: { identity: string; budget: string; schedule: string; rules: string };
+  upstreams?: {
+    identity: string;
+    budget: string;
+    schedule: string;
+    rules: string;
+    ai?: string;
+    notify?: string;
+    ingest?: string;
+    monitor?: string;
+  };
 };
 
 /** Routes reachable without a session. Everything else under /api needs one. */
@@ -29,6 +38,15 @@ const ADMIN_PREFIXES = ["/admin"];
 const BUDGET_PREFIXES = ["/budget"];
 /** Paths owned by the rules service (contracts, penalties, faults and appeals). */
 const RULES_PREFIXES = ["/contracts", "/penalties", "/faults", "/appeals"];
+
+/**
+ * Prefixes owned by ai, notify, ingest and monitor. Entries in the first list keep their
+ * path; the service prefix itself (for example /notify/inbox) is stripped before forwarding.
+ */
+const AI_PREFIXES = ["/keys", "/models", "/chat"];
+const NOTIFY_PREFIXES = ["/push"];
+const STRIPPED_PREFIXES = ["/ai", "/notify", "/ingest", "/monitor"] as const;
+type StrippedService = "ai" | "notify" | "ingest" | "monitor";
 
 function isUnder(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((p) => path === p || path.startsWith(`${p}/`));
@@ -76,11 +94,18 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
     nats: deps.nats,
   });
   const doFetch = options.fetch ?? fetch;
-  const upstreams = options.upstreams ?? {
-    identity: process.env.IDENTITY_URL ?? `http://localhost:${servicePort("identity")}`,
-    budget: process.env.BUDGET_URL ?? `http://localhost:${servicePort("budget")}`,
-    schedule: process.env.SCHEDULE_URL ?? `http://localhost:${servicePort("schedule")}`,
-    rules: process.env.RULES_URL ?? `http://localhost:${servicePort("rules")}`,
+  const url = (envName: string, service: Parameters<typeof servicePort>[0]) =>
+    process.env[envName] ?? `http://localhost:${servicePort(service)}`;
+  const given = options.upstreams;
+  const upstreams = {
+    identity: given?.identity ?? url("IDENTITY_URL", "identity"),
+    budget: given?.budget ?? url("BUDGET_URL", "budget"),
+    schedule: given?.schedule ?? url("SCHEDULE_URL", "schedule"),
+    rules: given?.rules ?? url("RULES_URL", "rules"),
+    ai: given?.ai ?? url("AI_URL", "ai"),
+    notify: given?.notify ?? url("NOTIFY_URL", "notify"),
+    ingest: given?.ingest ?? url("INGEST_URL", "ingest"),
+    monitor: given?.monitor ?? url("MONITOR_URL", "monitor"),
   };
 
   async function forward(
@@ -142,13 +167,31 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
 
         if (normalized.key === "/me") return reply.code(200).send(session);
 
-        const base = isUnder(normalized.key, BUDGET_PREFIXES)
-          ? upstreams.budget
-          : isUnder(normalized.key, SCHEDULE_PREFIXES)
-            ? upstreams.schedule
-            : isUnder(normalized.key, RULES_PREFIXES)
-              ? upstreams.rules
-              : upstreams.identity;
+        const owner = STRIPPED_PREFIXES.find((p) => isUnder(normalized.key, [p]));
+        if (owner) {
+          const rest = normalized.clean.slice(owner.length) || "/";
+          return await send(
+            await forward(
+              upstreams[owner.slice(1) as StrippedService],
+              rest + suffix,
+              req.method,
+              req.body,
+              session.data.user.id,
+            ),
+          );
+        }
+
+        const base = isUnder(normalized.key, AI_PREFIXES)
+          ? upstreams.ai
+          : isUnder(normalized.key, NOTIFY_PREFIXES)
+            ? upstreams.notify
+            : isUnder(normalized.key, BUDGET_PREFIXES)
+              ? upstreams.budget
+              : isUnder(normalized.key, SCHEDULE_PREFIXES)
+                ? upstreams.schedule
+                : isUnder(normalized.key, RULES_PREFIXES)
+                  ? upstreams.rules
+                  : upstreams.identity;
         return await send(
           await forward(
             base,

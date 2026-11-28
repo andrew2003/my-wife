@@ -326,3 +326,55 @@ describe("gateway admin guard", () => {
     expect(calls.at(-1)?.headers["x-user-id"]).toBe("u1");
   });
 });
+
+describe("gateway upstreams for ai, notify, ingest, monitor and weeks", () => {
+  const cases: [string, string, string][] = [
+    ["ai", "/api/ai/keys", "http://ai/keys"],
+    ["notify", "/api/notify/inbox", "http://notify/inbox"],
+    ["ingest", "/api/ingest/receipts", "http://ingest/receipts"],
+    ["monitor", "/api/monitor/heartbeat", "http://monitor/heartbeat"],
+    ["weeks", "/api/weeks/current", "http://schedule/weeks/current"],
+  ];
+  for (const [name, path, target] of cases) {
+    it(`answers from the ${name} upstream`, async () => {
+      const calls: string[] = [];
+      const fetchFn = (async (url: string, init: RequestInit = {}) => {
+        calls.push(url);
+        const json = (b: unknown) =>
+          new Response(JSON.stringify(b), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        if (url === "http://identity/sessions/verify") return json(session);
+        return json({
+          ok: true,
+          data: { from: url, user: (init.headers as Record<string, string>)["x-user-id"] },
+        });
+      }) as unknown as typeof fetch;
+      const app = await createApp(
+        config,
+        {},
+        {
+          fetch: fetchFn,
+          upstreams: {
+            identity: "http://identity",
+            budget: "http://budget",
+            schedule: "http://schedule",
+            rules: "http://rules",
+            ai: "http://ai",
+            notify: "http://notify",
+            ingest: "http://ingest",
+            monitor: "http://monitor",
+          },
+        },
+      );
+      const res = await app.inject({
+        method: "GET",
+        url: path,
+        headers: { cookie: `${SESSION_COOKIE}=good` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data).toEqual({ from: target, user: "u1" });
+    });
+  }
+});
