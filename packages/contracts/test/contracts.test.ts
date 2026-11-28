@@ -7,6 +7,7 @@ import {
   EVENT_REGISTRY,
   EventEnvelopeSchemas,
   FaultTypeSchema,
+  ListKeysResponseSchema,
   LlmKeyViewSchema,
   MonitorStartSessionResponseSchema,
   QuestionSchema,
@@ -258,5 +259,20 @@ describe("identity key view", () => {
     const ok = { provider: "anthropic", model: "m", keyId: "k1", valid: true, role: "primary" };
     expect(LlmKeyViewSchema.safeParse(ok).success).toBe(true);
     expect(LlmKeyViewSchema.safeParse({ ...ok, apiKey: "sk-secret" }).success).toBe(false);
+  });
+});
+
+describe("ListKeysResponseSchema", () => {
+  const key = { provider: "anthropic", model: "m", keyId: "k1", valid: true, role: "primary" };
+  it.each([
+    ["last page with null cursor", { ok: true, data: { keys: [key], nextCursor: null } }, true, null],
+    ["page with a cursor", { ok: true, data: { keys: [key], nextCursor: "abc" } }, true, "abc"],
+    ["cursor omitted defaults to null", { ok: true, data: { keys: [] } }, true, null],
+    ["non-string cursor", { ok: true, data: { keys: [], nextCursor: 5 } }, false, undefined],
+    ["key material is rejected", { ok: true, data: { keys: [{ ...key, apiKey: "sk" }], nextCursor: null } }, false, undefined],
+  ])("%s", (_name, input, success, cursor) => {
+    const r = ListKeysResponseSchema.safeParse(input);
+    expect(r.success).toBe(success);
+    if (r.success && r.data.ok) expect(r.data.data.nextCursor).toBe(cursor);
   });
 });

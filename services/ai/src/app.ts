@@ -375,10 +375,29 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     });
     return { ok: true, data: result };
   });
-  app.get("/keys", async (req) => ({
-    ok: true,
-    data: { keys: await keys.list(userOf(req.headers["x-user-id"])) },
-  }));
+  const KEYS_DEFAULT_PAGE = 50;
+  const KEYS_MAX_PAGE = 100;
+  const KEYS_CURSOR_PATTERN = /^key_[0-9a-zA-Z-]+$/;
+  // Ordered by key id, keyset-paginated; `nextCursor` is opaque and null on the last page.
+  // Only the key view is returned, never key material.
+  app.get("/keys", async (req, reply) => {
+    const query = req.query as { limit?: string; cursor?: string };
+    let limit = KEYS_DEFAULT_PAGE;
+    if (query.limit !== undefined) {
+      if (!/^\d+$/.test(query.limit) || Number(query.limit) < 1)
+        return reply.code(400).send({ ok: false, error: "invalid_limit" });
+      limit = Math.min(Number(query.limit), KEYS_MAX_PAGE);
+    }
+    let after: string | null = null;
+    if (query.cursor !== undefined && query.cursor !== "") {
+      after = Buffer.from(query.cursor, "base64url").toString("utf8");
+      if (!KEYS_CURSOR_PATTERN.test(after))
+        return reply.code(400).send({ ok: false, error: "invalid_cursor" });
+    }
+    const page = await keys.listPage(userOf(req.headers["x-user-id"]), limit, after);
+    const nextCursor = page.next === null ? null : Buffer.from(page.next).toString("base64url");
+    return { ok: true, data: { keys: page.keys, nextCursor } };
+  });
   app.delete<{ Params: { id: string } }>("/keys/:id", async (req, reply) => {
     const removed = await keys.remove(userOf(req.headers["x-user-id"]), req.params.id);
     return removed

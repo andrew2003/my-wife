@@ -85,6 +85,15 @@ export class LlmKeyService {
     return (await this.deps.store.list(userId)).map(view);
   }
 
+  async listPage(
+    userId: string,
+    limit: number,
+    after: string | null,
+  ): Promise<{ keys: LlmKeyView[]; next: string | null }> {
+    const page = await this.deps.store.listPage(userId, limit, after);
+    return { keys: page.items.map(view), next: page.next };
+  }
+
   remove(userId: string, keyId: string): Promise<boolean> {
     return this.deps.store.delete(userId, keyId);
   }
