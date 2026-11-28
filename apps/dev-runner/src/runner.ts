@@ -143,6 +143,12 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
           to("rules", () => post(`${urls.rules}/events/overspend-detected`, event, "rules")),
         );
         break;
+      case "cycle.opened":
+        jobs.push(to("rules", () => post(`${urls.rules}/events/cycle-opened`, event, "rules")));
+        break;
+      case "fault.detected":
+        jobs.push(to("rules", () => post(`${urls.rules}/events/fault-detected`, event, "rules")));
+        break;
       default:
         return;
     }
