@@ -204,7 +204,8 @@ async function applyDemoState(opts: ResetOptions, state: DemoState): Promise<Dem
     id: state.user.id,
     email: state.user.email,
     state: "active",
-    role: "user",
+    // The demo user is the showcase account and sees every screen, the admin ones included.
+    role: "admin",
     locale: state.user.locale,
     lastSeenAt: null,
     activatedEventAt: existing?.activatedEventAt ?? at,

@@ -91,6 +91,35 @@ export function createApp(config: AppConfig, deps: ServiceDeps & { ingest?: Inge
   }
 
   if (ingest) {
+    // The receipt screen reads one receipt with its normalized fields (the user's own only).
+    app.get<{ Params: { receiptId: string } }>("/receipts/:receiptId", async (req, reply) => {
+      const userId = req.headers[USER_HEADER];
+      if (typeof userId !== "string" || userId.length === 0) {
+        return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+      }
+      const record = await ingest.store.findById(req.params.receiptId);
+      const fields = record?.fields ?? record?.llmRead?.fields;
+      if (!record || record.userId !== userId || !fields) {
+        return reply.code(404).send({ ok: false, error: { code: "not_found" } });
+      }
+      return {
+        ok: true,
+        data: {
+          state: record.state,
+          receipt: {
+            receiptId: record.id,
+            ...fields,
+            source: record.source ?? "parser",
+            ...(record.templateId ? { templateId: record.templateId } : {}),
+            ...(record.templateVersion ? { templateVersion: record.templateVersion } : {}),
+            fxProvisional: false,
+          },
+        },
+      };
+    });
+  }
+
+  if (ingest) {
     // Read by the ai service for an unknown layout. A receipt of another user looks like a
     // missing one, so ids cannot be probed.
     app.get<{ Params: { receiptId: string } }>(RAW_EMAIL_PATH, async (req, reply) => {

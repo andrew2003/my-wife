@@ -367,6 +367,18 @@ export function createApp(config: AppConfig, deps: IdentityDeps = {}) {
     return typeof id === "string" && id ? id : null;
   };
 
+  /** The profile language (vi or en); the web switch and chat commands write it here. */
+  app.put("/profile/locale", async (req, reply) => {
+    const userId = callerId(req.headers);
+    if (!userId) return fail(reply, 401, "identity.unauthenticated");
+    const locale = (req.body as { locale?: unknown } | undefined)?.locale;
+    if (locale !== "vi" && locale !== "en") return fail(reply, 400, "identity.invalid_locale");
+    const user = await store.findUserById(userId);
+    if (!user) return fail(reply, 404, "identity.user_not_found");
+    if (user.locale !== locale) await store.saveUser({ ...user, locale });
+    return { ok: true, data: { locale } };
+  });
+
   /** Registry default merged with the user's own overrides. */
   async function readSettings(userId: string) {
     const overrides = await store.getSettingOverrides(userId);
