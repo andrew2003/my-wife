@@ -27,5 +27,7 @@
   "ai.capture.task_created_day": "Task added: {title} ({day})",
   "ai.capture.expense_recorded": "Cash expense recorded: {amount} VND {note}",
   "ai.capture.failed": "I could not save that. Please try again or add it in the app.",
-  "ai.capture.task_created_day_unclear": "Task added: {title}. I could not tell which day you meant, so it has no day yet."
+  "ai.capture.task_created_day_unclear": "Task added: {title}. I could not tell which day you meant, so it has no day yet.",
+  "ai.remark.fallback": "Keep going, one step at a time.",
+  "ai.remark.instruction": "Write one or two short encouraging sentences about the screen named in the request. The facts are the only numbers, times and amounts you may mention; copy them exactly and never calculate. Do not invent other numbers."
 }

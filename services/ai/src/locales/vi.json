@@ -27,5 +27,7 @@
   "ai.capture.task_created_day": "Đã thêm việc: {title} ({day})",
   "ai.capture.expense_recorded": "Đã ghi khoản chi tiền mặt: {amount} VND {note}",
   "ai.capture.failed": "Em chưa lưu được. Anh thử lại hoặc thêm trong ứng dụng nhé.",
-  "ai.capture.task_created_day_unclear": "Đã thêm việc: {title}. Em chưa hiểu anh muốn ngày nào nên việc này chưa có ngày."
+  "ai.capture.task_created_day_unclear": "Đã thêm việc: {title}. Em chưa hiểu anh muốn ngày nào nên việc này chưa có ngày.",
+  "ai.remark.fallback": "Cứ từng bước một nhé, em luôn ở đây.",
+  "ai.remark.instruction": "Viết một hoặc hai câu ngắn động viên về màn hình nêu trong yêu cầu. Các dữ kiện là những con số, giờ và số tiền duy nhất được nhắc tới; chép đúng nguyên văn, không tự tính và không bịa thêm số."
 }
