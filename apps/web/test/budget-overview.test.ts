@@ -5,6 +5,7 @@ import en from "../locales/en.json";
 import vi from "../locales/vi.json";
 import { BudgetOverviewView } from "../components/budget-overview-view";
 import { loadOverview, loadPenalties, loadTimeZone, type Overview } from "../lib/budget-overview";
+import { loadTransferList } from "../lib/funding";
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -214,6 +215,52 @@ describe("BudgetOverviewView", () => {
     const keys = Object.keys(en).filter((k) => k.startsWith("budget."));
     expect(keys.length).toBeGreaterThan(15);
     for (const k of keys) expect(vi).toHaveProperty([k]);
+  });
+});
+
+describe("transfer list on the budget page", () => {
+  const account = {
+    bankAccountId: "a1",
+    name: "Daily bank",
+    code: "VCB",
+    requiredVnd: 5_000_000,
+    memo: "MW-F-C3-VCB",
+    funded: true,
+  };
+  const view = (transfers: unknown) =>
+    renderToStaticMarkup(
+      createElement(BudgetOverviewView, {
+        locale: "en",
+        status: "ready",
+        overview,
+        penalties: { status: "ready", due: [] },
+        transfers,
+        timeZone: "UTC",
+        onRefresh: () => {},
+      } as never),
+    );
+
+  it("loads the transfer list of a running cycle", async () => {
+    const f = async () =>
+      json(200, {
+        ok: true,
+        data: { cycle: { ...overview.cycle, state: "running" }, accounts: [account] },
+      });
+    const res = await loadTransferList(f as never);
+    expect(res.status === "ready" && res.accounts).toHaveLength(1);
+  });
+
+  it("shows accounts with the receipt-verified status", () => {
+    const html = view({ status: "ready", accounts: [account] });
+    expect(html).toContain(en["budget.transfers.title"]);
+    expect(html).toContain("MW-F-C3-VCB");
+    expect(html).toContain("5,000,000");
+    expect(html).toContain(en["funding.status.funded"]);
+  });
+
+  it("has empty and error states", () => {
+    expect(view({ status: "empty", accounts: [] })).toContain(en["budget.transfers.empty"]);
+    expect(view({ status: "error", accounts: [] })).toContain(en["budget.transfers.error"]);
   });
 });
 

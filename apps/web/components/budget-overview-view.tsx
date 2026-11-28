@@ -1,5 +1,6 @@
 import type { PenaltyLedgerEntry } from "@my-wife/contracts";
 import type { Overview, PenaltiesResult } from "../lib/budget-overview";
+import type { FundingResult } from "../lib/funding";
 import { translate, type Locale } from "../lib/i18n";
 
 export type OverviewStatus = "loading" | "ready" | "empty" | "error";
@@ -9,6 +10,8 @@ export interface BudgetOverviewViewProps {
   status: OverviewStatus;
   overview: Overview | null;
   penalties: PenaltiesResult;
+  /** Transfer list of the cycle; the section is hidden while it is not provided. */
+  transfers?: FundingResult;
   /** IANA zone of the user's `calendar.time_zone`; dates are shown in it. */
   timeZone: string;
   onRefresh: () => void;
@@ -20,6 +23,7 @@ export function BudgetOverviewView({
   status,
   overview,
   penalties,
+  transfers,
   timeZone,
   onRefresh,
 }: BudgetOverviewViewProps) {
@@ -83,6 +87,34 @@ export function BudgetOverviewView({
         <section aria-label={t("budget.penalty.title")}>
           <h2>{t("budget.penalty.title")}</h2>
           <ul className="budget-list">{penalties.due.map(penaltyCard)}</ul>
+        </section>
+      ) : null}
+
+      {transfers ? (
+        <section aria-label={t("budget.transfers.title")}>
+          <h2>{t("budget.transfers.title")}</h2>
+          {transfers.status === "error" ? (
+            <p role="alert">{t("budget.transfers.error")}</p>
+          ) : transfers.status === "ready" && transfers.accounts.length > 0 ? (
+            <ul className="budget-list">
+              {transfers.accounts.map((a) => (
+                <li key={a.bankAccountId} className="budget-transfer">
+                  <p>
+                    <strong>{a.name}</strong> ({a.code}) {money(a.requiredVnd)}
+                  </p>
+                  <p>
+                    <strong>{t("funding.code")}</strong> <code>{a.memo}</code>
+                  </p>
+                  <p>{a.funded ? t("funding.status.funded") : t("funding.status.waiting")}</p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>{t("budget.transfers.empty")}</p>
+          )}
+          <a className="button" href="/budget/funding">
+            {t("budget.transfers.open")}
+          </a>
         </section>
       ) : null}
 
