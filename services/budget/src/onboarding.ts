@@ -47,7 +47,8 @@ export interface AuditRecord {
     | "debt_opened"
     | "debt_written_off"
     | "cycle_closed"
-    | "last_week_excess_settled";
+    | "last_week_excess_settled"
+    | "plan_cell_edited";
   detail: Record<string, string | number>;
 }
 
@@ -101,6 +102,12 @@ export interface SampleBudgetRecord {
    */
   previousCycle?: PreviousCycleRef;
 }
+
+/** A change of plan data made from a sheet cell (ADR 0015); never a booked fact. */
+export type PlanEdit =
+  | { kind: "category_limit"; categoryId: string; limitVnd: number }
+  | { kind: "category_name"; categoryId: string; name: string }
+  | { kind: "planned_item_amount"; itemId: string; amountVnd: number };
 
 export interface PreviousCycleRef {
   id: string;
@@ -239,6 +246,8 @@ export interface SampleBudgetStore {
     txns: TransactionRecord[],
     at: Date,
   ): Promise<"recorded" | "not_running">;
+  /** Applies a plan-cell edit and writes one audit record with the old and new value. */
+  applyPlanEdit(userId: string, edit: PlanEdit, at: Date): Promise<"applied" | "not_found">;
   /**
    * Stores the planned items of one week with an audit record. A week already published is
    * `already_published` and changes nothing; a cycle that is not `running` is `not_running`.
@@ -399,6 +408,35 @@ export class MemorySampleBudgetStore implements SampleBudgetStore {
     });
     account.code = next;
     return "ok" as const;
+  }
+
+  async applyPlanEdit(userId: string, edit: PlanEdit, at: Date) {
+    const r = this.records.get(userId);
+    if (!r) return "not_found" as const;
+    const audit = (detail: Record<string, string | number>) =>
+      r.audit.push({ at: at.toISOString(), userId, action: "plan_cell_edited", detail });
+    if (edit.kind === "planned_item_amount") {
+      const item = r.plannedItems.find((i) => i.id === edit.itemId);
+      if (!item) return "not_found" as const;
+      audit({ field: "amountVnd", entityId: item.id, from: item.amountVnd, to: edit.amountVnd });
+      item.amountVnd = edit.amountVnd;
+      return "applied" as const;
+    }
+    const category = r.categories.find((c) => c.id === edit.categoryId);
+    if (!category) return "not_found" as const;
+    if (edit.kind === "category_limit") {
+      audit({
+        field: "cycleLimitVnd",
+        entityId: category.id,
+        from: category.cycleLimitVnd,
+        to: edit.limitVnd,
+      });
+      category.cycleLimitVnd = edit.limitVnd;
+    } else {
+      audit({ field: "name", entityId: category.id, from: category.name, to: edit.name });
+      category.name = edit.name;
+    }
+    return "applied" as const;
   }
 
   async confirmAccountEmail(userId: string, accountId: string, at: Date, receiptId: string) {
