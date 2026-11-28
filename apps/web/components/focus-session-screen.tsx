@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createCountdown, documentVisibility, systemClock } from "../lib/countdown";
 import {
   finishEarly,
+  giveReason,
   leaveWithReason,
   loadFaultCount,
   loadFocusSession,
@@ -110,11 +111,9 @@ export function FocusSessionScreen(props: {
       return;
     }
     if (ticket) {
-      void fetch("/api/monitor/reasons", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ticketId: ticket.ticketId, kind }),
-      }).then(() => setTicket(null));
+      void giveReason(ticket.ticketId, kind).then((ok) =>
+        ok ? setTicket(null) : setNotice(translate(locale, "focus.action_failed")),
+      );
     }
   };
 
@@ -163,7 +162,11 @@ export function FocusSessionScreen(props: {
             ok ? setPaused(true) : setNotice(translate(locale, "focus.pause_refused")),
           )
         }
-        onResume={() => void resumeSession(sessionId).then((ok) => ok && setPaused(false))}
+        onResume={() =>
+          void resumeSession(sessionId).then((ok) =>
+            ok ? setPaused(false) : setNotice(translate(locale, "focus.action_failed")),
+          )
+        }
         onFinish={() => void finish(() => finishEarly(sessionId))}
         onLeave={() => setLeaveOpen(true)}
         onCloseLeave={() => setLeaveOpen(false)}

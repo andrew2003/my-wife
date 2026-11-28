@@ -122,6 +122,10 @@ export const pauseSession = (sessionId: string, doFetch: FetchLike = fetch) =>
 export const resumeSession = (sessionId: string, doFetch: FetchLike = fetch) =>
   post(doFetch, "/api/monitor/breaks/end", { sessionId });
 
+/** Answers an open urgent ticket; true only when the server accepted it. */
+export const giveReason = (ticketId: string, kind: ReasonKind, doFetch: FetchLike = fetch) =>
+  post(doFetch, "/api/monitor/reasons", { ticketId, kind });
+
 /** Stops the work session, then ends monitoring. */
 export async function finishEarly(sessionId: string, doFetch: FetchLike = fetch): Promise<boolean> {
   const stopped = await post(doFetch, `/api/sessions/${encodeURIComponent(sessionId)}/stop`);

@@ -9,6 +9,7 @@ import { FocusSessionView } from "../components/focus-session-view";
 import {
   countSince,
   finishEarly,
+  giveReason,
   leaveWithReason,
   loadFocusSession,
   pauseSession,
@@ -120,6 +121,26 @@ describe("session actions", () => {
       "/api/monitor/breaks/end",
     ]);
     expect(JSON.parse(String(calls[0]![1]?.body))).toEqual({ sessionId: SID });
+  });
+  it("a failed or refused reason post reports false so the ticket stays open", async () => {
+    const TICKET = "0190a0a0-0000-7000-8000-0000000000aa";
+    expect(await giveReason(TICKET, "water", async () => json(409, { ok: false }))).toBe(false);
+    expect(
+      await giveReason(TICKET, "water", async () => {
+        throw new Error("offline");
+      }),
+    ).toBe(false);
+    const f = vi.fn(async (_u: string, _i?: RequestInit) => ok());
+    expect(await giveReason(TICKET, "water", f)).toBe(true);
+    expect(f.mock.calls[0]![0]).toBe("/api/monitor/reasons");
+  });
+  it("a refused resume reports false so the screen stays paused", async () => {
+    expect(await resumeSession(SID, async () => json(500, { ok: false }))).toBe(false);
+    expect(
+      await resumeSession(SID, async () => {
+        throw new Error("offline");
+      }),
+    ).toBe(false);
   });
   it("a refused pause (quota) reports false", async () => {
     expect(await pauseSession(SID, async () => json(409, { ok: false }))).toBe(false);
