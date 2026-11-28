@@ -1,7 +1,9 @@
 import { planWeekRoutines } from "./routine-blocks";
+import { applyCellEdit, buildSheet } from "./timetable-sheet";
 import { randomUUID } from "node:crypto";
 import type { AppConfig } from "@my-wife/config";
 import {
+  CellEditRequestSchema,
   CompleteTaskRequestSchema,
   CreateTaskRequestSchema,
   IdSchema,
@@ -618,6 +620,38 @@ export function createApp(config: AppConfig, deps: ScheduleDeps = {}) {
     if (!found) return fail(reply, 404, "schedule.week_not_found");
     const { closedAnnounced: _c, reviewAnnounced: _r, userId: _u, ...week } = found;
     return { ok: true, data: { week } };
+  });
+
+  app.get("/timetable-sheet", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const weekId = (req.query as { weekId?: unknown }).weekId;
+    const found =
+      typeof weekId === "string"
+        ? plan.store.getWeek(userId, weekId)
+        : plan.store.latestWeek(userId);
+    if (!found) return fail(reply, 404, "schedule.week_not_found");
+    const zone = zoneSetting((await readSettings(userId))["calendar.time_zone"]);
+    return { ok: true, data: buildSheet(plan.store, found, todayOf(now(), zone)) };
+  });
+
+  app.post("/timetable-sheet/cells", async (req, reply) => {
+    const userId = userOf(req.headers);
+    if (!userId) return fail(reply, 401, "schedule.unauthenticated");
+    const parsed = CellEditRequestSchema.safeParse(req.body);
+    if (!parsed.success || parsed.data.sheet !== "timetable" || !parsed.data.entityId)
+      return fail(reply, 400, "schedule.invalid_request");
+    const zone = zoneSetting((await readSettings(userId))["calendar.time_zone"]);
+    const res = applyCellEdit(
+      plan.store,
+      userId,
+      parsed.data.entityId,
+      parsed.data.field,
+      parsed.data.value,
+      todayOf(now(), zone),
+    );
+    if (res.status === "not_found") return fail(reply, 404, "schedule.task_not_in_plan");
+    return { ok: true, data: res };
   });
 
   const sessionDeps = { plan, sessions: deps.sessionStore ?? createMemorySessionStore() };
