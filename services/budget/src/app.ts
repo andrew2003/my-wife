@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AppConfig } from "@my-wife/config";
 import {
   ApprovePlanRequestSchema,
+  CellEditRequestSchema,
   SubmitBalanceSnapshotRequestSchema,
   type EventEnvelope,
   type SettingKey,
@@ -41,6 +42,12 @@ import {
   createIncomeRecorder,
   incomePoolTotalVnd,
 } from "./income-pool";
+import {
+  applyBudgetCellEdit,
+  buildBudgetSheet,
+  isBudgetSheetTab,
+  type BudgetSheetTab,
+} from "./budget-sheet";
 import { buildOverview, roundingFrom } from "./overview";
 import {
   createUnknownDeadlineJob,
@@ -463,6 +470,56 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     }
     const settings = (await deps.readSettings?.(userId)) ?? {};
     return { ok: true, data: buildOverview(record, now(), roundingFrom(settings)) };
+  });
+  // Budget sheet (ADR 0015): five tabs, and writes to plan cells only.
+  app.get("/budget/sheet", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const tab = (req.query as { tab?: unknown }).tab;
+    if (tab !== undefined && !isBudgetSheetTab(tab)) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const record = await store.find(userId);
+    if (!record) {
+      return reply.code(404).send({ ok: false, error: { code: "budget.cycle_not_found" } });
+    }
+    const settings = (await deps.readSettings?.(userId)) ?? {};
+    return {
+      ok: true,
+      data: buildBudgetSheet(
+        record,
+        now(),
+        roundingFrom(settings),
+        tab as BudgetSheetTab | undefined,
+      ),
+    };
+  });
+  app.post("/budget/sheet/cells", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const parsed = CellEditRequestSchema.safeParse(req.body);
+    if (!parsed.success || parsed.data.sheet !== "budget" || !parsed.data.entityId) {
+      return reply.code(400).send({ ok: false, error: { code: "invalid_request" } });
+    }
+    const result = await applyBudgetCellEdit(
+      store,
+      userId,
+      {
+        tab: parsed.data.tab,
+        entityId: parsed.data.entityId,
+        field: parsed.data.field,
+        value: parsed.data.value,
+      },
+      now(),
+    );
+    if (result.status === "not_found") {
+      return reply.code(404).send({ ok: false, error: { code: "budget.cell_entity_not_found" } });
+    }
+    return { ok: true, data: result };
   });
   // Read route for the funding screen. There is no contract response schema yet (ADR needed),
   // so the shape is defined locally; it follows the web's expectation (decisions.md, MW-022).
