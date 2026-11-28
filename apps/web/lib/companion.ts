@@ -7,7 +7,9 @@ type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 const NO_PANEL_ROUTES: readonly string[] = ["/", "/monitor"];
 
 export function showsCompanion(pathname: string): boolean {
-  return !NO_PANEL_ROUTES.includes(pathname);
+  return !NO_PANEL_ROUTES.some(
+    (route) => pathname === route || (route !== "/" && pathname.startsWith(`${route}/`)),
+  );
 }
 
 /**
@@ -29,8 +31,7 @@ const RemarkResponseSchema = z.object({
 });
 
 export type RemarkResult =
-  | { status: "ready"; text: string; source: "model" | "fallback" }
-  | { status: "error" };
+  { status: "ready"; text: string; source: "model" | "fallback" } | { status: "error" };
 
 /**
  * Asks `ai` for the remark of a screen. The service answers from its daily cache, so this is

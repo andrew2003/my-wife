@@ -20,6 +20,10 @@ describe("which screens get the panel", () => {
       expect(showsCompanion(p), p).toBe(true);
     }
   });
+  it("also skips sub-routes of the focus session but not look-alike paths", () => {
+    expect(showsCompanion("/monitor/session")).toBe(false);
+    expect(showsCompanion("/monitoring")).toBe(true);
+  });
   it("derives a contract-valid screen key from the path", () => {
     expect(remarkScreen("/budget")).toBe("budget");
     expect(remarkScreen("/schedule/today")).toBe("schedule-today");
