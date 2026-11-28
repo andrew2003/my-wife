@@ -48,6 +48,7 @@ export const NAV_AREAS: readonly NavArea[] = [
     routes: [
       "/budget",
       "/budget/funding",
+      "/budget/sheet",
       "/anomalies",
       "/contract",
       "/penalties",
@@ -57,6 +58,7 @@ export const NAV_AREAS: readonly NavArea[] = [
     ],
     items: [
       { href: "/budget", labelKey: "nav.budget" },
+      { href: "/budget/sheet", labelKey: "nav.budget_sheet" },
       { href: "/debts", labelKey: "nav.debts" },
       { href: "/cycle-close", labelKey: "nav.cycle_close" },
       { href: "/anomalies", labelKey: "nav.anomalies" },
