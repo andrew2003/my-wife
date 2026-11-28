@@ -34,11 +34,12 @@ export const NAV_AREAS: readonly NavArea[] = [
   {
     id: "schedule",
     labelKey: "nav.schedule",
-    routes: ["/schedule", "/schedule/review", "/schedule/calendar"],
+    routes: ["/schedule", "/schedule/review", "/schedule/calendar", "/schedule/sheet"],
     items: [
       { href: "/schedule", labelKey: "nav.schedule" },
       { href: "/schedule/calendar", labelKey: "nav.calendar" },
       { href: "/schedule/review", labelKey: "nav.review" },
+      { href: "/schedule/sheet", labelKey: "nav.sheet" },
     ],
   },
   {

@@ -393,6 +393,19 @@ describe("gateway routes for recurrences, sync and the admin role", () => {
     expect(urls).toContain("http://sync/sync/status");
   });
 
+  it("routes the timetable sheet read and cell write to schedule", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good` };
+    const a = await (await app).inject({ method: "GET", url: "/api/timetable-sheet", headers });
+    const b = await (
+      await app
+    ).inject({ method: "POST", url: "/api/timetable-sheet/cells", headers, payload: {} });
+    expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+    const urls = calls.map((c) => c.url);
+    expect(urls).toContain("http://schedule/timetable-sheet");
+    expect(urls).toContain("http://schedule/timetable-sheet/cells");
+  });
+
   it("tells identity the role from the verified session, never from the client", async () => {
     const { app, calls } = setup();
     const spoof = { "x-user-role": "admin" };
