@@ -10,6 +10,7 @@ import {
   EVENT_REGISTRY,
   MoodTagSchema,
   SETTINGS,
+  validateSettingValue,
   parseEvent,
 } from "../src/index";
 
@@ -193,6 +194,15 @@ describe("settings and menu entries", () => {
   });
   it("registers a setting for the custom command limit", () => {
     expect(SETTINGS["chat.max_custom_commands"].default).toBe(20);
+  });
+  it("registers and validates the command overrides setting", () => {
+    expect(SETTINGS["commands.overrides"].default).toEqual([]);
+    const ok = [{ commandId: "help", enabled: false }, { commandId: "task", name: "todo", aliases: ["viec"] }];
+    expect(validateSettingValue("commands.overrides", ok).success).toBe(true);
+    expect(validateSettingValue("commands.overrides", []).success).toBe(true);
+    expect(validateSettingValue("commands.overrides", {}).success).toBe(false);
+    expect(validateSettingValue("commands.overrides", [{ enabled: false }]).success).toBe(false);
+    expect(validateSettingValue("commands.overrides", [{ commandId: "help", name: "Bad Name" }]).success).toBe(false);
   });
 });
 
