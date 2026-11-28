@@ -1,6 +1,9 @@
+import type { MoodTag } from "@my-wife/contracts";
 import { randomUUID } from "node:crypto";
 
 export interface ConversationTurn {
+  /** Mood tag of a `/happy`-style message; shapes the reply only. */
+  mood?: MoodTag;
   id: string;
   userId: string;
   role: "user" | "assistant";

@@ -4,6 +4,7 @@ import {
   DegradedReasonSchema,
   SETTINGS,
   type Locale,
+  type MoodTag,
   type AiToolCall,
   type MessageRef,
 } from "@my-wife/contracts";
@@ -295,8 +296,9 @@ export class ChatService {
     text: string,
     locale: Locale,
     userId: string,
+    mood?: MoodTag,
   ): Promise<ChatResult> {
-    return this.run(text, locale, userId, null, command);
+    return this.run(text, locale, userId, null, command, mood);
   }
 
   private async run(
@@ -305,6 +307,7 @@ export class ChatService {
     userId: string,
     untrusted: UntrustedSource | null,
     command?: { name: string; description: string },
+    mood?: MoodTag,
   ): Promise<ChatResult> {
     const messageId = (this.deps.newId ?? randomUUID)();
     const nowAt = (this.deps.now ?? (() => new Date()))();
@@ -323,9 +326,12 @@ export class ChatService {
     const strictness = await this.strictness(userId);
     const [memories, summaries] = await this.recallSafely(userId);
     const baseSystem = buildSystemPrompt(locale, memories, summaries, strictness);
-    const withCommand = command
+    const withCommandContext = command
       ? `${baseSystem}\n${renderMessage({ key: "ai.command.context", params: { name: command.name, description: command.description } }, locale)}`
       : baseSystem;
+    const withCommand = mood
+      ? `${withCommandContext}\n${renderMessage({ key: "ai.mood.context", params: { mood } }, locale)}`
+      : withCommandContext;
     const request = {
       system: untrusted
         ? `${withCommand}\n${renderMessage({ key: "ai.untrusted.rule", params: {} }, locale)}`
@@ -365,8 +371,8 @@ export class ChatService {
         answered = {
           slot,
           text: response.text,
-          memories: untrusted ? [] : (response.memories ?? []),
-          toolCalls: untrusted ? [] : response.toolCalls,
+          memories: untrusted || mood ? [] : (response.memories ?? []),
+          toolCalls: untrusted || mood ? [] : response.toolCalls,
         };
         break;
       } catch (error) {
@@ -419,7 +425,13 @@ export class ChatService {
     }
     try {
       const at = (this.deps.now ?? (() => new Date()))();
-      await this.deps.conversations?.append({ userId, role: "user", text, at });
+      await this.deps.conversations?.append({
+        userId,
+        role: "user",
+        text,
+        at,
+        ...(mood ? { mood } : {}),
+      });
       await this.deps.conversations?.append({ userId, role: "assistant", text: answered.text, at });
     } catch (error) {
       this.deps.warn?.(

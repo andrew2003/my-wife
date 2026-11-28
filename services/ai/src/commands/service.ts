@@ -1,5 +1,6 @@
 import {
   CommandSettingsSchema,
+  MoodTagSchema,
   commandEvents,
   SETTINGS,
   type CommandChannel,
@@ -7,6 +8,7 @@ import {
   type CommandResultStatus,
   type CommandSettings,
   type Locale,
+  type MoodTag,
   type MessageRef,
 } from "@my-wife/contracts";
 import { renderMessage } from "../i18n";
@@ -60,6 +62,8 @@ export interface PromptRequest {
   /** The template with `{text}` filled from the typed arguments. */
   text: string;
   locale: Locale;
+  /** Set by a mood tag: stored with the message and shapes the reply only. */
+  mood?: MoodTag;
 }
 
 export interface CommandServiceDeps {
@@ -262,27 +266,30 @@ export class CommandService {
     const scope = SUMMARY_SCOPES.find((s) => s === target.def.id);
     const rulesHandler = target.def.builtin ? RULES_HANDLERS[target.def.id] : undefined;
     const now = (this.deps.now ?? (() => new Date()))();
+    const mood = target.def.builtin ? MoodTagSchema.safeParse(target.def.id) : null;
     const outcome: Outcome = target.custom
       ? await this.runCustom(target, args, req)
-      : capture
-        ? await capture({ userId: req.userId, args, capture: this.deps.capture, now })
-        : scope && target.def.builtin
-          ? await this.runSummaryCommand(scope, target, req, now)
-          : rulesHandler
-            ? await rulesHandler({ userId: req.userId, args, rules: this.deps.rules })
-            : handler
-              ? await handler({
-                  userId: req.userId,
-                  locale: req.locale,
-                  args,
-                  registry,
-                  ports: this.deps.ports,
-                })
-              : {
-                  status: "refused",
-                  reply: { key: "commands.not_available", params: {} },
-                  reason: "not_allowed",
-                };
+      : mood?.success
+        ? await this.runMood(mood.data, target, args, req)
+        : capture
+          ? await capture({ userId: req.userId, args, capture: this.deps.capture, now })
+          : scope && target.def.builtin
+            ? await this.runSummaryCommand(scope, target, req, now)
+            : rulesHandler
+              ? await rulesHandler({ userId: req.userId, args, rules: this.deps.rules })
+              : handler
+                ? await handler({
+                    userId: req.userId,
+                    locale: req.locale,
+                    args,
+                    registry,
+                    ports: this.deps.ports,
+                  })
+                : {
+                    status: "refused",
+                    reply: { key: "commands.not_available", params: {} },
+                    reason: "not_allowed",
+                  };
     await this.announce(req, commandId, entry.def.ai, outcome.status, outcome.reason);
     return { status: outcome.status, reply: outcome.reply };
   }
@@ -309,6 +316,32 @@ export class CommandService {
           }
         : {}),
     });
+  }
+
+  /** `/angry <message>`: the message goes to the model with the mood; nothing else is touched. */
+  private async runMood(
+    mood: MoodTag,
+    target: RegistryEntry,
+    args: string[],
+    req: CommandRequest,
+  ): Promise<Outcome> {
+    const { runPrompt } = this.deps;
+    if (!runPrompt)
+      return {
+        status: "refused",
+        reply: { key: "commands.not_available", params: {} },
+        reason: "not_allowed",
+      };
+    const typed = args.join(" ");
+    if (typed.length === 0) return invalid("commands.mood.usage", { name: target.def.name });
+    const reply = await runPrompt(req.userId, {
+      command: { name: target.def.name, description: describe(target, req.locale) },
+      text: typed,
+      locale: req.locale,
+      mood,
+    });
+    if ("text" in reply) return ok("commands.prompt_reply", { text: reply.text });
+    return { status: "refused", reply, reason: "not_allowed" };
   }
 
   private async runCustom(
