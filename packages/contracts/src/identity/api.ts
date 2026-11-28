@@ -47,7 +47,9 @@ export const ConsentListResponseSchema = okOrError(z.object({ consents: z.array(
 
 export const SaveKeyRequestSchema = SaveLlmKeyRequestSchema;
 export const SaveKeyResponseSchema = okOrError(z.object({ key: LlmKeyViewSchema }));
-export const ListKeysResponseSchema = okOrError(z.object({ keys: z.array(LlmKeyViewSchema) }));
+export const ListKeysResponseSchema = okOrError(
+  z.object({ keys: z.array(LlmKeyViewSchema), nextCursor: z.string().min(1).nullable().default(null) }),
+);
 
 export const CompleteOnboardingStepRequestSchema = z.object({
   step: OnboardingStepSchema,
