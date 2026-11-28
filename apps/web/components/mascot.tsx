@@ -1,4 +1,4 @@
-import { artUrl, type ArtSize } from "../lib/art";
+import { artUrl, type ArtSize } from "../lib/art-url";
 
 /** Original wave motif with initials; stands in whenever there is no private art. */
 export function FallbackArt({ initials, label }: { initials?: string; label?: string }) {
