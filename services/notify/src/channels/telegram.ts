@@ -1,4 +1,5 @@
-import type { ChatChannel, InboundReply, Question, SendResult } from "@my-wife/contracts";
+import type { InboundReply, Question, SendResult } from "@my-wife/contracts";
+import type { MenuChannel } from "../commands/menu";
 import { renderMessage } from "../i18n";
 
 export interface TelegramChannelOptions {
@@ -19,7 +20,7 @@ function parseButton(data: string): { questionId: string; value: string } | null
 }
 
 /** Telegram implementation of the shared `ChatChannel` interface. `raw` updates are untrusted. */
-export function createTelegramChannel(opts: TelegramChannelOptions): ChatChannel {
+export function createTelegramChannel(opts: TelegramChannelOptions): MenuChannel {
   const challenges = new Map<string, string>();
 
   const api = async (method: string, body: unknown): Promise<TelegramJson> => {
@@ -56,6 +57,12 @@ export function createTelegramChannel(opts: TelegramChannelOptions): ChatChannel
 
   return {
     kind: "telegram",
+    async registerMenu(target, entries) {
+      await api("setMyCommands", {
+        commands: entries,
+        scope: { type: "chat", chat_id: Number(target) },
+      });
+    },
     send: (target, m) => sendText(target, renderMessage(m.message, m.locale)),
     sendQuestion: (target, m, question) =>
       sendText(target, renderMessage(m.message, m.locale), buttonsFor(question, m.locale)),
