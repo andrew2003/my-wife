@@ -1,12 +1,18 @@
-import type { ChatChannel, InboundReply, Question, SendResult } from "@my-wife/contracts";
+import type { InboundReply, Question, SendResult } from "@my-wife/contracts";
+import type { MenuChannel } from "../commands/menu";
 import { renderMessage } from "../i18n";
 
 export interface DiscordChannelOptions {
   /** Discord origin; the emulated server in tests, `https://discord.com` otherwise. */
   baseUrl: string;
   token: string;
+  /** Application id the slash commands are registered under; menus are skipped without it. */
+  applicationId?: string;
   clock: { now(): Date };
 }
+
+/** Discord limits a slash command description to 100 characters. */
+const DISCORD_DESCRIPTION_MAX = 100;
 
 /** Hosts besides `baseUrl` that may serve attachments. */
 const ATTACHMENT_HOSTS = new Set(["cdn.discordapp.com", "media.discordapp.net"]);
@@ -25,7 +31,7 @@ function parseButton(data: string): { questionId: string; value: string } | null
  * Discord implementation of the shared `ChatChannel` interface. `raw` is a gateway dispatch frame
  * (`{ t, d }`) and is untrusted. The external id of a chat is the Discord channel id.
  */
-export function createDiscordChannel(opts: DiscordChannelOptions): ChatChannel {
+export function createDiscordChannel(opts: DiscordChannelOptions): MenuChannel {
   const challenges = new Map<string, string>();
   const headers = { authorization: `Bot ${opts.token}`, "content-type": "application/json" };
 
@@ -86,6 +92,19 @@ export function createDiscordChannel(opts: DiscordChannelOptions): ChatChannel {
 
   return {
     kind: "discord",
+    async registerMenu(_target, entries) {
+      if (!opts.applicationId) return;
+      // Discord slash commands are registered per application, so the list is bot-wide.
+      await api(
+        "PUT",
+        `/applications/${encodeURIComponent(opts.applicationId)}/commands`,
+        entries.map((e) => ({
+          name: e.command,
+          type: 1,
+          description: e.description.slice(0, DISCORD_DESCRIPTION_MAX),
+        })),
+      );
+    },
     send: (target, m) => sendText(target, renderMessage(m.message, m.locale)),
     sendQuestion: (target, m, question) =>
       sendText(target, renderMessage(m.message, m.locale), buttonsFor(question, m.locale)),

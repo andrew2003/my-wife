@@ -1,5 +1,11 @@
 import type { AppConfig } from "@my-wife/config";
-import { InboxQuerySchema, PushSubscriptionRequestSchema } from "@my-wife/contracts";
+import {
+  InboxQuerySchema,
+  LocaleSchema,
+  PushSubscriptionRequestSchema,
+  type CommandDefinition,
+} from "@my-wife/contracts";
+import { suggestCommands } from "./commands/menu";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { inboxKey, InMemoryInbox, type Inbox, type InboxEntry } from "./dispatch/dispatcher";
 import { InMemoryQuestionStore, type QuestionStore } from "./questions/question-service";
@@ -14,12 +20,16 @@ export type NotifyDeps = ServiceDeps & {
   inbox?: Inbox;
   /** Joins the question of a question message; defaults to an in-memory store. */
   questionStore?: QuestionStore;
+  /** The user's command definitions (built-ins with overrides plus custom); enables autocomplete. */
+  commandSource?: (userId: string) => Promise<CommandDefinition[]>;
 };
 
 const INBOX_MAX_PAGE = 100;
 /** Question messages are stored as `question-<questionId>` by the question service. */
 const QUESTION_MESSAGE_PREFIX = "question-";
 const CURSOR_PATTERN = /^[0-9TZ:.+-]+\|.+$/;
+
+const SUGGEST_QUERY_MAX = 64;
 
 const UnsubscribeSchema = PushSubscriptionRequestSchema.pick({ endpoint: true });
 
@@ -89,6 +99,24 @@ export function createApp(config: AppConfig, deps: NotifyDeps = {}) {
           ? null
           : Buffer.from(inboxKey(last.message)).toString("base64url");
       return { ok: true, data: { items, nextCursor } };
+    });
+  }
+
+  const commandSource = deps.commandSource;
+  if (commandSource) {
+    // In-app chat autocomplete: suggestions for a bare `/prefix`.
+    app.get("/commands/suggest", async (req, reply) => {
+      const userId = req.headers["x-user-id"];
+      if (typeof userId !== "string" || userId === "") {
+        return reply.code(401).send({ ok: false, error: { code: "notify.unauthorized" } });
+      }
+      const query = req.query as Record<string, unknown>;
+      const locale = LocaleSchema.safeParse(query.locale ?? "vi");
+      if (typeof query.q !== "string" || query.q.length > SUGGEST_QUERY_MAX || !locale.success) {
+        return reply.code(400).send({ ok: false, error: { code: "notify.invalid_query" } });
+      }
+      const defs = await commandSource(userId);
+      return { ok: true, data: { items: suggestCommands(query.q, defs, locale.data) } };
     });
   }
 
