@@ -4,8 +4,10 @@ import { SignInPage, type LoginMethod } from "../components/sign-in-page";
 import { translate } from "../lib/i18n";
 import { getRequestContext, getRequestLocale } from "../lib/request-context";
 import { themeColors } from "../lib/theme";
+import "./fonts.css";
 import "./tokens.css";
 import "./globals.css";
+import "./ui.css";
 
 export async function generateMetadata() {
   const locale = await getRequestLocale();
