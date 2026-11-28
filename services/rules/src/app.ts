@@ -351,6 +351,38 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     return { ok: true, data: { penalties, suspendedTotalVnd } };
   });
 
+  const FAULTS_DEFAULT_PAGE = 50;
+  const FAULTS_MAX_PAGE = 100;
+  const CURSOR_PATTERN = /^[0-9TZ:.-]+\|[0-9a-f-]{36}$/i;
+
+  // Newest first, keyset-paginated; `nextCursor` is opaque and null on the last page.
+  app.get("/faults", async (req, reply) => {
+    const userId = req.headers["x-user-id"];
+    if (typeof userId !== "string" || userId === "") {
+      return reply.code(401).send({ ok: false, error: { code: "unauthorized" } });
+    }
+    const query = req.query as { limit?: string; cursor?: string };
+    let limit = FAULTS_DEFAULT_PAGE;
+    if (query.limit !== undefined) {
+      if (!/^\d+$/.test(query.limit) || Number(query.limit) < 1) {
+        return reply.code(400).send({ ok: false, error: { code: "invalid_limit" } });
+      }
+      limit = Math.min(Number(query.limit), FAULTS_MAX_PAGE);
+    }
+    let after: string | null = null;
+    if (query.cursor !== undefined && query.cursor !== "") {
+      after = Buffer.from(query.cursor, "base64url").toString("utf8");
+      if (!CURSOR_PATTERN.test(after)) {
+        return reply.code(400).send({ ok: false, error: { code: "invalid_cursor" } });
+      }
+    }
+    const page = faultStore.listPage(userId, limit, after);
+    // Internal bookkeeping (honestReason) is not part of the contract.
+    const faults = page.items.map(({ honestReason: _honest, ...f }) => f);
+    const nextCursor = page.next === null ? null : Buffer.from(page.next).toString("base64url");
+    return { ok: true, data: { faults, nextCursor } };
+  });
+
   const appeals = createAppealService({
     store: deps.appealStore ?? new InMemoryAppealStore(),
     frameStore: deps.appealFrameStore,
