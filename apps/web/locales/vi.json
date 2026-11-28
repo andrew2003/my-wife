@@ -809,5 +809,22 @@
   "focus.reason.network_problem": "Sự cố mạng",
   "focus.reason.device_problem": "Sự cố thiết bị",
   "focus.reason.interruption": "Bị gián đoạn",
-  "focus.reason.other": "Khác"
+  "focus.reason.other": "Khác",
+  "dashboard.loading": "Đang tải ngày của bạn...",
+  "dashboard.character_label": "Người đồng hành của bạn",
+  "dashboard.error.title": "Chưa tải được việc hôm nay",
+  "dashboard.error.description": "Kiểm tra kết nối rồi thử lại nhé.",
+  "dashboard.empty.title": "Hôm nay chưa có việc nào",
+  "dashboard.empty.description": "Thêm việc từ lịch trình, việc đó sẽ hiện ở đây.",
+  "dashboard.progress": "Tiến độ: xong {done} trên {total}",
+  "dashboard.tick_label": "Đánh dấu \"{title}\" đã xong",
+  "dashboard.any_time": "Giờ nào cũng được",
+  "dashboard.chip.done": "Đã xong",
+  "dashboard.chip.upcoming": "Sắp tới",
+  "dashboard.chip.not_done": "Chưa xong",
+  "dashboard.reaction.task_done": "Giỏi lắm, \"{title}\" đã xong ({done}/{total}).",
+  "dashboard.messages.title": "Tin nhắn",
+  "dashboard.messages.empty": "Chưa có tin nhắn nào.",
+  "dashboard.messages.error": "Chưa tải được tin nhắn.",
+  "dashboard.messages.open": "Mở tất cả tin nhắn"
 }
