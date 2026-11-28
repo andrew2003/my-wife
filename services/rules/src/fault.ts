@@ -110,6 +110,11 @@ export function scoreFault(
   return { weightSnapshot: weight, points: Math.floor((weight * percent + 50) / 100) };
 }
 
+/** Sort and cursor key of a fault: occurrence time, then id as the tie-breaker. */
+export function faultPageKey(e: Pick<FaultEntry, "occurredAt" | "id">): string {
+  return `${e.occurredAt}|${e.id}`;
+}
+
 export type FaultLedgerEntry = FaultEntry & { honestReason: boolean };
 
 export type FaultAuditRecord = {
@@ -153,6 +158,16 @@ export interface FaultStore {
   releaseEventClaim(faultId: string): void;
   markEventPublished(faultId: string, at: string): void;
   list(userId: string): readonly FaultLedgerEntry[];
+  /**
+   * Newest-first keyset page ordered by (occurredAt, id). `after` is the `next` key of the
+   * previous page; `next` is null on the last page. A persistent implementation must back
+   * this with an index on (user_id, occurred_at DESC, id DESC).
+   */
+  listPage(
+    userId: string,
+    limit: number,
+    after: string | null,
+  ): { items: readonly FaultLedgerEntry[]; next: string | null };
   audit(userId: string): readonly FaultAuditRecord[];
 }
 
@@ -160,6 +175,8 @@ export interface FaultStore {
 export class InMemoryFaultStore implements FaultStore {
   private readonly rows = new Map<string, Stored[]>();
   private readonly audits = new Map<string, FaultAuditRecord[]>();
+  /** Per-user rows kept sorted by key descending, maintained on insert (the in-memory index). */
+  private readonly byRecency = new Map<string, Stored[]>();
 
   insertOnce(userId: string, entry: FaultLedgerEntry, audit: FaultAuditRecord) {
     const list = this.rows.get(userId) ?? [];
@@ -171,6 +188,19 @@ export class InMemoryFaultStore implements FaultStore {
       eventClaimed: false,
     });
     this.rows.set(userId, list);
+    const index = this.byRecency.get(userId) ?? [];
+    const row = list[list.length - 1]!;
+    // Binary search for the first position whose key is smaller (descending order).
+    let lo = 0;
+    let hi = index.length;
+    const key = faultPageKey(entry);
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (faultPageKey(index[mid]!.entry) > key) lo = mid + 1;
+      else hi = mid;
+    }
+    index.splice(lo, 0, row);
+    this.byRecency.set(userId, index);
     this.audits.set(userId, [...(this.audits.get(userId) ?? []), Object.freeze(audit)]);
     return true;
   }
@@ -214,6 +244,22 @@ export class InMemoryFaultStore implements FaultStore {
   }
   list(userId: string) {
     return (this.rows.get(userId) ?? []).map((r) => r.entry);
+  }
+  listPage(userId: string, limit: number, after: string | null) {
+    const index = this.byRecency.get(userId) ?? [];
+    let lo = 0;
+    if (after !== null) {
+      let hi = index.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (faultPageKey(index[mid]!.entry) >= after) lo = mid + 1;
+        else hi = mid;
+      }
+    }
+    const items = index.slice(lo, lo + limit).map((r) => r.entry);
+    const last = items[items.length - 1];
+    const next = last !== undefined && lo + limit < index.length ? faultPageKey(last) : null;
+    return { items, next };
   }
   audit(userId: string) {
     return this.audits.get(userId) ?? [];
