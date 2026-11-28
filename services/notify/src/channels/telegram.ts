@@ -1,3 +1,4 @@
+import { fetchWithPolicy } from "@my-wife/service-kit";
 import type { InboundReply, Question, SendResult } from "@my-wife/contracts";
 import type { MenuChannel } from "../commands/menu";
 import { renderMessage } from "../i18n";
@@ -24,7 +25,7 @@ export function createTelegramChannel(opts: TelegramChannelOptions): MenuChannel
   const challenges = new Map<string, string>();
 
   const api = async (method: string, body: unknown): Promise<TelegramJson> => {
-    const res = await fetch(`${opts.baseUrl}/bot${opts.token}/${method}`, {
+    const res = await fetchWithPolicy(`${opts.baseUrl}/bot${opts.token}/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -95,7 +96,11 @@ export function createTelegramChannel(opts: TelegramChannelOptions): MenuChannel
     },
     async receivePhoto(reply) {
       const file = await api("getFile", { file_id: reply.fileRef });
-      const res = await fetch(`${opts.baseUrl}/file/bot${opts.token}/${file.result.file_path}`);
+      const res = await fetchWithPolicy(
+        `${opts.baseUrl}/file/bot${opts.token}/${file.result.file_path}`,
+        {},
+        { idempotent: true },
+      );
       if (!res.ok) throw new Error(`telegram file download failed with HTTP ${res.status}`);
       return new Uint8Array(await res.arrayBuffer());
     },

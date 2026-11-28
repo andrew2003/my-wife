@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { fetchWithPolicy } from "@my-wife/service-kit";
 import type { ChannelKind, Locale, MessageRef, OutboundMessage } from "@my-wife/contracts";
 import type { ChannelService, PhotoHandoff } from "../channels/channel-service";
 
@@ -46,7 +47,7 @@ export function createWakePhotoHandler(deps: { schedule: ScheduleWakePort; ai: A
 }
 
 async function postJson(url: string, userId: string, body: unknown): Promise<unknown> {
-  const res = await fetch(url, {
+  const res = await fetchWithPolicy(url, {
     method: "POST",
     headers: { "content-type": "application/json", "x-user-id": userId },
     body: JSON.stringify(body),
