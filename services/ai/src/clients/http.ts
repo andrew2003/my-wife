@@ -31,3 +31,17 @@ export async function postJson(
   if (parsed.ok !== true) throw new InternalCallError(service, res.status);
   return parsed.data;
 }
+
+/** GETs one read route on behalf of one user and returns the envelope data. */
+export async function getJson(
+  fetchFn: typeof fetch,
+  service: string,
+  url: string,
+  userId: string,
+): Promise<unknown> {
+  const res = await fetchFn(url, { method: "GET", headers: { "x-user-id": userId } });
+  if (!res.ok) throw new InternalCallError(service, res.status);
+  const parsed = (await res.json()) as { ok?: boolean; data?: unknown };
+  if (parsed.ok !== true) throw new InternalCallError(service, res.status);
+  return parsed.data;
+}

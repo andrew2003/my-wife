@@ -12,6 +12,8 @@ import {
 import { renderMessage } from "../i18n";
 import { CAPTURE_HANDLERS, type CapturePorts } from "./capture";
 import { parseCommand } from "./parser";
+import { RULES_HANDLERS, type RulesPorts } from "./rules";
+import { runSummary, SUMMARY_SCOPES, type SummaryPorts, type SummaryScope } from "./summary";
 import { buildRegistry, type CommandRegistry, type RegistryEntry } from "./registry";
 
 const STRICT_MIN = 1;
@@ -66,6 +68,10 @@ export interface CommandServiceDeps {
   ports: ControlPorts;
   /** Backs `/task`, `/spend`, `/remember` and `/forget`; without it they answer not available. */
   capture?: CapturePorts;
+  /** Backs `/summary`, `/today`, `/week` and `/budget` with read routes. */
+  summary?: SummaryPorts;
+  /** Backs `/appeal` and `/reason` with the rules routes. */
+  rules?: RulesPorts;
   /** The clock, a parameter so tests can simulate time. */
   now?: () => Date;
   /** The user's overrides and custom commands. */
@@ -253,30 +259,56 @@ export class CommandService {
     }
     const handler = target.def.builtin ? HANDLERS[target.def.id] : undefined;
     const capture = target.def.builtin ? CAPTURE_HANDLERS[target.def.id] : undefined;
+    const scope = SUMMARY_SCOPES.find((s) => s === target.def.id);
+    const rulesHandler = target.def.builtin ? RULES_HANDLERS[target.def.id] : undefined;
+    const now = (this.deps.now ?? (() => new Date()))();
     const outcome: Outcome = target.custom
       ? await this.runCustom(target, args, req)
       : capture
-        ? await capture({
-            userId: req.userId,
-            args,
-            capture: this.deps.capture,
-            now: (this.deps.now ?? (() => new Date()))(),
-          })
-        : handler
-          ? await handler({
-              userId: req.userId,
-              locale: req.locale,
-              args,
-              registry,
-              ports: this.deps.ports,
-            })
-          : {
-              status: "refused",
-              reply: { key: "commands.not_available", params: {} },
-              reason: "not_allowed",
-            };
+        ? await capture({ userId: req.userId, args, capture: this.deps.capture, now })
+        : scope && target.def.builtin
+          ? await this.runSummaryCommand(scope, target, req, now)
+          : rulesHandler
+            ? await rulesHandler({ userId: req.userId, args, rules: this.deps.rules })
+            : handler
+              ? await handler({
+                  userId: req.userId,
+                  locale: req.locale,
+                  args,
+                  registry,
+                  ports: this.deps.ports,
+                })
+              : {
+                  status: "refused",
+                  reply: { key: "commands.not_available", params: {} },
+                  reason: "not_allowed",
+                };
     await this.announce(req, commandId, entry.def.ai, outcome.status, outcome.reason);
     return { status: outcome.status, reply: outcome.reply };
+  }
+
+  private runSummaryCommand(
+    scope: SummaryScope,
+    target: RegistryEntry,
+    req: CommandRequest,
+    now: Date,
+  ): Promise<Outcome> {
+    const { runPrompt } = this.deps;
+    const command = { name: target.def.name, description: describe(target, req.locale) };
+    return runSummary({
+      userId: req.userId,
+      locale: req.locale,
+      scope,
+      summary: this.deps.summary,
+      now,
+      command,
+      ...(runPrompt
+        ? {
+            runPrompt: (text: string) =>
+              runPrompt(req.userId, { command, text, locale: req.locale }),
+          }
+        : {}),
+    });
   }
 
   private async runCustom(

@@ -16,12 +16,21 @@ import {
   CommandRegistryError,
   CommandService,
   createCapturePorts,
+  createRulesPorts,
+  createSummaryPorts,
   CustomCommandManager,
   type CapturePorts,
   type ControlPorts,
+  type RulesPorts,
+  type SummaryPorts,
   type CustomCommandStore,
 } from "./commands";
-import { createBudgetClient, createScheduleClient } from "./clients";
+import {
+  createBudgetClient,
+  createRulesClient,
+  createScheduleClient,
+  createSummaryClient,
+} from "./clients";
 import { renderMessage } from "./i18n";
 import {
   createKeyValidator,
@@ -127,6 +136,10 @@ export interface AiDeps extends ServiceDeps {
   commandStore?: Pick<CustomCommandStore, "load" | "save">;
   /** Targets of /task, /spend, /remember and /forget; defaults to the budget and schedule REST routes. */
   capturePorts?: CapturePorts;
+  /** Read routes of /summary, /today, /week and /budget; defaults to the schedule, budget and rules REST routes. */
+  summaryPorts?: SummaryPorts;
+  /** Rules routes of /appeal and /reason; defaults to the rules REST routes. */
+  rulesPorts?: RulesPorts;
   /** REST wrappers for quick capture; none are wired yet, so a capture is audited as failed. */
   toolBackends?: ToolBackends;
 }
@@ -184,6 +197,9 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
   const unavailable = async (): Promise<never> => {
     throw new Error("control port unavailable");
   };
+  const budgetUrl = process.env.BUDGET_URL ?? `http://localhost:${servicePort("budget")}`;
+  const scheduleUrl = process.env.SCHEDULE_URL ?? `http://localhost:${servicePort("schedule")}`;
+  const rulesUrl = process.env.RULES_URL ?? `http://localhost:${servicePort("rules")}`;
   const commands = new CommandService({
     ports: deps.commandPorts ?? {
       setLocale: unavailable,
@@ -200,15 +216,22 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     capture:
       deps.capturePorts ??
       createCapturePorts({
-        budget: createBudgetClient(
-          process.env.BUDGET_URL ?? `http://localhost:${servicePort("budget")}`,
-        ),
-        schedule: createScheduleClient(
-          process.env.SCHEDULE_URL ?? `http://localhost:${servicePort("schedule")}`,
-        ),
+        budget: createBudgetClient(budgetUrl),
+        schedule: createScheduleClient(scheduleUrl),
         memory,
         readSettings,
       }),
+    summary:
+      deps.summaryPorts ??
+      createSummaryPorts({
+        client: createSummaryClient({
+          budget: budgetUrl,
+          schedule: scheduleUrl,
+          rules: rulesUrl,
+        }),
+        readSettings,
+      }),
+    rules: deps.rulesPorts ?? createRulesPorts(createRulesClient(rulesUrl)),
     now: deps.now,
     loadCommandSettings: commandStore.load,
     readSettings,
