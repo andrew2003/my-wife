@@ -36,13 +36,74 @@ export interface Inbox {
   list(userId: string): Promise<InboxEntry[]>;
   pending(userId: string): Promise<InboxEntry[]>;
   markDigested(userId: string, messageIds: string[]): Promise<void>;
+  /**
+   * Newest first by (createdAt, id), keyset-paginated: `after` is the key of the last item of
+   * the previous page and `next` is null on the last page. `accept` filters on the joined view.
+   * A persistent implementation must back this with an index on
+   * (user_id, created_at DESC, id DESC).
+   */
+  page(userId: string, query: InboxPageQuery): Promise<InboxPage>;
+}
+
+export interface InboxPageQuery {
+  limit: number;
+  after: string | null;
+  accept?: (entry: InboxEntry) => boolean;
+}
+
+export interface InboxPage {
+  items: InboxEntry[];
+  next: string | null;
+}
+
+/** Sort key of a message; ISO timestamps have a fixed width, so string order is time order. */
+export function inboxKey(message: Pick<OutboundMessage, "createdAt" | "id">): string {
+  return `${message.createdAt}|${message.id}`;
 }
 
 export class InMemoryInbox implements Inbox {
   private entries = new Map<string, InboxEntry[]>();
+  /** Per-user entries kept newest first on insert (the in-memory index), so a page never sorts. */
+  private byRecency = new Map<string, InboxEntry[]>();
 
   async add(userId: string, entry: InboxEntry): Promise<void> {
     this.entries.set(userId, [...(this.entries.get(userId) ?? []), entry]);
+    const list = [...(this.byRecency.get(userId) ?? [])];
+    const key = inboxKey(entry.message);
+    let lo = 0;
+    let hi = list.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (inboxKey(list[mid]!.message) > key) lo = mid + 1;
+      else hi = mid;
+    }
+    list.splice(lo, 0, entry);
+    this.byRecency.set(userId, list);
+  }
+  async page(userId: string, query: InboxPageQuery): Promise<InboxPage> {
+    const list = this.byRecency.get(userId) ?? [];
+    let lo = 0;
+    if (query.after !== null) {
+      let hi = list.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (inboxKey(list[mid]!.message) >= query.after) lo = mid + 1;
+        else hi = mid;
+      }
+    }
+    const items: InboxEntry[] = [];
+    let more = false;
+    for (let i = lo; i < list.length; i++) {
+      const entry = list[i]!;
+      if (query.accept && !query.accept(entry)) continue;
+      if (items.length === query.limit) {
+        more = true;
+        break;
+      }
+      items.push(entry);
+    }
+    const last = items[items.length - 1];
+    return { items, next: more && last ? inboxKey(last.message) : null };
   }
   async list(userId: string): Promise<InboxEntry[]> {
     return this.entries.get(userId) ?? [];
