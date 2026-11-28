@@ -10,6 +10,11 @@ export function defaultLocale(value: string | undefined): Locale {
   return value === "en" || value === "vi" ? value : "vi";
 }
 
+/** The one place UI_LANGUAGE is read: the fallback when nothing else decides. */
+export function configuredLocale(): Locale {
+  return defaultLocale(process.env.UI_LANGUAGE);
+}
+
 export function translate(
   locale: Locale,
   key: string,

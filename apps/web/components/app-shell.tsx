@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { NAV_ITEMS } from "../lib/nav";
 import { translate, type Locale } from "../lib/i18n";
 import type { CurrentUser } from "../lib/session";
+import { LocaleCookieSync } from "./locale-cookie-sync";
 import { LocaleSwitch } from "./locale-switch";
 import { ProductTour } from "./product-tour";
 
@@ -32,6 +33,7 @@ export function AppShell({
       </nav>
       <div className="content">{children}</div>
       <ProductTour locale={locale} />
+      <LocaleCookieSync profileLocale={user.locale} />
     </div>
   );
 }
