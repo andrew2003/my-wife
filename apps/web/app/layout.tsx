@@ -12,6 +12,7 @@ import "./ui.css";
 import "./schedule.css";
 import "./routines.css";
 import "./focus.css";
+import "./dashboard.css";
 
 export async function generateMetadata() {
   const locale = await getRequestLocale();

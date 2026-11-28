@@ -809,5 +809,22 @@
   "focus.reason.network_problem": "Network problem",
   "focus.reason.device_problem": "Device problem",
   "focus.reason.interruption": "Interruption",
-  "focus.reason.other": "Other"
+  "focus.reason.other": "Other",
+  "dashboard.loading": "Loading your day...",
+  "dashboard.character_label": "Your companion",
+  "dashboard.error.title": "Could not load today's tasks",
+  "dashboard.error.description": "Check your connection and try again.",
+  "dashboard.empty.title": "Nothing planned for today",
+  "dashboard.empty.description": "Add a task from the schedule and it will show up here.",
+  "dashboard.progress": "Progress: {done} of {total} done",
+  "dashboard.tick_label": "Mark \"{title}\" as done",
+  "dashboard.any_time": "Any time",
+  "dashboard.chip.done": "Done",
+  "dashboard.chip.upcoming": "Upcoming",
+  "dashboard.chip.not_done": "Not done",
+  "dashboard.reaction.task_done": "Well done, \"{title}\" is finished ({done} of {total}).",
+  "dashboard.messages.title": "Messages",
+  "dashboard.messages.empty": "No messages yet.",
+  "dashboard.messages.error": "Could not load messages.",
+  "dashboard.messages.open": "Open all messages"
 }
