@@ -42,6 +42,18 @@ const RecurrenceEnvelope = z.object({
   data: z.object({ recurrences: z.array(RecurrenceSchema) }),
 });
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** The device-local calendar day (`YYYY-MM-DD`) of `now`; the user's zone, not UTC. */
+export function localDate(now: Date): string {
+  return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+}
+
+/** The device-local time of day (`HH:MM`) of `now`. */
+export function localHm(now: Date): string {
+  return `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+}
+
 /**
  * Where a block stands at `nowHm` on `today` (both in the user's zone). A planned block whose
  * window already ended, or that belongs to an earlier day, is late. Pure: the clock is a parameter.

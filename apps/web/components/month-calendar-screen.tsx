@@ -13,15 +13,23 @@ function localToday(): string {
 }
 
 /** Month navigation state around the presentational calendar. */
-export function MonthCalendarScreen({ locale }: { locale: Locale }) {
+export function MonthCalendarScreen({
+  locale,
+  initialDay,
+}: {
+  locale: Locale;
+  /** `YYYY-MM-DD`: open on the month of this day instead of the current month. */
+  initialDay?: string;
+}) {
   const [today, setToday] = useState<string | null>(null);
   const [cursor, setCursor] = useState({ year: 1970, month: 1 });
 
   useEffect(() => {
     const iso = localToday();
     setToday(iso);
-    setCursor({ year: Number(iso.slice(0, 4)), month: Number(iso.slice(5, 7)) });
-  }, []);
+    const shown = initialDay && /^\d{4}-\d{2}-\d{2}$/.test(initialDay) ? initialDay : iso;
+    setCursor({ year: Number(shown.slice(0, 4)), month: Number(shown.slice(5, 7)) });
+  }, [initialDay]);
 
   if (today === null) {
     return (

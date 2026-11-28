@@ -110,7 +110,7 @@ export function BlockDetails(props: {
         <a className="button" href="/schedule?tab=week">
           {t("schedule.details.edit")}
         </a>{" "}
-        <a className="button" href={`/schedule/calendar?day=${task.day}`}>
+        <a className="button" href={`/schedule?tab=calendar&day=${task.day}`}>
           {t("schedule.details.open_calendar")}
         </a>
       </dd>
@@ -227,32 +227,23 @@ export function ScheduleView(props: ScheduleViewProps) {
   const { locale, status, data } = props;
   const t = (key: string) => translate(locale, key);
 
-  if (status === "loading") {
-    return (
-      <div className="schedule-root">
+  const todayContent =
+    status === "loading" ? (
+      <>
         <Skeleton label={t("schedule.loading")} height="8rem" />
         <p role="status">{t("schedule.loading")}</p>
-      </div>
+      </>
+    ) : status === "error" ? (
+      <ErrorState
+        title={t("schedule.error")}
+        retryLabel={t("schedule.retry")}
+        onRetry={props.onRetry}
+      />
+    ) : status === "empty" || !data ? (
+      <EmptyState title={t("schedule.empty")} />
+    ) : (
+      <TodayPanel {...props} data={data} />
     );
-  }
-  if (status === "error") {
-    return (
-      <div className="schedule-root">
-        <ErrorState
-          title={t("schedule.error")}
-          retryLabel={t("schedule.retry")}
-          onRetry={props.onRetry}
-        />
-      </div>
-    );
-  }
-  if (status === "empty" || !data) {
-    return (
-      <div className="schedule-root">
-        <EmptyState title={t("schedule.empty")} />
-      </div>
-    );
-  }
   return (
     <div className="schedule-root">
       <Tabs
@@ -263,7 +254,7 @@ export function ScheduleView(props: ScheduleViewProps) {
           {
             id: "today",
             label: t("schedule.tab.today"),
-            content: <TodayPanel {...props} data={data} />,
+            content: todayContent,
           },
           { id: "week", label: t("schedule.tab.week"), content: props.panels.week },
           { id: "calendar", label: t("schedule.tab.calendar"), content: props.panels.calendar },

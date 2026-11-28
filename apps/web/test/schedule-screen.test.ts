@@ -8,6 +8,8 @@ import { BlockDetails, ScheduleView } from "../components/schedule-view";
 import {
   blockStatus,
   describeRepeat,
+  localDate,
+  localHm,
   loadSchedule,
   type ScheduleData,
 } from "../lib/schedule-screen";
@@ -96,6 +98,26 @@ describe("blockStatus", () => {
   ];
   it.each(cases)("%s", (_n, over, expected) => {
     expect(blockStatus(task(over) as never, "2026-11-28", "09:30")).toBe(expected);
+  });
+});
+
+describe("device-local date and time", () => {
+  it("uses the local calendar day and clock, not UTC", () => {
+    const d = new Date(2026, 10, 28, 23, 45); // local time
+    expect(localDate(d)).toBe("2026-11-28");
+    expect(localHm(d)).toBe("23:45");
+  });
+});
+
+describe("tabs stay reachable", () => {
+  it.each(["loading", "empty", "error"])("renders all four tabs when %s", (status) => {
+    const html = renderToStaticMarkup(view({ status }));
+    for (const k of ["today", "week", "calendar", "review"]) {
+      expect(html).toContain(en[`schedule.tab.${k}` as keyof typeof en]);
+    }
+  });
+  it("shows the calendar panel while the week is empty", () => {
+    expect(renderToStaticMarkup(view({ status: "empty", tab: "calendar" }))).toContain("CALPANEL");
   });
 });
 
@@ -192,6 +214,7 @@ describe("ScheduleView", () => {
     expect(renderToStaticMarkup(view({ status: "loading" }))).toContain(en["schedule.loading"]);
     expect(renderToStaticMarkup(view({ status: "empty" }))).toContain(en["schedule.empty"]);
     const err = renderToStaticMarkup(view({ status: "error" }));
+    expect(err).toContain('role="tablist"');
     expect(err).toContain('role="alert"');
     expect(err).toContain(en["schedule.retry"]);
   });
@@ -221,7 +244,7 @@ describe("BlockDetails", () => {
     expect(html).toContain(en["schedule.monitoring.camera"]);
     expect(html).toContain(en["schedule.sync.state.ready"]);
     expect(html).toContain(en["schedule.details.edit"]);
-    expect(html).toContain('href="/schedule/calendar?day=2026-11-28"');
+    expect(html).toContain('href="/schedule?tab=calendar&amp;day=2026-11-28"');
     expect(html).toContain("Weekly");
   });
   it("says sync is unknown when the status is unavailable", () => {

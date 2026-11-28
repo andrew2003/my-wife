@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { utcDate } from "../lib/checklist";
 import type { Locale } from "../lib/i18n";
-import { loadSchedule, type ScheduleData } from "../lib/schedule-screen";
+import { loadSchedule, localDate, localHm, type ScheduleData } from "../lib/schedule-screen";
 import { MonthCalendarScreen } from "./month-calendar-screen";
 import {
   SCHEDULE_TABS,
@@ -14,17 +13,23 @@ import {
 import { WeekPlannerScreen } from "./week-planner-screen";
 import { WeeklyReviewScreen } from "./weekly-review-screen";
 
-const hm = (d: Date) => d.toISOString().slice(11, 16);
-
 /** Loads the week and wires the tabs, the day selection and the block details. */
-export function ScheduleScreen({ locale, initialTab }: { locale: Locale; initialTab?: string }) {
+export function ScheduleScreen({
+  locale,
+  initialTab,
+  initialDay,
+}: {
+  locale: Locale;
+  initialTab?: string;
+  initialDay?: string;
+}) {
   const [status, setStatus] = useState<ScheduleStatus>("loading");
   const [data, setData] = useState<ScheduleData | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [tab, setTab] = useState<ScheduleTab>(
     SCHEDULE_TABS.find((x) => x === initialTab) ?? "today",
   );
-  const [day, setDay] = useState(() => utcDate(new Date()));
+  const [day, setDay] = useState(() => localDate(new Date()));
   const [detailId, setDetailId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -43,8 +48,8 @@ export function ScheduleScreen({ locale, initialTab }: { locale: Locale; initial
       locale={locale}
       status={status}
       data={data}
-      today={utcDate(now)}
-      nowHm={hm(now)}
+      today={localDate(now)}
+      nowHm={localHm(now)}
       day={day}
       tab={tab}
       detailId={detailId}
@@ -58,7 +63,7 @@ export function ScheduleScreen({ locale, initialTab }: { locale: Locale; initial
       }}
       panels={{
         week: <WeekPlannerScreen locale={locale} />,
-        calendar: <MonthCalendarScreen locale={locale} />,
+        calendar: <MonthCalendarScreen locale={locale} initialDay={initialDay} />,
         review: <WeeklyReviewScreen locale={locale} />,
       }}
     />
