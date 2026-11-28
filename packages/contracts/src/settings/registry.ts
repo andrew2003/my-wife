@@ -184,6 +184,7 @@ export const SETTINGS = {
   "notify.question_expiry_hours": def(posInt, 24, "notify"),
   "notify.delivery_retries": def(nonNegInt, 3, "notify", "admin"),
   "notify.inbox_retention_days": def(posInt, 180, "notify", "admin"),
+  "chat.max_custom_commands": def(posInt, 20, "notify"),
   "ai.daily_token_cap": def(posInt, 200000, "ai"),
   "ai.persona_strictness": def(z.number().int().min(1).max(5), 3, "ai"),
   "ai.recent_messages_kept": def(posInt, 20, "ai"),
