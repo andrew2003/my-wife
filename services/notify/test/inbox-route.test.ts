@@ -43,6 +43,16 @@ describe("GET /inbox", () => {
     expect((await get((await setup(1)).app, "/inbox", null)).statusCode).toBe(401);
   });
 
+  it("is mounted with no deps and answers an empty inbox", async () => {
+    const res = await createApp(config).inject({
+      method: "GET",
+      url: "/inbox",
+      headers: { "x-user-id": USER },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, data: { items: [], nextCursor: null } });
+  });
+
   it("returns a body that parses with the shared schema, own items only", async () => {
     const { app } = await setup(3);
     const res = await get(app, "/inbox");

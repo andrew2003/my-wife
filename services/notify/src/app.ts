@@ -1,8 +1,8 @@
 import type { AppConfig } from "@my-wife/config";
 import { InboxQuerySchema, PushSubscriptionRequestSchema } from "@my-wife/contracts";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
-import { inboxKey, type Inbox, type InboxEntry } from "./dispatch/dispatcher";
-import type { QuestionStore } from "./questions/question-service";
+import { inboxKey, InMemoryInbox, type Inbox, type InboxEntry } from "./dispatch/dispatcher";
+import { InMemoryQuestionStore, type QuestionStore } from "./questions/question-service";
 import { InvalidPushEndpointError, type PushService } from "./push/push-service";
 
 export const SERVICE_NAME = "notify";
@@ -10,9 +10,9 @@ export const SERVICE_NAME = "notify";
 export type NotifyDeps = ServiceDeps & {
   /** Web push; routes are mounted only when given. */
   push?: PushService;
-  /** Message history behind `GET /inbox`; the route is mounted only when given. */
+  /** Message history behind `GET /inbox`; defaults to an in-memory inbox. */
   inbox?: Inbox;
-  /** Joins the question of a question message; without it such items carry `question: null`. */
+  /** Joins the question of a question message; defaults to an in-memory store. */
   questionStore?: QuestionStore;
 };
 
@@ -30,12 +30,13 @@ export function createApp(config: AppConfig, deps: NotifyDeps = {}) {
     logLevel: config.logLevel,
     nats: deps.nats,
   });
-  const inbox = deps.inbox;
-  if (inbox) {
+  const inbox = deps.inbox ?? new InMemoryInbox();
+  const questionStore = deps.questionStore ?? new InMemoryQuestionStore();
+  {
     const questionOf = (userId: string, entry: InboxEntry) => {
       const { id, class: cls } = entry.message;
       if (cls !== "question" || !id.startsWith(QUESTION_MESSAGE_PREFIX)) return null;
-      const record = deps.questionStore?.get(id.slice(QUESTION_MESSAGE_PREFIX.length));
+      const record = questionStore.get(id.slice(QUESTION_MESSAGE_PREFIX.length));
       return record && record.userId === userId ? record.question : null;
     };
 
