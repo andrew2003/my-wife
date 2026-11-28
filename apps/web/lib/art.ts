@@ -1,9 +1,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export const ART_SIZES = ["small", "medium", "large"] as const;
-export type ArtSize = (typeof ART_SIZES)[number];
-export type ArtMode = "light" | "dark";
+import { ART_SIZES, artUrl, type ArtMode, type ArtSize } from "./art-url";
+
+export { ART_SIZES, artUrl };
+export type { ArtMode, ArtSize };
 
 /** Allowed image extensions, in lookup order, with their content types. */
 const EXTENSIONS: Record<string, string> = {
@@ -36,12 +37,6 @@ export function isArtSize(value: string): value is ArtSize {
 export interface ArtFile {
   path: string;
   contentType: string;
-}
-
-/** Public URL of an art file; the server maps key, size and mode to a file. */
-export function artUrl(key: string, size: ArtSize, mode: ArtMode = "light"): string {
-  const base = `/art/${encodeURIComponent(key)}?size=${size}`;
-  return mode === "dark" ? `${base}&mode=dark` : base;
 }
 
 /**
