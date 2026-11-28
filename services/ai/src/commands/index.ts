@@ -7,6 +7,8 @@ export {
   type CommandRegistryErrorCode,
   type RegistryEntry,
 } from "./registry";
+export { CAPTURE_HANDLERS, parseAmountVnd, type CapturePorts } from "./capture";
+export { createCapturePorts, type CapturePortsDeps } from "./capture-ports";
 export { CustomCommandManager, type CustomCommandStore } from "./custom";
 export {
   CommandService,

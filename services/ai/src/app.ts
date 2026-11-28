@@ -15,10 +15,13 @@ import { ChatService } from "./chat/chat-service";
 import {
   CommandRegistryError,
   CommandService,
+  createCapturePorts,
   CustomCommandManager,
+  type CapturePorts,
   type ControlPorts,
   type CustomCommandStore,
 } from "./commands";
+import { createBudgetClient, createScheduleClient } from "./clients";
 import { renderMessage } from "./i18n";
 import {
   createKeyValidator,
@@ -122,6 +125,8 @@ export interface AiDeps extends ServiceDeps {
   commandPorts?: ControlPorts;
   /** Per-user command overrides and custom commands; in memory until the database lands. */
   commandStore?: Pick<CustomCommandStore, "load" | "save">;
+  /** Targets of /task, /spend, /remember and /forget; defaults to the budget and schedule REST routes. */
+  capturePorts?: CapturePorts;
   /** REST wrappers for quick capture; none are wired yet, so a capture is audited as failed. */
   toolBackends?: ToolBackends;
 }
@@ -192,6 +197,19 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
       usage: unavailable,
       status: unavailable,
     },
+    capture:
+      deps.capturePorts ??
+      createCapturePorts({
+        budget: createBudgetClient(
+          process.env.BUDGET_URL ?? `http://localhost:${servicePort("budget")}`,
+        ),
+        schedule: createScheduleClient(
+          process.env.SCHEDULE_URL ?? `http://localhost:${servicePort("schedule")}`,
+        ),
+        memory,
+        readSettings,
+      }),
+    now: deps.now,
     loadCommandSettings: commandStore.load,
     readSettings,
     publish,

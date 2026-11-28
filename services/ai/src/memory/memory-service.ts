@@ -90,16 +90,7 @@ export class MemoryService {
     const explicit = extractExplicitFact(userText, rememberTriggers());
     if (explicit !== null && this.accept(explicit, confirmed)) {
       known.add(explicit.toLowerCase());
-      const row = await this.options.store.add({
-        userId,
-        fact: explicit,
-        source: "user_answer",
-        createdAt: now,
-      });
-      await this.options.publish({
-        name: "memory.created",
-        payload: aiEvents["memory.created"].parse({ memoryId: row.id }),
-      });
+      await this.store(userId, explicit, now);
     }
     let pending = 0;
     for (const proposal of proposals) {
@@ -109,6 +100,44 @@ export class MemoryService {
       await this.options.store.add({ userId, fact, source: "model_proposal", createdAt: now });
       pending += 1;
     }
+  }
+
+  /**
+   * Stores a fact the user explicitly asked to remember (`/remember`) as `user_answer` and
+   * announces it. False when it is blank, too long or already known.
+   */
+  async remember(userId: string, text: string, now: Date): Promise<boolean> {
+    const fact = text.trim();
+    const rows = await this.options.store.list(userId);
+    const confirmed = new Set(
+      rows.filter((r) => r.source !== "model_proposal").map((r) => r.fact.toLowerCase()),
+    );
+    if (!this.accept(fact, confirmed)) return false;
+    await this.store(userId, fact, now);
+    return true;
+  }
+
+  /** The user's confirmed facts that contain `text`, case-insensitively, for `/forget`. */
+  async findByText(userId: string, text: string): Promise<{ id: string; fact: string }[]> {
+    const needle = text.trim().toLowerCase();
+    if (needle.length === 0) return [];
+    return (await this.options.store.list(userId))
+      .filter((r) => r.source !== "model_proposal" && r.source !== "summary")
+      .filter((r) => r.fact.toLowerCase().includes(needle))
+      .map((r) => ({ id: r.id, fact: r.fact }));
+  }
+
+  private async store(userId: string, fact: string, now: Date): Promise<void> {
+    const row = await this.options.store.add({
+      userId,
+      fact,
+      source: "user_answer",
+      createdAt: now,
+    });
+    await this.options.publish({
+      name: "memory.created",
+      payload: aiEvents["memory.created"].parse({ memoryId: row.id }),
+    });
   }
 
   private accept(fact: string, known: Set<string>): boolean {
