@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { AppShell } from "../components/app-shell";
 import { SignInPage, type LoginMethod } from "../components/sign-in-page";
+import { artDirectory } from "../lib/art";
 import { translate } from "../lib/i18n";
 import { getRequestContext, getRequestLocale } from "../lib/request-context";
 import { themeColors } from "../lib/theme";
@@ -39,6 +40,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     <html
       lang={locale}
       data-skin={appearance.skin}
+      data-art={artDirectory(process.env) ? "private" : "fallback"}
       data-mode={appearance.mode === "system" ? undefined : appearance.mode}
     >
       <body>

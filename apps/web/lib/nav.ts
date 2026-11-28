@@ -76,11 +76,12 @@ export const NAV_AREAS: readonly NavArea[] = [
   {
     id: "more",
     labelKey: "shell.more",
-    routes: ["/settings", "/settings/models", "/settings/privacy", "/admin"],
+    routes: ["/settings", "/settings/models", "/settings/privacy", "/credits", "/admin"],
     items: [
       { href: "/settings", labelKey: "nav.settings" },
       { href: "/settings/models", labelKey: "nav.models" },
       { href: "/settings/privacy", labelKey: "nav.privacy" },
+      { href: "/credits", labelKey: "nav.credits" },
       { href: "/admin", labelKey: "nav.admin", adminOnly: true },
     ],
   },
