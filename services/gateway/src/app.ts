@@ -35,6 +35,7 @@ const SCHEDULE_PREFIXES = [
   "/weeks",
   "/templates",
   "/recurrences",
+  "/timetable-sheet",
 ];
 /** Paths owned by the sync service (Google link and status). */
 const SYNC_PREFIXES = ["/sync"];
