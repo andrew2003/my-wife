@@ -12,6 +12,7 @@ import { SupervisionLevelSchema } from "../monitor/enums";
 import { NeedOverspendModeSchema } from "../rules/enums";
 import { PenaltyThresholdSchema } from "../rules/entities";
 import { CarryOverRuleSchema, RoutineLevelSchema } from "../schedule/enums";
+import { CalendarProviderSchema } from "../sync/enums";
 import { LoginMethodSchema, SettingOwnerSchema, SettingScopeSchema } from "../identity/enums";
 
 /**
@@ -205,6 +206,7 @@ export const SETTINGS = {
   "sync.debounce_seconds": def(posInt, 30, "sync", "admin"),
   "sync.sheet_readback_enabled": def(bool, true, "sync"),
   "sync.calendar_horizon_weeks": def(posInt, 4, "sync"),
+  "sync.calendar_providers": def(z.array(CalendarProviderSchema).max(2), [], "sync"),
   "sync.retry_backoff_seconds": def(z.array(posInt).min(1), [30, 120, 600, 3600], "sync", "admin"),
   "admin.audit_retention_days": def(posInt, 730, "admin", "admin"),
   "admin.incident_waiver_default": def(bool, true, "rules", "admin"),
