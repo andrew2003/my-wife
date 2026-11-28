@@ -202,6 +202,7 @@ export const SETTINGS = {
   "identity.export_ttl_hours": def(posInt, 24, "identity", "admin"),
   "onboarding.show_tour": def(bool, true, "web"),
   "sync.debounce_seconds": def(posInt, 30, "sync", "admin"),
+  "sync.sheet_readback_enabled": def(bool, true, "sync"),
   "sync.calendar_horizon_weeks": def(posInt, 4, "sync"),
   "sync.retry_backoff_seconds": def(z.array(posInt).min(1), [30, 120, 600, 3600], "sync", "admin"),
   "admin.audit_retention_days": def(posInt, 730, "admin", "admin"),

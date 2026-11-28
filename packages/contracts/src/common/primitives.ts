@@ -72,6 +72,7 @@ export const ConsentKindSchema = z.enum([
   "email",
   "bank",
   "google_sync",
+  "apple_calendar_sync",
 ]);
 export type ConsentKind = z.infer<typeof ConsentKindSchema>;
 export const CONSENT_KINDS = ConsentKindSchema.options;

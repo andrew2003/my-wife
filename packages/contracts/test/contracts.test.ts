@@ -3,7 +3,12 @@ import {
   AI_TOOL_NAMES,
   AiToolCallSchema,
   CONSENT_KINDS,
+  CalendarProviderSchema,
+  CellEditRequestSchema,
+  CellEditResponseSchema,
+  ConsentKindSchema,
   CycleStateSchema,
+  ReadbackConflictRecordSchema,
   EVENT_REGISTRY,
   EventEnvelopeSchemas,
   FaultTypeSchema,
@@ -69,9 +74,17 @@ describe("enums", () => {
     expect(FaultTypeSchema.safeParse("yawn").success).toBe(false);
     expect(FaultTypeSchema.safeParse("late_night").success).toBe(false);
   });
-  it("lists the six consents", () => {
+  it("lists the seven consents", () => {
     expect([...CONSENT_KINDS].sort()).toEqual(
-      ["bank", "camera", "email", "google_sync", "vision_frame", "wake_photo"].sort(),
+      [
+        "apple_calendar_sync",
+        "bank",
+        "camera",
+        "email",
+        "google_sync",
+        "vision_frame",
+        "wake_photo",
+      ].sort(),
     );
   });
 });
@@ -274,5 +287,85 @@ describe("ListKeysResponseSchema", () => {
     const r = ListKeysResponseSchema.safeParse(input);
     expect(r.success).toBe(success);
     if (r.success && r.data.ok) expect(r.data.data.nextCursor).toBe(cursor);
+  });
+});
+
+describe("sync read-back and calendar contracts (ADR 0015)", () => {
+  const edit = {
+    sheet: "budget",
+    tab: "limits",
+    cellRef: "C4",
+    entityId: "cat-1",
+    field: "limit_vnd",
+    value: 1500000,
+  };
+  it.each([
+    ["valid number edit", edit, true],
+    ["valid note edit", { ...edit, field: "note", value: "rent" }, true],
+    ["clearing a cell", { ...edit, value: null }, true],
+    ["unknown sheet", { ...edit, sheet: "other" }, false],
+    ["empty cell ref", { ...edit, cellRef: "" }, false],
+    ["object value", { ...edit, value: { a: 1 } }, false],
+    ["missing field", { sheet: "budget", tab: "limits", cellRef: "C4", value: 1 }, false],
+  ])("cell edit request: %s", (_n, input, ok) => {
+    expect(CellEditRequestSchema.safeParse(input).success).toBe(ok);
+  });
+  it.each([
+    ["applied", { ok: true, data: { status: "applied" } }, true],
+    ["rejected with reason", { ok: true, data: { status: "rejected", reason: "locked_cell" } }, true],
+    ["error", { ok: false, error: { code: "validation_failed", message: "bad" } }, true],
+    ["unknown status", { ok: true, data: { status: "maybe" } }, false],
+    ["unknown reason", { ok: true, data: { status: "rejected", reason: "nope" } }, false],
+  ])("cell edit response: %s", (_n, input, ok) => {
+    expect(CellEditResponseSchema.safeParse(input).success).toBe(ok);
+  });
+  const conflict = {
+    id: "c1",
+    sheet: "timetable",
+    tab: "week",
+    cellRef: "B2",
+    field: "title",
+    appValue: "Study",
+    sheetValue: "Gym",
+    appChangedAt: "2026-11-28T01:00:00.000Z",
+    sheetChangedAt: "2026-11-28T02:00:00.000Z",
+    winner: "sheet",
+    resolvedAt: "2026-11-28T02:01:00.000Z",
+  };
+  it.each([
+    ["valid", conflict, true],
+    ["null values", { ...conflict, appValue: null }, true],
+    ["bad winner", { ...conflict, winner: "both" }, false],
+    ["bad timestamp", { ...conflict, sheetChangedAt: "yesterday" }, false],
+    ["missing sheet value", { ...conflict, sheetValue: undefined }, false],
+  ])("conflict record: %s", (_n, input, ok) => {
+    expect(ReadbackConflictRecordSchema.safeParse(input).success).toBe(ok);
+  });
+  it.each([
+    ["google", true],
+    ["apple", true],
+    ["outlook", false],
+  ])("calendar provider %s valid=%s", (v, ok) => {
+    expect(CalendarProviderSchema.safeParse(v).success).toBe(ok);
+  });
+  it("accepts apple_calendar_sync consent", () => {
+    expect(ConsentKindSchema.safeParse("apple_calendar_sync").success).toBe(true);
+  });
+  it.each([
+    ["sync.readback_applied", { sheet: "budget", cellCount: 3 }, true],
+    ["sync.readback_applied", { sheet: "budget", cellCount: -1 }, false],
+    ["sync.readback_reverted", { sheet: "timetable", cellCount: 2, reason: "locked_cell" }, true],
+    ["sync.readback_reverted", { sheet: "timetable", cellCount: 2, reason: "x" }, false],
+    ["sync.conflict_resolved", { conflictId: "c1", winner: "app" }, true],
+    ["sync.conflict_resolved", { conflictId: "c1", winner: "x" }, false],
+    ["sync.readback_paused", { sheet: "budget", reason: "malformed_sheet" }, true],
+    ["sync.readback_paused", { sheet: "budget" }, false],
+  ])("event %s %j valid=%s", (type, payload, ok) => {
+    expect(EVENT_REGISTRY[type as keyof typeof EVENT_REGISTRY].publisher).toBe("sync");
+    const schema = EVENT_REGISTRY[type as keyof typeof EVENT_REGISTRY].payload;
+    expect(schema.safeParse(payload).success).toBe(ok);
+  });
+  it("registers the sheet read-back setting default on", () => {
+    expect(SETTINGS["sync.sheet_readback_enabled"].default).toBe(true);
   });
 });
