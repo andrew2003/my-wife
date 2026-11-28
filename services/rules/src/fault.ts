@@ -151,7 +151,10 @@ export interface FaultStore {
     from: readonly FaultLedgerEntry["status"][],
     to: FaultLedgerEntry["status"],
     audit: FaultAuditRecord,
+    patch?: Pick<FaultLedgerEntry, "waiver" | "systemCause">,
   ): FaultLedgerEntry | undefined;
+  /** Every user that has at least one ledger entry. */
+  listUserIds(): readonly string[];
   /** Honest-reason faults of the type with occurredAt in (from, to]. */
   countHonest(userId: string, type: FaultType, from: Date, to: Date): number;
   claimOwedEvent(userId: string, signalRef: string): Stored | undefined;
@@ -213,12 +216,16 @@ export class InMemoryFaultStore implements FaultStore {
     from: readonly FaultLedgerEntry["status"][],
     to: FaultLedgerEntry["status"],
     audit: FaultAuditRecord,
+    patch?: Pick<FaultLedgerEntry, "waiver" | "systemCause">,
   ) {
     const row = this.rows.get(userId)?.find((r) => r.entry.id === faultId);
     if (!row || !from.includes(row.entry.status)) return undefined;
-    row.entry = Object.freeze({ ...row.entry, status: to });
+    row.entry = Object.freeze({ ...row.entry, ...patch, status: to });
     this.audits.set(userId, [...(this.audits.get(userId) ?? []), Object.freeze(audit)]);
     return row.entry;
+  }
+  listUserIds() {
+    return [...this.rows.keys()];
   }
   countHonest(userId: string, type: FaultType, from: Date, to: Date) {
     return (this.rows.get(userId) ?? []).filter((r) => {
@@ -282,6 +289,12 @@ export function createFaultService(deps: FaultServiceDeps) {
   const newId = deps.newId ?? randomUUID;
   const listIncidents = deps.listIncidents ?? (async () => []);
   const readSettings = deps.readSettings ?? (async () => DEFAULT_FAULT_SETTINGS);
+  /** Incidents learned from `incident.*` events, by id. */
+  const known = new Map<string, IncidentWindow>();
+  const allIncidents = async (userId: string): Promise<readonly IncidentWindow[]> => [
+    ...known.values(),
+    ...(await listIncidents(userId)),
+  ];
 
   async function emitOwed(userId: string, signalRef: string, now: Date): Promise<void> {
     const row = deps.store.claimOwedEvent(userId, signalRef);
@@ -323,7 +336,99 @@ export function createFaultService(deps: FaultServiceDeps) {
     }
   }
 
+  /**
+   * Waives the user's `recorded` faults that fall in the incident window. Only the
+   * recorded -> waived_system transition is allowed, so a repeat finds nothing to do.
+   */
+  async function waiveOverlapping(
+    userId: string,
+    incident: IncidentWindow,
+    sourceEventId: string,
+    now: Date,
+  ): Promise<number> {
+    let waived = 0;
+    for (const f of deps.store.list(userId)) {
+      if (f.status !== "recorded") continue;
+      if (!findCoveringIncident(f.occurredAt, userId, [incident])) continue;
+      const settings = await readSettings(userId, new Date(f.occurredAt));
+      if (!(settings.incidentWaiver ?? DEFAULT_FAULT_SETTINGS.incidentWaiver)) continue;
+      const moved = deps.store.transition(
+        userId,
+        f.id,
+        ["recorded"],
+        "waived_system",
+        {
+          id: newId(),
+          faultId: f.id,
+          action: "fault.waived_system",
+          at: now.toISOString(),
+          detail: { sourceEventId, incidentId: incident.id, points: f.points },
+        },
+        { waiver: "admin_incident", systemCause: `incident:${incident.id}` },
+      );
+      if (!moved) continue;
+      waived++;
+      try {
+        await deps.publish?.({
+          id: `fault-waived-${f.id}`,
+          userId,
+          schemaVersion: EVENT_SCHEMA_VERSION,
+          type: "fault.waived",
+          occurredAt: now.toISOString(),
+          payload: {
+            faultId: f.id,
+            cause: "admin_incident",
+            kind: "system",
+          } satisfies EventPayload<"fault.waived">,
+        } as EventEnvelope);
+      } catch (err) {
+        deps.onPublishError?.(err);
+      }
+    }
+    return waived;
+  }
+
   return {
+    /**
+     * Consumes `incident.declared`, `incident.ended` and `incident.cancelled`. Remembers the
+     * window (so later faults inside it are waived at detection) and waives the recorded
+     * faults it overlaps. Idempotent: a redelivery changes nothing. A cancelled incident stops
+     * waiving new faults; waivers already granted stay (undoing them is a manual decision).
+     */
+    async onIncidentEvent(event: EventEnvelope, now: Date): Promise<{ waived: number }> {
+      let incident: IncidentWindow;
+      if (event.type === "incident.declared") {
+        const p = event.payload as EventPayload<"incident.declared">;
+        const prior = known.get(p.incidentId);
+        if (prior && (prior.state === "cancelled" || prior.state === "ended")) return { waived: 0 };
+        incident = {
+          id: p.incidentId,
+          state: "declared",
+          startsAt: p.startsAt,
+          endsAt: p.endsAt,
+          scope: p.scope,
+        };
+      } else if (event.type === "incident.ended") {
+        const p = event.payload as EventPayload<"incident.ended">;
+        const prior = known.get(p.incidentId);
+        if (!prior || prior.state === "cancelled") return { waived: 0 };
+        incident = { ...prior, state: "ended", endsAt: p.endsAt };
+      } else if (event.type === "incident.cancelled") {
+        const p = event.payload as EventPayload<"incident.cancelled">;
+        const prior = known.get(p.incidentId);
+        if (prior) known.set(p.incidentId, { ...prior, state: "cancelled" });
+        return { waived: 0 };
+      } else {
+        return { waived: 0 };
+      }
+      known.set(incident.id, incident);
+      const users =
+        incident.scope === "all" ? deps.store.listUserIds() : [...new Set(incident.scope)];
+      let waived = 0;
+      for (const userId of users) waived += await waiveOverlapping(userId, incident, event.id, now);
+      return { waived };
+    },
+
     /**
      * Consumes `fault.detected`: scores it with the settings in force at `occurredAt`,
      * writes the ledger entry and its audit record once per signal, then emits the event.
@@ -355,7 +460,7 @@ export function createFaultService(deps: FaultServiceDeps) {
       const { weightSnapshot, points } = scoreFault({ type: p.type, reason }, settings);
       const incident =
         !p.overlapsOutage && (settings.incidentWaiver ?? DEFAULT_FAULT_SETTINGS.incidentWaiver)
-          ? findCoveringIncident(p.occurredAt, userId, await listIncidents(userId))
+          ? findCoveringIncident(p.occurredAt, userId, await allIncidents(userId))
           : undefined;
       const waived = p.overlapsOutage || incident !== undefined;
       const id = newId();
