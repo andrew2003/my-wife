@@ -5,7 +5,7 @@
 
 ## Context
 
-Memory is the scarce resource: 16 GB for the factory, the infrastructure stack and the demo.
+Memory is the scarce resource: 16 GB for the development tools, the infrastructure stack and the demo.
 
 ## Decision
 

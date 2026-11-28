@@ -1,6 +1,6 @@
 # Acceptance guide
 
-A step-by-step way to verify the four demo scenarios (see `factory/prompts/milestones.md`):
+A step-by-step way to verify the four demo scenarios (see the milestone plan):
 onboarding, money, time and routines. Each scenario has two parts: an automated check you can run
 in one command, and a manual walk-through in the web app.
 
@@ -64,9 +64,9 @@ xdg-open http://localhost:4100/demo-login             # 5. sign in as the demo a
   prerendered, so the locale is fixed at build time). The default is Vietnamese.
 
 To check the deploy path, see `docs/deploy.md`:
-`DEPLOY_TARGET=this_server scripts/deploy-demo.sh --check` validates the intake and the compose
+`DEPLOY_TARGET=this_server scripts/deploy-demo.sh --check` validates the setup file and the compose
 config without starting containers. The real deploy needs owner-provided values and a Cloudflare
-Tunnel, so agents never run it.
+Tunnel, so it is never run automatically.
 
 Optional tools for the money scenario, run from the repository root:
 

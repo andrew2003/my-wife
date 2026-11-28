@@ -5,7 +5,7 @@
 
 ## Context
 
-The product has ten bounded domains (gateway, identity, budget, ingest, schedule, monitor, rules, ai, notify, sync) plus a web app. Agents build in parallel and need hard boundaries, but the team is one owner on one 16 GB machine.
+The product has ten bounded domains (gateway, identity, budget, ingest, schedule, monitor, rules, ai, notify, sync) plus a web app. Parallel work needs hard boundaries, but the team is one owner on one 16 GB machine.
 
 ## Decision
 
@@ -16,5 +16,5 @@ The product has ten bounded domains (gateway, identity, budget, ingest, schedule
 
 ## Consequences
 
-- Clear ownership per issue and per agent; small PRs.
+- Clear ownership per issue; small PRs.
 - Operational cost stays low because development runs all services in one process (ADR 0007).
