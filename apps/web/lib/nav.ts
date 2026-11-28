@@ -79,6 +79,7 @@ export const NAV_AREAS: readonly NavArea[] = [
     routes: [
       "/settings",
       "/settings/models",
+      "/settings/appearance",
       "/settings/persona",
       "/settings/privacy",
       "/credits",
@@ -87,6 +88,7 @@ export const NAV_AREAS: readonly NavArea[] = [
     items: [
       { href: "/settings", labelKey: "nav.settings" },
       { href: "/settings/models", labelKey: "nav.models" },
+      { href: "/settings/appearance", labelKey: "nav.appearance" },
       { href: "/settings/persona", labelKey: "nav.persona" },
       { href: "/settings/privacy", labelKey: "nav.privacy" },
       { href: "/credits", labelKey: "nav.credits" },
