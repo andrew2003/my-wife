@@ -54,9 +54,16 @@ xdg-open http://localhost:4100/demo-login             # 5. sign in as the demo a
 ```
 
 Use `localhost`, not `127.0.0.1`, in the browser: the session cookie is set for the host you open.
-The runner resets the demo user in its own in-memory store at startup, so step 1 only previews the
-state (and writes it to the identity schema when `DATABASE_URL` is set). Stop steps 3 and 4 with
-Ctrl+C. Set `WEB_URL` if the web app runs on another origin.
+`pnpm demo:reset` writes the demo state (cycle, ten schedule blocks, two routines, channel links)
+to `.demo/demo-state.json` (override with `DEMO_STATE_FILE`; the folder is ignored by git). The
+runner restores that file at startup, so a restart keeps the same cycle, blocks and routines; without
+the file it builds a fresh state. The demo user and its session live in the runner's memory store and
+are rewritten at every start. Stop steps 3 and 4 with Ctrl+C. Set `WEB_URL` if the web app runs on
+another origin.
+
+With the runner up, `pnpm demo:probe` logs in through `/demo-login` and prints the HTTP status of
+every API path the web reads (`PROBE_LOGIN_URL` default http://127.0.0.1:4100, `PROBE_API_URL`
+default the gateway at http://127.0.0.1:4000). It never prints the session cookie.
 
 Known gap: the budget and schedule read routes the screens call are not all in place yet, so some
 screens show empty states (see issues #244, #247, #271, #273).
