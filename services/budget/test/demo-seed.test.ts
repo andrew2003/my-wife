@@ -3,6 +3,7 @@ import { loadConfig } from "@my-wife/config";
 import { BudgetOverviewResponseSchema, type EventEnvelope } from "@my-wife/contracts";
 import { buildFundRequests, createApp, MemorySampleBudgetStore } from "../src/index";
 import { seedDemoBudget } from "../src/demo-seed";
+import { MemoryWeeklyMenuStore } from "../src/weekly-menu";
 
 const config = loadConfig({ SESSION_SECRET: "x".repeat(32), LOG_LEVEL: "silent" });
 const NOW = new Date("2026-03-05T10:00:00Z");
@@ -81,5 +82,30 @@ describe("demo user budget routes", () => {
     expect(body.data.accounts.every((a) => a.funded)).toBe(true);
     const total = body.data.accounts.reduce((s, a) => s + a.requiredVnd, 0);
     expect(total).toBe(record.categories.reduce((s, c) => s + c.cycleLimitVnd, 0));
+  });
+
+  it("proposes a weekly menu for every week of the cycle when a menu store is given", async () => {
+    const store = new MemorySampleBudgetStore();
+    const menus = new MemoryWeeklyMenuStore();
+    await seedDemoBudget({ store, userId: USER, now: () => NOW, locale: "en", menus });
+    const { cycle } = store.get(USER)!;
+    for (let week = 1; week <= cycle.weeks; week += 1) {
+      const found = await menus.find(USER, cycle.id, week);
+      expect(found?.status).toBe("proposed");
+      expect(found?.menu.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("serves the menu of the current week through the read route", async () => {
+    const store = new MemorySampleBudgetStore();
+    const menus = new MemoryWeeklyMenuStore();
+    await seedDemoBudget({ store, userId: USER, now: () => NOW, locale: "vi", menus });
+    const app = await createApp(config, { store, weeklyMenuStore: menus, now: () => NOW });
+    const res = await app.inject({
+      method: "GET",
+      url: "/budget/weekly-menu?weekIndex=1",
+      headers,
+    });
+    expect(res.statusCode).toBe(200);
   });
 });

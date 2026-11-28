@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { EventEnvelope, SettingKey } from "@my-wife/contracts";
 import { buildFundRequests } from "./approval";
 import { createOnboardingHandler, type SampleBudgetStore } from "./onboarding";
+import { createWeeklyMenuService, type MenuDish, type WeeklyMenuStore } from "./weekly-menu";
 
 export interface DemoSeedDeps {
   store: SampleBudgetStore;
@@ -11,8 +12,40 @@ export interface DemoSeedDeps {
   locale: "vi" | "en";
   /** Receives the events the seed would publish; the demo passes a no-op. */
   publish?: (event: EventEnvelope) => void | Promise<void>;
+  /** When given, every week of the new cycle also gets a proposed menu. */
+  menus?: WeeklyMenuStore;
   readSettings?: (userId: string) => Promise<Partial<Record<SettingKey, unknown>>>;
 }
+
+/** Demo data, not interface text: dish names are stored content in the user's language. */
+const DEMO_DISHES: Record<"vi" | "en", MenuDish[]> = {
+  vi: [
+    {
+      name: "Cơm gà",
+      ingredients: [
+        { name: "Gạo", unit: "kg", quantity: 1, unitPriceVnd: 20_000 },
+        { name: "Thịt gà", unit: "kg", quantity: 1, unitPriceVnd: 70_000 },
+      ],
+    },
+    {
+      name: "Canh rau",
+      ingredients: [{ name: "Rau cải", unit: "kg", quantity: 1, unitPriceVnd: 25_000 }],
+    },
+  ],
+  en: [
+    {
+      name: "Chicken rice",
+      ingredients: [
+        { name: "Rice", unit: "kg", quantity: 1, unitPriceVnd: 20_000 },
+        { name: "Chicken", unit: "kg", quantity: 1, unitPriceVnd: 70_000 },
+      ],
+    },
+    {
+      name: "Vegetable soup",
+      ingredients: [{ name: "Greens", unit: "kg", quantity: 1, unitPriceVnd: 25_000 }],
+    },
+  ],
+};
 
 /**
  * Gives the demo user a running cycle through the same store operations a real user goes
@@ -68,5 +101,17 @@ export async function seedDemoBudget(deps: DemoSeedDeps): Promise<"seeded" | "ex
   }
   await store.openIfFunded(userId, cycle.id, transfers, at);
   await store.markOpenedAnnounced(userId);
+
+  if (deps.menus) {
+    const menus = createWeeklyMenuService({
+      store,
+      menus: deps.menus,
+      now: deps.now,
+      readSettings: deps.readSettings,
+    });
+    for (let weekIndex = 1; weekIndex <= cycle.weeks; weekIndex += 1) {
+      await menus.generate(userId, { weekIndex, dishes: DEMO_DISHES[deps.locale] });
+    }
+  }
   return "seeded";
 }
