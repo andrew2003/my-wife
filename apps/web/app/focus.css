@@ -1,0 +1,57 @@
+/* Focus session screen: the ring changes only its stroke offset; no other motion. */
+.focus-root {
+  display: grid;
+  gap: var(--mw-space-4);
+  min-width: 0;
+  max-width: 100%;
+}
+.focus-ring-card {
+  display: grid;
+  justify-items: center;
+  gap: var(--mw-space-3);
+}
+.focus-ring {
+  position: relative;
+  width: min(100%, 260px);
+  aspect-ratio: 1;
+}
+.focus-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.focus-ring-track,
+.focus-ring-value {
+  fill: none;
+  stroke-width: 12;
+}
+.focus-ring-track {
+  stroke: var(--mw-color-border);
+  opacity: 0.35;
+}
+.focus-ring-value {
+  stroke: var(--mw-color-accent);
+  stroke-linecap: round;
+}
+.focus-time {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 2.5rem;
+}
+.focus-stats,
+.focus-actions,
+.focus-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mw-space-2);
+}
+.focus-urgent {
+  border: 2px solid var(--mw-color-danger);
+  border-radius: var(--mw-radius-card);
+  padding: var(--mw-space-4);
+}
+.focus-privacy {
+  color: var(--mw-color-muted);
+}

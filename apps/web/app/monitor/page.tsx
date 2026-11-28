@@ -1,5 +1,5 @@
 import { SETTINGS } from "@my-wife/contracts";
-import { CameraMonitor } from "../../components/camera-monitor";
+import { FocusSessionScreen } from "../../components/focus-session-screen";
 import { translate } from "../../lib/i18n";
 import { getRequestContext } from "../../lib/request-context";
 
@@ -15,7 +15,7 @@ export default async function MonitorPage({
   return (
     <main>
       <h1>{translate(locale, "monitor.title")}</h1>
-      <CameraMonitor
+      <FocusSessionScreen
         locale={locale}
         sessionId={sessionId ?? ""}
         // No settings read path exists in the web app yet; use the registry default for now.
