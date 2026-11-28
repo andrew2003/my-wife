@@ -64,11 +64,13 @@ export type AuditQuery = {
 };
 
 const MAX_LIMIT = 500;
+/** Page size when the caller asks for none, so the route is never unbounded. */
+const DEFAULT_LIMIT = 100;
 
 /** Parses the raw query string values; undefined when any value is invalid. */
 export function parseAuditQuery(raw: unknown): AuditQuery | undefined {
   const r = (raw ?? {}) as Record<string, unknown>;
-  const q: AuditQuery = {};
+  const q: AuditQuery = { limit: DEFAULT_LIMIT };
   for (const key of ["actorId", "action", "from", "to"] as const) {
     const v = r[key];
     if (v === undefined) continue;
