@@ -98,6 +98,13 @@ describe("loading the session", () => {
     // the server is 5000 ms ahead of the device mid-point (START + 100)
     expect(s?.serverOffsetMs).toBe(4900);
   });
+  it("makes no request when there is no session id", async () => {
+    const doFetch = vi.fn(async () => json(404, { ok: false }));
+    expect(await loadFocusSession("", undefined, doFetch)).toBeNull();
+    expect(doFetch).not.toHaveBeenCalled();
+    expect(en["focus.empty"]).toBeTruthy();
+    expect(vi_["focus.empty"]).toBeTruthy();
+  });
   it("is null on failure or a bad body", async () => {
     expect(await loadFocusSession(SID, undefined, async () => json(404, { ok: false }))).toBeNull();
     expect(await loadFocusSession(SID, undefined, async () => json(200, { ok: true }))).toBeNull();

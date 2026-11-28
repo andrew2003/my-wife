@@ -781,6 +781,7 @@
   "monitor.presence.away": "No one in view",
   "focus.loading": "Loading the focus session",
   "focus.error": "The focus session could not be loaded.",
+  "focus.empty": "No focus session is running. Start one from a task.",
   "focus.retry": "Try again",
   "focus.ended": "This focus session has ended.",
   "focus.action_failed": "That did not go through. Please try again.",
