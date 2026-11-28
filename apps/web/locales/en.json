@@ -615,5 +615,7 @@
   "shell.more": "More",
   "shell.close": "Close",
   "shell.area_nav": "Pages in this area",
-  "shell.more_title": "All pages"
+  "shell.more_title": "All pages",
+  "nav.credits": "Credits",
+  "credits.generic_note": "Credits are loaded from the private art directory when one is configured."
 }

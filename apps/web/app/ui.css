@@ -440,3 +440,24 @@ h3,
     animation: none;
   }
 }
+
+/* Fallback theme: original gradient and wave art when no private art directory exists. */
+html[data-art="fallback"] body {
+  background-image: linear-gradient(
+    160deg,
+    var(--mw-color-bg) 0%,
+    var(--mw-color-surface) 55%,
+    var(--mw-color-bg) 100%
+  );
+  background-attachment: fixed;
+}
+.fallback-art,
+.mascot-art {
+  display: block;
+  max-width: 100%;
+  width: 7.5rem;
+  height: auto;
+}
+.credits-text {
+  white-space: pre-wrap;
+}

@@ -615,5 +615,7 @@
   "shell.more": "Thêm",
   "shell.close": "Đóng",
   "shell.area_nav": "Các trang trong mục này",
-  "shell.more_title": "Tất cả trang"
+  "shell.more_title": "Tất cả trang",
+  "nav.credits": "Ghi công",
+  "credits.generic_note": "Phần ghi công được nạp từ thư mục ảnh riêng khi thư mục đó được cấu hình."
 }
