@@ -4,7 +4,16 @@ import { describe, expect, it, vi as mock } from "vitest";
 import en from "../locales/en.json";
 import vi from "../locales/vi.json";
 import { InboxView } from "../components/inbox-view";
-import { answerInboxQuestion, canAnswer, isRead, loadInbox } from "../lib/inbox";
+import { DEFAULT_EXPRESSION_SET, defaultExpressionSettings } from "../lib/expressions";
+import {
+  answerInboxQuestion,
+  applyAnswered,
+  canAnswer,
+  inboxExpressionState,
+  inboxStickerKey,
+  isRead,
+  loadInbox,
+} from "../lib/inbox";
 import { NAV_ITEMS } from "../lib/nav";
 
 const json = (status: number, body: unknown) =>
@@ -130,6 +139,8 @@ const render = (props: Record<string, unknown>) =>
       onRefresh: () => {},
       onMarkRead: () => {},
       onAnswer: () => {},
+      expressions: defaultExpressionSettings(),
+      artAvailable: true,
       ...props,
     } as never),
   );
@@ -163,5 +174,73 @@ describe("inbox navigation and locales", () => {
     expect(NAV_ITEMS.some((i) => i.href === "/inbox")).toBe(true);
     expect(en).toHaveProperty(["nav.inbox"]);
     expect(vi).toHaveProperty(["nav.inbox"]);
+  });
+});
+
+describe("stickers from the active set", () => {
+  it("maps a message to an expression state", () => {
+    expect(inboxExpressionState(items[0] as never, now)).toBe("news");
+    expect(inboxExpressionState(items[1] as never, now)).toBe("needs_answer");
+    expect(inboxExpressionState(items[2] as never, now)).toBe("task_done");
+    expect(inboxExpressionState({ ...items[0], class: "urgent" } as never, now)).toBe(
+      "fault_penalty",
+    );
+    expect(inboxExpressionState({ ...items[0], class: "timed" } as never, now)).toBe("greeting");
+  });
+  it("uses the active set and the user mapping", () => {
+    const settings = defaultExpressionSettings();
+    expect(inboxStickerKey(items[1] as never, now, settings)).toBe(`${DEFAULT_EXPRESSION_SET}-ask`);
+    const blue = {
+      set: "blue_face" as const,
+      map: { ...settings.map, needs_answer: "love" as const },
+    };
+    expect(inboxStickerKey(items[1] as never, now, blue)).toBe("blue-face-love");
+  });
+  it("renders one sticker per message from the active set", () => {
+    const html = render({});
+    expect(html.match(/class="mascot-art"/g)?.length).toBe(items.length);
+    expect(html).toContain("chibi-ask");
+    expect(html).toContain("chibi-surprise");
+    const silver = render({
+      expressions: { set: "silver_face", map: defaultExpressionSettings().map },
+    });
+    expect(silver).toContain("silver-face-ask");
+  });
+  it("falls back to original art without a private art directory", () => {
+    const html = render({ artAvailable: false });
+    expect(html).toContain("fallback-art");
+    expect(html).not.toContain("mascot-art");
+  });
+});
+
+describe("inline answers", () => {
+  it("shows answer chips inline for an open question only", () => {
+    const html = render({});
+    expect(html.match(/data-answer-option/g)?.length).toBe(2);
+  });
+  it("marks the question answered in place and keeps the chosen value", () => {
+    const next = applyAnswered(items as never, QID, "food");
+    const updated = next.find((i) => i.question?.id === QID)!;
+    expect(updated.question?.state).toBe("answered");
+    expect(canAnswer(updated, now)).toBe(false);
+    expect(isRead(updated, new Set())).toBe(true);
+    expect(next).toHaveLength(items.length);
+    expect(items[1]!.question!.state).toBe("delivered");
+  });
+  it("shows the given answer after it was sent", () => {
+    const html = render({ answers: { [QID]: "food" } });
+    expect(html).toContain(en["inbox.your_answer"].replace("{value}", "food"));
+  });
+  it("renders a friendly empty state with art and a skeleton while loading", () => {
+    const empty = render({ status: "empty", items: [] });
+    expect(empty).toContain(en["inbox.empty"]);
+    expect(empty).toContain("mascot-art");
+    expect(render({ status: "loading" })).toContain("mw-skeleton");
+  });
+  it("has the new keys in both locales", () => {
+    for (const key of ["inbox.your_answer", "inbox.sticker_alt", "inbox.error.title"]) {
+      expect(en).toHaveProperty([key]);
+      expect(vi).toHaveProperty([key]);
+    }
   });
 });

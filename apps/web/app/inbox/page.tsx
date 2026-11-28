@@ -1,3 +1,4 @@
+import { artDirectory } from "../../lib/art";
 import { InboxScreen } from "../../components/inbox-screen";
 import { translate } from "../../lib/i18n";
 import { getRequestContext } from "../../lib/request-context";
@@ -9,7 +10,7 @@ export default async function InboxPage() {
   return (
     <main>
       <h1>{translate(locale, "inbox.title")}</h1>
-      <InboxScreen locale={locale} />
+      <InboxScreen locale={locale} artAvailable={artDirectory(process.env) !== null} />
     </main>
   );
 }
