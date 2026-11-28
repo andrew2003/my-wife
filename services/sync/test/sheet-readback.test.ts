@@ -238,9 +238,7 @@ describe("read-back", () => {
     expect(res.status).toBe("paused");
     expect(s.applied).toEqual([]);
     expect(s.calls.filter((c) => c.startsWith("write:"))).toEqual([]);
-    expect(s.asked).toEqual([
-      { reason: "malformed_sheet", message: "L:sync.readback.paused" },
-    ]);
+    expect(s.asked).toEqual([{ reason: "malformed_sheet", message: "L:sync.readback.paused" }]);
     expect(s.published).toContainEqual({
       type: "sync.readback_paused",
       payload: { sheet: "budget", reason: "malformed_sheet" },
