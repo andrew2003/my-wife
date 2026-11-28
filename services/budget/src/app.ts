@@ -475,7 +475,8 @@ export function createApp(config: AppConfig, deps: BudgetDeps = {}) {
     if (!record) {
       return reply.code(404).send({ ok: false, error: { code: "budget.cycle_not_found" } });
     }
-    if (record.cycle.state !== "awaiting_funds") {
+    // A draft has no transfers yet; every later state keeps the list readable (demo, history).
+    if (record.cycle.state === "draft") {
       return reply
         .code(409)
         .send({ ok: false, error: { code: "budget.cycle_not_awaiting_funds" } });
