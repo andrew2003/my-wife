@@ -89,7 +89,6 @@ export function patchOverride(
   return Object.keys(merged).length > 1 ? [...rest, merged as CommandOverride] : rest;
 }
 
-
 export type CommandsResult =
   | { status: "ready"; overrides: CommandOverride[]; custom: CustomCommandInput[] }
   | { status: "error" };

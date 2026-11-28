@@ -5,7 +5,6 @@
  */
 import { SkinSchema, ThemeModeSchema } from "@my-wife/contracts";
 
-
 export const SKINS = SkinSchema.options;
 export const MODES = ThemeModeSchema.options;
 export type Skin = (typeof SKINS)[number];
