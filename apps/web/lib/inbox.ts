@@ -5,6 +5,7 @@ import {
   type QuestionState,
 } from "@my-wife/contracts";
 import type { z } from "zod";
+import { resolveExpression, type ExpressionSettings, type ExpressionState } from "./expressions";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -37,6 +38,37 @@ export function canAnswer(item: InboxItem, now: Date): boolean {
   const q = item.question;
   if (q === null || !OPEN_STATES.includes(q.state)) return false;
   return new Date(q.expiresAt).getTime() > now.getTime();
+}
+
+/**
+ * The expression state of a message, decided in code from its class and
+ * question state; the user's mapping then picks the sticker from the active set.
+ */
+export function inboxExpressionState(item: InboxItem, now: Date): ExpressionState {
+  if (item.question?.state === "answered") return "task_done";
+  if (canAnswer(item, now)) return "needs_answer";
+  switch (item.class) {
+    case "urgent":
+      return "fault_penalty";
+    case "timed":
+      return "greeting";
+    default:
+      return "news";
+  }
+}
+
+/** Art key of the sticker shown on one of her messages. */
+export function inboxStickerKey(item: InboxItem, now: Date, settings: ExpressionSettings): string {
+  return resolveExpression(settings, inboxExpressionState(item, now));
+}
+
+/** Returns the items with one question marked answered; the input is not changed. */
+export function applyAnswered(items: InboxItem[], questionId: string, _value: string): InboxItem[] {
+  return items.map((item) =>
+    item.question?.id === questionId
+      ? { ...item, question: { ...item.question, state: "answered" as const } }
+      : item,
+  );
 }
 
 /** Reads the inbox through the gateway, newest first. */

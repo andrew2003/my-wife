@@ -1,6 +1,9 @@
 import { QuestionStateSchema, SERVICE_NAMES } from "@my-wife/contracts";
-import { canAnswer, isRead, type InboxFilter, type InboxItem } from "../lib/inbox";
+import type { ExpressionSettings } from "../lib/expressions";
+import { canAnswer, inboxStickerKey, isRead, type InboxFilter, type InboxItem } from "../lib/inbox";
 import { translate, type Locale } from "../lib/i18n";
+import { Mascot } from "./mascot";
+import { Button, EmptyState, ErrorState, Skeleton } from "./ui";
 
 export type InboxStatus = "loading" | "ready" | "empty" | "error";
 
@@ -15,6 +18,11 @@ export interface InboxViewProps {
   /** Question currently being answered, so its buttons are disabled. */
   busyId: string | null;
   replyError: boolean;
+  /** The active sticker set and the user's mapping of states to expressions. */
+  expressions: ExpressionSettings;
+  artAvailable: boolean;
+  /** Values sent from this screen, by question id, so a sent answer shows at once. */
+  answers?: Record<string, string>;
   onFilter: (filter: InboxFilter) => void;
   onRefresh: () => void;
   onMarkRead: (itemId: string) => void;
@@ -72,22 +80,42 @@ export function InboxView(props: InboxViewProps) {
     </div>
   );
 
-  if (status === "loading") return <p role="status">{t("inbox.loading")}</p>;
+  const label = (labelKey: string, value: string) =>
+    translate(locale, labelKey) === labelKey ? value : t(labelKey);
+  const art = (
+    <Mascot
+      artKey="chibi-greet"
+      size="medium"
+      alt={t("inbox.sticker_alt")}
+      available={props.artAvailable}
+    />
+  );
+
+  if (status === "loading") {
+    return (
+      <div className="inbox-thread" aria-busy="true">
+        <Skeleton label={t("inbox.loading")} height="4rem" />
+        <Skeleton label={t("inbox.loading")} height="4rem" />
+        <Skeleton label={t("inbox.loading")} height="4rem" />
+      </div>
+    );
+  }
   if (status === "error") {
     return (
-      <div>
-        <p role="alert">{t("inbox.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("inbox.retry")}
-        </button>
-      </div>
+      <ErrorState
+        title={t("inbox.error.title")}
+        description={t("inbox.error")}
+        art={art}
+        retryLabel={t("inbox.retry")}
+        onRetry={props.onRefresh}
+      />
     );
   }
   if (status === "empty") {
     return (
       <div>
         {filters}
-        <p>{t("inbox.empty")}</p>
+        <EmptyState title={t("inbox.empty")} art={art} />
       </div>
     );
   }
@@ -97,51 +125,69 @@ export function InboxView(props: InboxViewProps) {
       <p>{t("inbox.intro")}</p>
       {filters}
       {replyError ? <p role="alert">{t("inbox.error.reply")}</p> : null}
-      <ul className="penalty-list">
+      <ul className="inbox-thread">
         {items.map((item) => {
           const read = isRead(item, readIds);
           const q = item.question;
+          const sent = q ? props.answers?.[q.id] : undefined;
           return (
-            <li key={item.id} className="penalty-entry" data-read={read}>
-              <p>
-                <strong>{read ? t("inbox.state.read") : t("inbox.state.unread")}</strong>{" "}
-                <span>{t(`inbox.class.${item.class}`)}</span>
-                {q ? <span> {q.sourceService}</span> : null}
-              </p>
-              <p>{body(item)}</p>
-              <p>{when(item.createdAt)}</p>
-              {q ? (
-                <div>
-                  <p>{t(`inbox.question.${q.state}`)}</p>
-                  {canAnswer(item, now) ? (
-                    <div className="inbox-actions">
-                      {q.options.map((o) => (
-                        <button
-                          key={o.value}
-                          type="button"
-                          className="button"
-                          disabled={busyId === q.id}
-                          onClick={() => props.onAnswer(q.id, o.value)}
-                        >
-                          {translate(locale, o.labelKey) === o.labelKey ? o.value : t(o.labelKey)}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              {read ? null : (
-                <button type="button" className="button" onClick={() => props.onMarkRead(item.id)}>
-                  {t("inbox.mark_read")}
-                </button>
-              )}
+            <li key={item.id} className="inbox-message" data-read={read}>
+              <div className="inbox-sticker">
+                <Mascot
+                  artKey={inboxStickerKey(item, now, props.expressions)}
+                  size="small"
+                  alt={t("inbox.sticker_alt")}
+                  available={props.artAvailable}
+                />
+              </div>
+              <div className="inbox-bubble">
+                <p className="inbox-meta">
+                  <strong>{read ? t("inbox.state.read") : t("inbox.state.unread")}</strong>{" "}
+                  <span>{t(`inbox.class.${item.class}`)}</span>
+                  {q ? <span> {q.sourceService}</span> : null}
+                </p>
+                <p>{body(item)}</p>
+                <p className="inbox-meta">{when(item.createdAt)}</p>
+                {q ? (
+                  <div>
+                    <p>{t(`inbox.question.${q.state}`)}</p>
+                    {sent !== undefined ? (
+                      <p>
+                        {t("inbox.your_answer", {
+                          value: label(
+                            q.options.find((o) => o.value === sent)?.labelKey ?? "",
+                            sent,
+                          ),
+                        })}
+                      </p>
+                    ) : null}
+                    {canAnswer(item, now) ? (
+                      <div className="inbox-actions">
+                        {q.options.map((o) => (
+                          <button
+                            key={o.value}
+                            type="button"
+                            className="mw-chip-button"
+                            data-answer-option
+                            disabled={busyId === q.id}
+                            onClick={() => props.onAnswer(q.id, o.value)}
+                          >
+                            {label(o.labelKey, o.value)}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {read ? null : (
+                  <Button onClick={() => props.onMarkRead(item.id)}>{t("inbox.mark_read")}</Button>
+                )}
+              </div>
             </li>
           );
         })}
       </ul>
-      <button type="button" className="button" onClick={props.onRefresh}>
-        {t("inbox.refresh")}
-      </button>
+      <Button onClick={props.onRefresh}>{t("inbox.refresh")}</Button>
     </div>
   );
 }
