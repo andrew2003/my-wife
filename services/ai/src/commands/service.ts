@@ -51,7 +51,17 @@ export interface ControlPorts {
 
 type PublishedEvent = { name: "command.executed" | "command.refused"; payload: unknown };
 
+/** What a custom prompt command sends to the model. */
+export interface PromptRequest {
+  command: { name: string; description: string };
+  /** The template with `{text}` filled from the typed arguments. */
+  text: string;
+  locale: Locale;
+}
+
 export interface CommandServiceDeps {
+  /** Runs a custom prompt command through the chat model; the reply is text or a message ref. */
+  runPrompt?: (userId: string, req: PromptRequest) => Promise<MessageRef | { text: string }>;
   ports: ControlPorts;
   /** The user's overrides and custom commands. */
   loadCommandSettings: (userId: string) => Promise<CommandSettings>;
@@ -237,21 +247,48 @@ export class CommandService {
       return { status: "disabled", reply: { key: "commands.disabled", params: {} } };
     }
     const handler = target.def.builtin ? HANDLERS[target.def.id] : undefined;
-    const outcome: Outcome = handler
-      ? await handler({
-          userId: req.userId,
-          locale: req.locale,
-          args,
-          registry,
-          ports: this.deps.ports,
-        })
-      : {
-          status: "refused",
-          reply: { key: "commands.not_available", params: {} },
-          reason: "not_allowed",
-        };
+    const outcome: Outcome = target.custom
+      ? await this.runCustom(target, args, req)
+      : handler
+        ? await handler({
+            userId: req.userId,
+            locale: req.locale,
+            args,
+            registry,
+            ports: this.deps.ports,
+          })
+        : {
+            status: "refused",
+            reply: { key: "commands.not_available", params: {} },
+            reason: "not_allowed",
+          };
     await this.announce(req, commandId, entry.def.ai, outcome.status, outcome.reason);
     return { status: outcome.status, reply: outcome.reply };
+  }
+
+  private async runCustom(
+    target: RegistryEntry,
+    args: string[],
+    req: CommandRequest,
+  ): Promise<Outcome> {
+    const custom = target.custom;
+    if (custom?.kind === "mood")
+      return ok("commands.mood.noted", { expression: custom.expressionKey });
+    if (custom?.kind !== "prompt" || !this.deps.runPrompt)
+      return {
+        status: "refused",
+        reply: { key: "commands.not_available", params: {} },
+        reason: "not_allowed",
+      };
+    const typed = args.join(" ");
+    if (typed.length === 0) return invalid("commands.prompt.usage", { name: target.def.name });
+    const reply = await this.deps.runPrompt(req.userId, {
+      command: { name: target.def.name, description: describe(target, req.locale) },
+      text: custom.template.split("{text}").join(typed),
+      locale: req.locale,
+    });
+    if ("text" in reply) return ok("commands.prompt_reply", { text: reply.text });
+    return { status: "refused", reply, reason: "not_allowed" };
   }
 
   /** Events carry ids and statuses only, never the message text. */

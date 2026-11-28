@@ -286,11 +286,25 @@ export class ChatService {
     return this.run(text, locale, userId, source);
   }
 
+  /**
+   * A custom prompt command: the command's name and description join the system context and the
+   * rendered template is the user turn. It is the user's own text, so the turn is trusted.
+   */
+  async handleCommandPrompt(
+    command: { name: string; description: string },
+    text: string,
+    locale: Locale,
+    userId: string,
+  ): Promise<ChatResult> {
+    return this.run(text, locale, userId, null, command);
+  }
+
   private async run(
     text: string,
     locale: Locale,
     userId: string,
     untrusted: UntrustedSource | null,
+    command?: { name: string; description: string },
   ): Promise<ChatResult> {
     const messageId = (this.deps.newId ?? randomUUID)();
     const nowAt = (this.deps.now ?? (() => new Date()))();
@@ -308,10 +322,14 @@ export class ChatService {
     const threshold = await this.threshold(userId);
     const strictness = await this.strictness(userId);
     const [memories, summaries] = await this.recallSafely(userId);
+    const baseSystem = buildSystemPrompt(locale, memories, summaries, strictness);
+    const withCommand = command
+      ? `${baseSystem}\n${renderMessage({ key: "ai.command.context", params: { name: command.name, description: command.description } }, locale)}`
+      : baseSystem;
     const request = {
       system: untrusted
-        ? `${buildSystemPrompt(locale, memories, summaries, strictness)}\n${renderMessage({ key: "ai.untrusted.rule", params: {} }, locale)}`
-        : buildSystemPrompt(locale, memories, summaries, strictness),
+        ? `${withCommand}\n${renderMessage({ key: "ai.untrusted.rule", params: {} }, locale)}`
+        : withCommand,
       userText: untrusted ? wrapUntrusted(text, untrusted) : text,
       locale,
     };
