@@ -6,7 +6,14 @@ import vi from "../locales/vi.json";
 import { RoutinesView } from "../components/routines-view";
 import { SleepView } from "../components/sleep-view";
 import { NAV_ITEMS } from "../lib/nav";
-import { isLoosening, loadRoutines, saveRoutineSetting, type RoutinesData } from "../lib/routines";
+import { readFileSync } from "node:fs";
+import {
+  isLoosening,
+  loadRoutines,
+  loadRoutineWeek,
+  saveRoutineSetting,
+  type RoutinesData,
+} from "../lib/routines";
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -105,6 +112,16 @@ const base = {
   saveState: "idle",
   notice: null,
   timeZone: "Asia/Ho_Chi_Minh",
+  week: [
+    "2026-11-23",
+    "2026-11-24",
+    "2026-11-25",
+    "2026-11-26",
+    "2026-11-27",
+    "2026-11-28",
+    "2026-11-29",
+  ],
+  wake: { status: "recorded", wakeTime: "2026-11-28T23:05:00.000Z", minutesLate: 5 },
   onChange: () => {},
   onRefresh: () => {},
 };
@@ -112,13 +129,34 @@ const render = (c: unknown, props: Record<string, unknown>) =>
   renderToStaticMarkup(createElement(c as never, { ...base, ...props } as never));
 
 describe("RoutinesView", () => {
-  it("shows editable levels with the loosening rule", () => {
+  it("lists one editable card per routine with the four-level control", () => {
     const html = render(RoutinesView, {});
     expect(html).toContain(en["routines.loosening"]);
+    expect(html.match(/class="mw-card routine-card"/g)).toHaveLength(3);
+    expect(html.match(/class="mw-segmented"/g)).toHaveLength(3);
+    expect(html.match(/class="mw-segmented-item"/g)).toHaveLength(12);
     expect(html).toContain(en["routines.routine.wake"]);
-    expect(html.match(/<select/g)).toHaveLength(3);
-    expect(html).toMatch(/<option value="commit" selected/);
     expect(html).toContain(en["routines.level.commit.help"]);
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Commit/);
+  });
+
+  it("shows a week strip of seven days in every card and the wake banner", () => {
+    const html = render(RoutinesView, {});
+    expect(html.match(/class="routine-strip-day"/g)).toHaveLength(21);
+    expect(html).toContain(en["routines.week.unknown"]);
+    expect(html).toContain("routines-banner");
+    const none = render(RoutinesView, { wake: { status: "none" }, week: null });
+    expect(none).not.toContain("routines-banner");
+    expect(none).not.toContain("routine-strip-day");
+  });
+
+  it("keeps the 360 px layout from scrolling sideways", () => {
+    const css = readFileSync(new URL("../app/routines.css", import.meta.url), "utf8");
+    const rule = (sel: string) => css.match(new RegExp(`\\${sel}\\s*\\{[^}]*\\}`))?.[0] ?? "";
+    expect(rule(".routine-strip")).toContain("minmax(0, 1fr)");
+    expect(rule(".routine-card")).toContain("min-width: 0");
+    expect(rule(".routines")).toContain("max-width: 100%");
+    expect(render(RoutinesView, {})).not.toMatch(/style="[^"]*width:\s*\d+px/);
   });
 
   it("shows when a loosening change takes effect", () => {
@@ -165,5 +203,34 @@ describe("locales and nav", () => {
     for (const k of keys) expect(vi).toHaveProperty([k]);
     expect(NAV_ITEMS.some((n) => n.href === "/routines")).toBe(true);
     expect(NAV_ITEMS.some((n) => n.href === "/routines/sleep")).toBe(true);
+  });
+});
+
+describe("loadRoutineWeek", () => {
+  it("returns the seven days of the current week, or null when unknown", async () => {
+    const ok = (async () =>
+      json(200, {
+        ok: true,
+        data: { week: { id: "w1", firstDay: "2026-11-23", state: "active" } },
+      })) as never;
+    const days = await loadRoutineWeek(ok);
+    expect(days).toHaveLength(7);
+    expect(days?.[0]).toBe("2026-11-23");
+    expect(await loadRoutineWeek((async () => json(404, {})) as never)).toBeNull();
+    expect(
+      await loadRoutineWeek((async () => {
+        throw new Error("down");
+      }) as never),
+    ).toBeNull();
+  });
+
+  it("has the new routine keys in both locales", () => {
+    const keys = (c: Record<string, string>) =>
+      Object.keys(c).filter((k) => k.startsWith("routines."));
+    expect(keys(vi)).toEqual(keys(en));
+    for (const k of ["routines.week.unknown", "routines.note.wake", "routines.banner.title"]) {
+      expect(en).toHaveProperty([k]);
+      expect(vi).toHaveProperty([k]);
+    }
   });
 });
