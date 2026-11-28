@@ -1,6 +1,6 @@
 # ADR 0016: Chat command contracts
 
-Status: proposed (2026-11-28). Adds schemas to `packages/contracts` in the implementing PRs.
+Status: accepted (2026-11-28). Schemas land in `packages/contracts/src/commands` (issue #532).
 
 ## Context
 
@@ -25,3 +25,10 @@ The bot has no chat commands today. The owner approved a default command set, us
 - A parser and registry live in one place and are used by all channels, so adapters stay thin.
 - Command text is audited without storing message bodies in events.
 - Tests cover parsing, aliases, a disabled command, a custom prompt command, a mood tag, descriptions reaching the model context, the untrusted-text rule and both locales.
+
+## Contract details (issue #532)
+
+- Schemas: `CommandDefinition`, `CustomCommandInput` (discriminated by `kind`: `prompt` needs `{text}` in its template, `mood` needs `expressionKey`, `shortcut` needs `targetCommandId` and `presetArgs`), `CommandInvocation`, `CommandResult`, `CommandSettings` (per-user overrides of built-ins plus custom commands), `CommandMenuEntry` (description at most 256 characters, the Telegram limit), `MoodTag`.
+- `CommandChannel` is `telegram`, `discord` or `web` (the in-app chat).
+- Events `command.executed` and `command.refused` are published by `notify`, whose adapters parse commands. Payloads are strict and hold no message text.
+- New setting `chat.max_custom_commands` (default 20, owner `notify`) caps custom commands per user.

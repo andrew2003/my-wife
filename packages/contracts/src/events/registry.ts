@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { aiEvents } from "../ai/events";
+import { commandEvents } from "../commands/events";
 import { budgetEvents } from "../budget/events";
 import { IdSchema, IsoDateTimeSchema, type ServiceName } from "../common";
 import { adminEvents, identityEvents } from "../identity/events";
@@ -29,6 +30,7 @@ const groups = [
   tag("identity", identityEvents),
   tag("identity", adminEvents),
   tag("sync", syncEvents),
+  tag("notify", commandEvents),
 ] as const;
 
 type AllEvents = typeof budgetEvents &
@@ -40,7 +42,8 @@ type AllEvents = typeof budgetEvents &
   typeof notifyEvents &
   typeof identityEvents &
   typeof adminEvents &
-  typeof syncEvents;
+  typeof syncEvents &
+  typeof commandEvents;
 
 export type EventSubject = keyof AllEvents;
 export type EventPayload<S extends EventSubject> = z.infer<AllEvents[S]>;

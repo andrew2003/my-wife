@@ -10,3 +10,4 @@ export * from "./ai";
 export * from "./notify";
 export * from "./identity";
 export * from "./sync";
+export * from "./commands";
