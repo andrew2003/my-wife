@@ -42,6 +42,21 @@ export async function loadFunding(doFetch: FetchLike = fetch): Promise<FundingRe
   }
 }
 
+/** Reads the transfer list of the current cycle in any state (the budget page shows it too). */
+export async function loadTransferList(doFetch: FetchLike = fetch): Promise<FundingResult> {
+  try {
+    const res = await doFetch("/api/budget/funding", { cache: "no-store" });
+    if (res.status === 404) return { status: "empty" };
+    if (!res.ok) return { status: "error" };
+    const parsed = FundingResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return { status: "error" };
+    if (parsed.data.data.accounts.length === 0) return { status: "empty" };
+    return { status: "ready", accounts: parsed.data.data.accounts };
+  } catch {
+    return { status: "error" };
+  }
+}
+
 /**
  * Text the QR image carries. Bank account numbers are not part of the contracts, so this is
  * the plain transfer request (account code, amount, memo), not a bank-specific QR standard.
