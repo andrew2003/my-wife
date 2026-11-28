@@ -1,5 +1,8 @@
 import type { ContractPageData } from "../lib/contract-page";
 import { translate, type Locale } from "../lib/i18n";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const CONTRACT_PAGE_STATE_KEYS = stateKeys("contract.page");
 
 export type ContractPageStatus = "loading" | "ready" | "empty" | "error";
 export type SignState = "idle" | "sending" | "failed";
@@ -27,16 +30,18 @@ export function ContractPageView(props: ContractPageViewProps) {
   const when = (iso: string) =>
     new Intl.DateTimeFormat(tag, { dateStyle: "medium", timeZone }).format(new Date(iso));
 
-  if (status === "loading") return <p role="status">{t("contract.page.loading")}</p>;
-  if (status === "empty" || !data) return <p>{t("contract.page.empty")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={CONTRACT_PAGE_STATE_KEYS} />;
+  if (status === "empty" || !data)
+    return <ScreenState locale={locale} kind="empty" keys={CONTRACT_PAGE_STATE_KEYS} />;
   if (status === "error") {
     return (
-      <div>
-        <p role="alert">{t("contract.page.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("contract.page.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={locale}
+        kind="error"
+        keys={CONTRACT_PAGE_STATE_KEYS}
+        onRetry={props.onRefresh}
+      />
     );
   }
 

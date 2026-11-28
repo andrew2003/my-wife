@@ -1,6 +1,9 @@
 import type { FaultEntry } from "@my-wife/contracts";
 import { canAppealFault, reasonKey } from "../lib/fault-ledger";
 import { translate, type Locale } from "../lib/i18n";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const FAULT_LEDGER_STATE_KEYS = stateKeys("fault");
 
 export type FaultLedgerStatus = "loading" | "ready" | "empty" | "error";
 export type FaultAppealState = "idle" | "sending" | "sent" | "failed";
@@ -29,16 +32,18 @@ export function FaultLedgerView(props: FaultLedgerViewProps) {
       new Date(iso),
     );
 
-  if (status === "loading") return <p role="status">{t("fault.loading")}</p>;
-  if (status === "empty") return <p>{t("fault.empty")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={FAULT_LEDGER_STATE_KEYS} />;
+  if (status === "empty")
+    return <ScreenState locale={locale} kind="empty" keys={FAULT_LEDGER_STATE_KEYS} />;
   if (status === "error") {
     return (
-      <div>
-        <p role="alert">{t("fault.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("fault.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={locale}
+        kind="error"
+        keys={FAULT_LEDGER_STATE_KEYS}
+        onRetry={props.onRefresh}
+      />
     );
   }
 

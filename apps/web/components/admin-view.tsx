@@ -4,6 +4,9 @@ import { FeatureFlagSchema } from "@my-wife/contracts";
 import { useState } from "react";
 import type { AdminAction, AdminData, IncidentDraft } from "../lib/admin";
 import { translate, type Locale } from "../lib/i18n";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const ADMIN_STATE_KEYS = stateKeys("admin");
 
 export type AdminStatus = "loading" | "ready" | "forbidden" | "error";
 
@@ -38,16 +41,12 @@ export function AdminView(props: AdminViewProps) {
     useState<(typeof FeatureFlagSchema.options)[number]>("camera_supervision");
   const [sender, setSender] = useState({ senderKey: "", senderAddress: "", dkimDomain: "" });
 
-  if (status === "loading") return <p role="status">{t("admin.loading")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={ADMIN_STATE_KEYS} />;
   if (status === "forbidden") return <p role="alert">{t("admin.forbidden")}</p>;
   if (status === "error" || !data) {
     return (
-      <div>
-        <p role="alert">{t("admin.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("admin.retry")}
-        </button>
-      </div>
+      <ScreenState locale={locale} kind="error" keys={ADMIN_STATE_KEYS} onRetry={props.onRefresh} />
     );
   }
 

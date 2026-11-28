@@ -3,6 +3,7 @@ import { artDirectory } from "../lib/art";
 import { translate, type Locale } from "../lib/i18n";
 import { CompanionPanel } from "./companion-panel";
 import type { CurrentUser } from "../lib/session";
+import { ArtProvider } from "./art-context";
 import { LocaleCookieSync } from "./locale-cookie-sync";
 import { LocaleSwitch } from "./locale-switch";
 import { ProductTour } from "./product-tour";
@@ -29,16 +30,18 @@ export function AppShell({
   children: ReactNode;
 }) {
   return (
-    <div className="shell">
-      <TopBar locale={locale} user={user} />
-      <PillNav locale={locale} role={user.role} />
-      <div className="shell-body">
-        <div className="shell-content content">{children}</div>
-        <CompanionPanel locale={locale} artAvailable={artDirectory(process.env) !== null} />
+    <ArtProvider artAvailable={artDirectory(process.env) !== null}>
+      <div className="shell">
+        <TopBar locale={locale} user={user} />
+        <PillNav locale={locale} role={user.role} />
+        <div className="shell-body">
+          <div className="shell-content content">{children}</div>
+          <CompanionPanel locale={locale} artAvailable={artDirectory(process.env) !== null} />
+        </div>
+        <BottomBar locale={locale} role={user.role} />
+        <ProductTour locale={locale} />
+        <LocaleCookieSync profileLocale={user.locale} />
       </div>
-      <BottomBar locale={locale} role={user.role} />
-      <ProductTour locale={locale} />
-      <LocaleCookieSync profileLocale={user.locale} />
-    </div>
+    </ArtProvider>
   );
 }

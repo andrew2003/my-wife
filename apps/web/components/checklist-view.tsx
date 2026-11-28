@@ -2,6 +2,9 @@ import type { Task } from "@my-wife/contracts";
 import { translate, type Locale } from "../lib/i18n";
 import type { TaskAction } from "../lib/checklist";
 import { TaskCountdown } from "./session-countdown";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const CHECKLIST_STATE_KEYS = stateKeys("checklist");
 
 export type ChecklistStatus = "loading" | "ready" | "error";
 
@@ -24,24 +27,15 @@ export function ChecklistView(props: ChecklistViewProps) {
     translate(locale, key, params);
 
   if (status === "loading") {
-    return (
-      <p role="status" className="checklist-note">
-        {t("checklist.loading")}
-      </p>
-    );
+    return <ScreenState locale={locale} kind="loading" keys={CHECKLIST_STATE_KEYS} height="6rem" />;
   }
   if (status === "error") {
     return (
-      <div role="alert" className="checklist-note">
-        <p>{t("checklist.error")}</p>
-        <button type="button" className="button" onClick={onRetry}>
-          {t("checklist.retry")}
-        </button>
-      </div>
+      <ScreenState locale={locale} kind="error" keys={CHECKLIST_STATE_KEYS} onRetry={onRetry} />
     );
   }
   if (tasks.length === 0) {
-    return <p className="checklist-note">{t("checklist.empty")}</p>;
+    return <ScreenState locale={locale} kind="empty" keys={CHECKLIST_STATE_KEYS} />;
   }
   return (
     <>

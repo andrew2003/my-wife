@@ -1,6 +1,9 @@
 import type { Debt } from "@my-wife/contracts";
 import { remainingVnd, splitDebts } from "../lib/debts";
 import { translate, type Locale } from "../lib/i18n";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const DEBTS_STATE_KEYS = stateKeys("debts");
 
 export type DebtsStatus = "loading" | "ready" | "empty" | "error";
 
@@ -20,17 +23,12 @@ export function DebtsView({ locale, status, debts, timeZone, onRefresh }: DebtsV
   const when = (iso: string) =>
     new Intl.DateTimeFormat(tag, { dateStyle: "medium", timeZone }).format(new Date(iso));
 
-  if (status === "loading") return <p role="status">{t("debts.loading")}</p>;
-  if (status === "empty") return <p>{t("debts.empty")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={DEBTS_STATE_KEYS} />;
+  if (status === "empty")
+    return <ScreenState locale={locale} kind="empty" keys={DEBTS_STATE_KEYS} />;
   if (status === "error") {
-    return (
-      <div>
-        <p role="alert">{t("debts.error")}</p>
-        <button type="button" className="button" onClick={onRefresh}>
-          {t("debts.retry")}
-        </button>
-      </div>
-    );
+    return <ScreenState locale={locale} kind="error" keys={DEBTS_STATE_KEYS} onRetry={onRefresh} />;
   }
 
   const { payables, receivables } = splitDebts(debts);

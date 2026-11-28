@@ -229,10 +229,7 @@ export function ScheduleView(props: ScheduleViewProps) {
 
   const todayContent =
     status === "loading" ? (
-      <>
-        <Skeleton label={t("schedule.loading")} height="8rem" />
-        <p role="status">{t("schedule.loading")}</p>
-      </>
+      <Skeleton label={t("schedule.loading")} height="8rem" />
     ) : status === "error" ? (
       <ErrorState
         title={t("schedule.error")}

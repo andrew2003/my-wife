@@ -1,6 +1,9 @@
 import { ConsentKindSchema, type ConsentKind } from "@my-wife/contracts";
 import { translate, type Locale } from "../lib/i18n";
 import type { ConsentRecord, ExportResult } from "../lib/privacy";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const PRIVACY_STATE_KEYS = stateKeys("privacy");
 
 export type PrivacyStatus = "loading" | "ready" | "error";
 export type ExportState = { status: "idle" | "working" | "failed" } | ExportResult;
@@ -26,15 +29,16 @@ export interface PrivacyViewProps {
 export function PrivacyView(props: PrivacyViewProps) {
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(props.locale, key, params);
-  if (props.status === "loading") return <p role="status">{t("privacy.loading")}</p>;
+  if (props.status === "loading")
+    return <ScreenState locale={props.locale} kind="loading" keys={PRIVACY_STATE_KEYS} />;
   if (props.status === "error") {
     return (
-      <div>
-        <p role="alert">{t("privacy.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("privacy.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={props.locale}
+        kind="error"
+        keys={PRIVACY_STATE_KEYS}
+        onRetry={props.onRefresh}
+      />
     );
   }
   const active = new Set(props.consents.filter((c) => !c.revokedAt).map((c) => c.kind));

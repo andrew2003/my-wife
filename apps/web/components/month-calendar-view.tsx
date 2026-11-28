@@ -1,5 +1,6 @@
 import { translate, type Locale } from "../lib/i18n";
 import { buildMonthGrid, lunarLabel } from "../lib/month-calendar";
+import { ScreenState, stateKeys } from "./screen-state";
 
 export type MonthCalendarStatus = "loading" | "ready" | "error";
 
@@ -15,6 +16,8 @@ export interface MonthCalendarViewProps {
   onToday: () => void;
 }
 
+const CALENDAR_STATE_KEYS = stateKeys("calendar");
+
 const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
 /** Presentational month grid showing the solar and the lunar date of each day. */
@@ -23,8 +26,19 @@ export function MonthCalendarView(props: MonthCalendarViewProps) {
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(locale, key, params);
 
-  if (status === "loading") return <p role="status">{t("calendar.loading")}</p>;
-  if (status === "error") return <p role="alert">{t("calendar.error")}</p>;
+  if (status === "loading") {
+    return <ScreenState locale={locale} kind="loading" keys={CALENDAR_STATE_KEYS} />;
+  }
+  if (status === "error") {
+    return (
+      <ScreenState
+        locale={locale}
+        kind="error"
+        keys={CALENDAR_STATE_KEYS}
+        onRetry={props.onToday}
+      />
+    );
+  }
 
   const grid = buildMonthGrid(year, month);
   const unavailable = grid.flat().some((c) => c !== null && c.lunar === null);

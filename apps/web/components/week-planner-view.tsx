@@ -7,6 +7,9 @@ import {
   type PlannerTemplate,
   type PlannerWeek,
 } from "../lib/week-planner";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const WEEK_PLANNER_STATE_KEYS = stateKeys("weekplan");
 
 export type WeekPlannerStatus = "loading" | "ready" | "empty" | "error";
 
@@ -39,16 +42,18 @@ export function WeekPlannerView(props: WeekPlannerViewProps) {
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(locale, key, params);
 
-  if (status === "loading") return <p role="status">{t("weekplan.loading")}</p>;
-  if (status === "empty" || !week) return <p>{t("weekplan.empty")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={WEEK_PLANNER_STATE_KEYS} />;
+  if (status === "empty" || !week)
+    return <ScreenState locale={locale} kind="empty" keys={WEEK_PLANNER_STATE_KEYS} />;
   if (status === "error") {
     return (
-      <div role="alert">
-        <p>{t("weekplan.error")}</p>
-        <button type="button" className="button" onClick={props.onRetry}>
-          {t("weekplan.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={locale}
+        kind="error"
+        keys={WEEK_PLANNER_STATE_KEYS}
+        onRetry={props.onRetry}
+      />
     );
   }
 
