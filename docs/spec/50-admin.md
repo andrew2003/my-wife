@@ -4,7 +4,7 @@ Owner: `identity` (roles and admin API) with admin screens in `apps/web`. A page
 
 ## 1. Roles
 
-`user` and `admin`. The first admin comes from the intake setup. Admin screens need role `admin` and a fresh session. Admin cannot read bank, receipt, chat or camera content, cannot read keys, and cannot change a user's rules; they can only act on the platform and on account access.
+`user` and `admin`. The first admin comes from the initial setup. Admin screens need role `admin` and a fresh session. Admin cannot read bank, receipt, chat or camera content, cannot read keys, and cannot change a user's rules; they can only act on the platform and on account access.
 
 ## 2. Functions
 

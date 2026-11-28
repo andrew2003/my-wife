@@ -12,7 +12,7 @@ One machine, low memory, ten services, and per-user data isolation is a hard req
 - A single PostgreSQL instance (with pgvector, 512 MB limit); one schema per service, owned and migrated by that service only.
 - Drizzle ORM with SQL migrations kept in the owning service.
 - Every table has `user_id` and PostgreSQL row-level security. The service sets the verified user id on the connection per request.
-- Tables and columns are `snake_case`. Worktrees isolate through a per-branch database name.
+- Tables and columns are `snake_case`. Parallel checkouts isolate through a per-branch database name.
 - One master key from an environment variable encrypts secrets (AES-256-GCM) with a `key_id` column for rotation.
 
 ## Consequences

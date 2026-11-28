@@ -5,7 +5,7 @@ Owner: `identity` (accounts, sessions, settings, consents, keys, invitations, ex
 ## 1. Sign-in and invitations
 
 - Sign-up is by invitation only. An invitation has a token, an expiry (`identity.invitation_ttl_days`), and is single-use. `identity.max_users` caps the active user count.
-- `LOGIN_METHOD` (intake form) is `google` (Google sign-in) or `magic_link` (an expiring link to the invited email, `identity.magic_link_ttl_minutes`). Sessions last `identity.session_ttl_days`. The gateway is the only external entry point and verifies the session.
+- `LOGIN_METHOD` (setup form) is `google` (Google sign-in) or `magic_link` (an expiring link to the invited email, `identity.magic_link_ttl_minutes`). Sessions last `identity.session_ttl_days`. The gateway is the only external entry point and verifies the session.
 - Google scope for Sheets and Calendar integration is the narrow `drive.file` scope plus Calendar events (see `41-sync.md`); that is a separate consent from sign-in.
 
 Account state machine: `invited` -> `active` -> `closing` -> `closed`; also `suspended` (admin).

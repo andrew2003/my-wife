@@ -6,7 +6,7 @@ This file records the project owner's final decisions. When it conflicts with `d
 
 - The demo includes **everything** the spec describes: both Telegram and Discord, self-learning receipt templates, Sheets and Calendar sync, the lunar calendar, onboarding, and the admin page.
 - After the demo: Zalo, accountability partner, camera spoofing countermeasures, importing existing Google Calendar events, bill and subscription reminders, the "bad day" button, cycle report, voice messages, general email management.
-- The work is organized as milestones M0–M4 in `factory/prompts/milestones.md`. The P0–P4 roadmap and the manual workflow tips in the source document are superseded.
+- The work is organized as milestones M0–M4 in the milestone plan. The P0–P4 roadmap and the manual workflow tips in the source document are superseded.
 
 ## Language and Git
 
@@ -123,15 +123,15 @@ Use these English terms in identifiers, contracts and documentation.
 - Microservices, TypeScript for both front end and back end. Details in `CLAUDE.md` and the source document.
 - Demo infrastructure: one domain, Cloudflare Tunnel for HTTPS, Cloudflare Email Routing for inbound mail.
 - Full GitHub workflow: PRs, required CI, Conventional Commits, protected `main`.
-- Web sign-in follows `LOGIN_METHOD` in the intake form (default Google); sign-up is by invitation.
+- Web sign-in follows `LOGIN_METHOD` in the setup form (default Google); sign-up is by invitation.
 
 ## Target machine
 
-- Development and the demo run on one machine with 16 GB RAM and a 6-core CPU without integrated graphics. The resource budget in `CLAUDE.md` is binding: at most two builders in parallel, one shared infrastructure stack, all services in one process for development and end-to-end tests.
+- Development and the demo run on one machine with 16 GB RAM and a 6-core CPU without integrated graphics. The resource budget in `CLAUDE.md` is binding: at most two parallel workers, one shared infrastructure stack, all services in one process for development and end-to-end tests.
 - Camera analysis must work without a GPU (CPU delegate fallback).
 
-## How the factory asks the owner
+## How questions reach the owner
 
-- The owner drives the factory with `scripts/run.sh test|run|stop|status|log`. The self-test (`test`) must pass 100% before `run` starts.
-- Questions are stored in `factory/questions/` and shown by `scripts/run.sh status`. Questions are not sent over Telegram. Mentions in the source of "asking via Telegram" or a `factory start` command are superseded.
-- Every agent defaults to Sonnet; the model per agent is set in `factory/config.env`.
+- The owner drives the project with `scripts/run.sh test|run|stop|status|log`. The self-test (`test`) must pass 100% before `run` starts.
+- Questions are stored locally and shown by `scripts/run.sh status`. Questions are not sent over Telegram. Mentions in the source of "asking via Telegram" or a start command are superseded.
+- Every automated role defaults to Sonnet; the model per role is set in the local configuration.

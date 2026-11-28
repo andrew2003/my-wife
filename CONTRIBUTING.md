@@ -42,5 +42,5 @@ not hand-format against them. `.editorconfig` covers editors.
 
 ## Secrets
 
-Never commit secrets, `.env` files (only `.env.example`), or anything under the local `factory`
+Never commit secrets, `.env` files (only `.env.example`), or anything under the local, git-ignored tooling
 state. Secret scanning and push protection are enabled on the repository.
