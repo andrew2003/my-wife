@@ -702,5 +702,9 @@
   "expressions.reset": "Khôi phục mặc định",
   "expressions.saving": "Đang lưu...",
   "expressions.saved": "Đã lưu.",
-  "expressions.save_failed": "Không lưu được biểu cảm. Vui lòng thử lại."
+  "expressions.save_failed": "Không lưu được biểu cảm. Vui lòng thử lại.",
+  "companion.label": "Người bạn đồng hành",
+  "companion.loading": "Em đang gõ",
+  "companion.art_alt": "Người bạn đồng hành của anh",
+  "companion.fallback": "Em ở đây với anh. Mình làm từng bước một nhé."
 }
