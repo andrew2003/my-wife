@@ -9,6 +9,7 @@ import "./fonts.css";
 import "./tokens.css";
 import "./globals.css";
 import "./ui.css";
+import "./schedule.css";
 
 export async function generateMetadata() {
   const locale = await getRequestLocale();
