@@ -44,6 +44,7 @@ function setup() {
     }
     if (url.startsWith("http://identity/admin/"))
       return json(200, { ok: true, data: { admin: 1 } });
+    if (url.startsWith("http://sync/")) return json(200, { ok: true, data: { sync: 1 } });
     if (url.startsWith("http://schedule/")) return json(200, { ok: true, data: { sched: 1 } });
     if (url.startsWith("http://rules/penalties"))
       return json(200, { ok: true, data: { penalties: [], suspendedTotalVnd: 0 } });
@@ -64,6 +65,7 @@ function setup() {
         budget: "http://budget",
         schedule: "http://schedule",
         rules: "http://rules",
+        sync: "http://sync",
       },
     },
   );
@@ -377,4 +379,40 @@ describe("gateway upstreams for ai, notify, ingest, monitor and weeks", () => {
       expect(res.json().data).toEqual({ from: target, user: "u1" });
     });
   }
+});
+
+describe("gateway routes for recurrences, sync and the admin role", () => {
+  it("routes /api/recurrences to schedule and /api/sync/status to sync", async () => {
+    const { app, calls } = setup();
+    const headers = { cookie: `${SESSION_COOKIE}=good` };
+    const a = await (await app).inject({ method: "GET", url: "/api/recurrences", headers });
+    const b = await (await app).inject({ method: "GET", url: "/api/sync/status", headers });
+    expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+    const urls = calls.map((c) => c.url);
+    expect(urls).toContain("http://schedule/recurrences");
+    expect(urls).toContain("http://sync/sync/status");
+  });
+
+  it("tells identity the role from the verified session, never from the client", async () => {
+    const { app, calls } = setup();
+    const spoof = { "x-user-role": "admin" };
+    await (
+      await app
+    ).inject({
+      method: "GET",
+      url: "/api/settings",
+      headers: { cookie: `${SESSION_COOKIE}=good`, ...spoof },
+    });
+    await (
+      await app
+    ).inject({
+      method: "GET",
+      url: "/api/admin/incidents",
+      headers: { cookie: `${SESSION_COOKIE}=admin` },
+    });
+    const settings = calls.find((c) => c.url === "http://identity/settings");
+    const admin = calls.find((c) => c.url === "http://identity/admin/incidents");
+    expect(settings?.headers["x-user-role"]).toBe("user");
+    expect(admin?.headers["x-user-role"]).toBe("admin");
+  });
 });

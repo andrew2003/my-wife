@@ -20,7 +20,8 @@ export function seedDemoWeek(deps: DemoWeekDeps): "seeded" | "exists" {
     userId,
     firstDay: deps.firstDay,
     state: "active",
-    closedAnnounced: false,
+    // The review screen reads a closed week, so the demo week is already announced as closed.
+    closedAnnounced: true,
     reviewAnnounced: false,
   });
   return "seeded";

@@ -25,4 +25,12 @@ describe("dev runner", () => {
       expect(await res.json()).toMatchObject({ status: "ok", service: name });
     }
   });
+
+  it("serves the sync status route with no link yet", async () => {
+    runner = await startAll(config, { ephemeralPorts: true });
+    const res = await fetch(`${runner.urls.sync}/sync/status`, {
+      headers: { "x-user-id": "someone" },
+    });
+    expect(res.status).toBe(200);
+  });
 });
