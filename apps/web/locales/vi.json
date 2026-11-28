@@ -610,5 +610,10 @@
   "privacy.consent.bank": "Đọc dữ kiện giao dịch ngân hàng",
   "privacy.consent.bank.help": "Cho phép ứng dụng đọc dữ kiện giao dịch. Ứng dụng không bao giờ chuyển tiền.",
   "privacy.consent.google_sync": "Đồng bộ Google Sheets và Calendar",
-  "privacy.consent.google_sync.help": "Cho phép ứng dụng ghi vào Google Sheets và Calendar của bạn."
+  "privacy.consent.google_sync.help": "Cho phép ứng dụng ghi vào Google Sheets và Calendar của bạn.",
+  "nav.area.today": "Hôm nay",
+  "shell.more": "Thêm",
+  "shell.close": "Đóng",
+  "shell.area_nav": "Các trang trong mục này",
+  "shell.more_title": "Tất cả trang"
 }

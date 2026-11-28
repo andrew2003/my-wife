@@ -53,7 +53,7 @@ describe("app shell (signed-in user)", () => {
         children: createElement("p", null, "content"),
       }),
     );
-    for (const item of NAV_ITEMS) {
+    for (const item of NAV_ITEMS.filter((i) => !i.adminOnly)) {
       expect(html).toContain(vi[item.labelKey as keyof typeof vi]);
       expect(html).toContain(`href="${item.href}"`);
     }

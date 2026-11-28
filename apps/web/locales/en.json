@@ -610,5 +610,10 @@
   "privacy.consent.bank": "Reading bank transaction facts",
   "privacy.consent.bank.help": "Lets the app read transaction facts. It never moves money.",
   "privacy.consent.google_sync": "Google Sheets and Calendar sync",
-  "privacy.consent.google_sync.help": "Lets the app write to your Google Sheets and Calendar."
+  "privacy.consent.google_sync.help": "Lets the app write to your Google Sheets and Calendar.",
+  "nav.area.today": "Today",
+  "shell.more": "More",
+  "shell.close": "Close",
+  "shell.area_nav": "Pages in this area",
+  "shell.more_title": "All pages"
 }
