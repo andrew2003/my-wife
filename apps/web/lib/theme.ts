@@ -178,7 +178,7 @@ export function requiredPairs(skin: Skin, mode: ResolvedMode): ContrastPair[] {
       minimum: text,
     },
     {
-      name: "accent text on surface",
+      name: "accent control on surface",
       foreground: p.accent,
       background: p.surface,
       minimum: nonText,
