@@ -260,6 +260,19 @@ export function createApp(config: AppConfig, deps: RulesDeps = {}) {
     return { ok: true, data: await faults.onFaultDetected(parsed.data as EventEnvelope, now) };
   });
 
+  /** Internal entry for the bus bridge: `incident.*` waives overlapping faults. */
+  app.post("/events/incident", async (req, reply) => {
+    const parsed = parseEvent(req.body);
+    if (
+      !parsed.success ||
+      !["incident.declared", "incident.ended", "incident.cancelled"].includes(parsed.data.type)
+    ) {
+      return reply.code(400).send({ ok: false, error: { code: "rules.invalid_event" } });
+    }
+    const now = (deps.now ?? (() => new Date()))();
+    return { ok: true, data: await faults.onIncidentEvent(parsed.data as EventEnvelope, now) };
+  });
+
   const weeklyPenalties = createWeeklyPenaltyService({
     faultStore,
     weeklyStore: deps.weeklyPenaltyStore ?? new InMemoryWeeklyPenaltyStore(),
