@@ -29,6 +29,7 @@ import {
   MemoryService,
   type MemoryStore,
 } from "./memory";
+import { RemarkService, type RemarkFacts } from "./remarks";
 import { createSettingsReader } from "./settings";
 import { InMemoryAuditLog, ToolExecutor, type ToolBackends } from "./tools";
 import {
@@ -151,6 +152,34 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     warn: (fields, message) => app.log.warn(fields, message),
   });
   const now = deps.now ?? (() => new Date());
+  const remarks = new RemarkService({
+    provider,
+    readSettings,
+    now,
+    isDegraded: (userId) => chat.statusOf(userId).degraded,
+    warn: (fields, message) => app.log.warn(fields, message),
+  });
+  // Companion panel remark: the web sends code-computed facts; the text is number-checked.
+  app.post("/remarks", async (req, reply) => {
+    const body = req.body as { screen?: unknown; facts?: unknown; locale?: unknown } | null;
+    const facts = body?.facts;
+    const valid =
+      typeof body?.screen === "string" &&
+      /^[a-z][a-z0-9_-]{0,63}$/.test(body.screen) &&
+      facts !== null &&
+      typeof facts === "object" &&
+      !Array.isArray(facts) &&
+      Object.values(facts).every((v) => typeof v === "string" || typeof v === "number");
+    if (!valid) return reply.code(400).send({ ok: false, error: "invalid_request" });
+    const locale = body.locale === "vi" || body.locale === "en" ? body.locale : config.uiLanguage;
+    const data = await remarks.remark({
+      userId: userOf(req.headers["x-user-id"]),
+      screen: body.screen as string,
+      facts: facts as RemarkFacts,
+      locale,
+    });
+    return { ok: true, data };
+  });
   const summaries = new SummaryService({
     conversations,
     memories: memoryStore,
