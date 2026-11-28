@@ -1,6 +1,11 @@
 import Fastify from "fastify";
 import type { IdentityStore } from "@my-wife/identity";
-import { createDemoWorld, DEMO_USER_ID, resetDemoState } from "./demo-state";
+import {
+  createDemoWorld,
+  DEMO_USER_ID,
+  demoStateStoreFromEnv,
+  ensureDemoState,
+} from "./demo-state";
 import { sign } from "./e2e-session";
 
 export const DEMO_SESSION_ID = "0190a0a0-0000-7000-8000-0000000000d3";
@@ -38,7 +43,7 @@ export async function prepareDemoLogin(opts: DemoLoginOptions): Promise<DemoLogi
   }
   const webUrl = new URL(env.WEB_URL ?? "http://localhost:3000").toString();
 
-  await resetDemoState({ store, world: createDemoWorld(), now });
+  await ensureDemoState({ store, world: createDemoWorld(demoStateStoreFromEnv(env)), now });
   const expiresAt = new Date(now.getTime() + SESSION_DAYS * 86_400_000);
   await store.saveSession({
     id: DEMO_SESSION_ID,
