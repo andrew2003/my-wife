@@ -1,47 +1,28 @@
+import {
+  DEFAULT_EXPRESSION_MAP,
+  ExpressionKeySchema,
+  ExpressionSetSchema,
+  ExpressionStateSchema,
+  GetSettingsResponseSchema,
+  type ExpressionKey,
+  type ExpressionMap,
+  type ExpressionSet,
+  type ExpressionState,
+} from "@my-wife/contracts";
 import { z } from "zod";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** Seven keys shared by all three sets, so switching sets never breaks a mapping. */
-export const EXPRESSION_KEYS = [
-  "greet",
-  "joy",
-  "love",
-  "surprise",
-  "ask",
-  "sulk",
-  "sleep",
-] as const;
-export type ExpressionKey = (typeof EXPRESSION_KEYS)[number];
+export const EXPRESSION_KEYS = ExpressionKeySchema.options;
+export type { ExpressionKey, ExpressionMap, ExpressionSet, ExpressionState };
 
+export const EXPRESSION_SETS = ExpressionSetSchema.options;
 /** Chibi is the default for the whole system and every skin. */
-export const EXPRESSION_SETS = ["chibi", "blue_face", "silver_face"] as const;
-export type ExpressionSet = (typeof EXPRESSION_SETS)[number];
 export const DEFAULT_EXPRESSION_SET: ExpressionSet = "chibi";
 
-export const EXPRESSION_STATES = [
-  "greeting",
-  "task_done",
-  "praised",
-  "news",
-  "needs_answer",
-  "fault_penalty",
-  "bedtime",
-] as const;
-export type ExpressionState = (typeof EXPRESSION_STATES)[number];
+export const EXPRESSION_STATES = ExpressionStateSchema.options;
 
-export type ExpressionMap = Record<ExpressionState, ExpressionKey>;
-
-/** Defaults from the approved board; the user changes any of them in settings. */
-export const DEFAULT_EXPRESSION_MAP: Readonly<ExpressionMap> = {
-  greeting: "greet",
-  task_done: "joy",
-  praised: "love",
-  news: "surprise",
-  needs_answer: "ask",
-  fault_penalty: "sulk",
-  bedtime: "sleep",
-};
+export { DEFAULT_EXPRESSION_MAP };
 
 /** Settings keys from spec 02-defaults. */
 export const EXPRESSION_SETTING_KEYS = {
@@ -53,12 +34,6 @@ export interface ExpressionSettings {
   set: ExpressionSet;
   map: ExpressionMap;
 }
-
-// Local shape until the appearance keys move into packages/contracts (follow-up ADR).
-const SettingsEnvelopeSchema = z.object({
-  ok: z.literal(true),
-  data: z.object({ values: z.record(z.string(), z.unknown()) }),
-});
 
 export function defaultExpressionSettings(): ExpressionSettings {
   return { set: DEFAULT_EXPRESSION_SET, map: { ...DEFAULT_EXPRESSION_MAP } };
@@ -95,8 +70,8 @@ export async function loadExpressions(doFetch: FetchLike = fetch): Promise<Expre
   try {
     const res = await doFetch("/api/settings", { cache: "no-store" });
     if (!res.ok) return { status: "error" };
-    const parsed = SettingsEnvelopeSchema.safeParse(await res.json());
-    if (!parsed.success) return { status: "error" };
+    const parsed = GetSettingsResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) return { status: "error" };
     const values = parsed.data.data.values;
     const settings = defaultExpressionSettings();
     const set = values[EXPRESSION_SETTING_KEYS.set];

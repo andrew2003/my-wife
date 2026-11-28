@@ -1,6 +1,8 @@
 import {
   CommandOverrideSchema,
   CustomCommandInputSchema,
+  GetSettingsResponseSchema,
+  ListCustomCommandsResponseSchema,
   type CustomCommandInput,
 } from "@my-wife/contracts";
 import { z } from "zod";
@@ -87,14 +89,6 @@ export function patchOverride(
   return Object.keys(merged).length > 1 ? [...rest, merged as CommandOverride] : rest;
 }
 
-const SettingsEnvelopeSchema = z.object({
-  ok: z.literal(true),
-  data: z.object({ values: z.record(z.string(), z.unknown()) }),
-});
-const CustomListSchema = z.object({
-  ok: z.literal(true),
-  data: z.object({ custom: z.array(CustomCommandInputSchema) }),
-});
 
 export type CommandsResult =
   | { status: "ready"; overrides: CommandOverride[]; custom: CustomCommandInput[] }
@@ -108,9 +102,9 @@ export async function loadCommands(doFetch: FetchLike = fetch): Promise<Commands
       doFetch("/api/settings", { cache: "no-store" }),
     ]);
     if (!customRes.ok || !settingsRes.ok) return { status: "error" };
-    const custom = CustomListSchema.safeParse(await customRes.json());
-    const settings = SettingsEnvelopeSchema.safeParse(await settingsRes.json());
-    if (!custom.success || !settings.success) return { status: "error" };
+    const custom = ListCustomCommandsResponseSchema.safeParse(await customRes.json());
+    const settings = GetSettingsResponseSchema.safeParse(await settingsRes.json());
+    if (!custom.success || !settings.success || !settings.data.ok) return { status: "error" };
     const parsed = z
       .array(CommandOverrideSchema)
       .safeParse(settings.data.data.values[OVERRIDES_KEY]);

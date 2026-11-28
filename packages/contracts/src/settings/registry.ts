@@ -14,6 +14,14 @@ import { NeedOverspendModeSchema } from "../rules/enums";
 import { PenaltyThresholdSchema } from "../rules/entities";
 import { CarryOverRuleSchema, RoutineLevelSchema } from "../schedule/enums";
 import { CalendarProviderSchema } from "../sync/enums";
+import {
+  DEFAULT_EXPRESSION_MAP,
+  ExpressionMapSchema,
+  ExpressionSetSchema,
+  PersonaListSchema,
+  SkinSchema,
+  ThemeModeSchema,
+} from "./profile";
 import { LoginMethodSchema, SettingOwnerSchema, SettingScopeSchema } from "../identity/enums";
 
 /**
@@ -196,6 +204,15 @@ export const SETTINGS = {
   "ai.request_timeout_seconds": def(posInt, 30, "ai", "admin"),
   "ai.handover_pass_ratio": def(z.number().min(0).max(1), 1.0, "ai", "admin"),
   "ai.memory_retrieval_top_k": def(posInt, 5, "ai"),
+
+  // Appearance and persona (web). Persona lists default to empty: web then uses the locale defaults.
+  "appearance.skin": def(SkinSchema, "navy", "web"),
+  "appearance.mode": def(ThemeModeSchema, "system", "web"),
+  "appearance.expression_set": def(ExpressionSetSchema, "chibi", "web"),
+  "appearance.expression_map": def(ExpressionMapSchema, { ...DEFAULT_EXPRESSION_MAP }, "web"),
+  "persona.address_user": def(PersonaListSchema, { vi: [], en: [] }, "web"),
+  "persona.self_reference": def(PersonaListSchema, { vi: [], en: [] }, "web"),
+  "persona.wife_label": def(PersonaListSchema, { vi: [], en: [] }, "web"),
 
   // Identity, sync and admin
   "identity.login_method": def(LoginMethodSchema, "google", "identity", "admin"),

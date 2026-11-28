@@ -1,23 +1,16 @@
-import { z } from "zod";
+import {
+  GetSettingsResponseSchema,
+  PersonaListSchema,
+  PersonaTermSchema,
+  type PersonaList,
+  type PersonaTerm,
+} from "@my-wife/contracts";
 import { translate, type Locale } from "./i18n";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
-export const PersonaTermSchema = z.object({ text: z.string().trim().min(1), enabled: z.boolean() });
-export const PersonaListSchema = z.object({
-  vi: z.array(PersonaTermSchema),
-  en: z.array(PersonaTermSchema),
-});
-
-// Local shape until the persona keys move into packages/contracts (follow-up ADR); the shared
-// settings schema only accepts registered keys.
-const SettingsEnvelopeSchema = z.object({
-  ok: z.literal(true),
-  data: z.object({ values: z.record(z.string(), z.unknown()) }),
-});
-
-export type PersonaTerm = z.infer<typeof PersonaTermSchema>;
-export type PersonaList = z.infer<typeof PersonaListSchema>;
+export { PersonaListSchema, PersonaTermSchema };
+export type { PersonaList, PersonaTerm };
 export type PersonaField = "address_user" | "self_reference" | "wife_label";
 export type PersonaSettings = Record<PersonaField, PersonaList>;
 
@@ -97,13 +90,15 @@ export async function loadPersona(doFetch: FetchLike = fetch): Promise<PersonaRe
   try {
     const res = await doFetch("/api/settings", { cache: "no-store" });
     if (!res.ok) return { status: "error" };
-    const parsed = SettingsEnvelopeSchema.safeParse(await res.json());
-    if (!parsed.success) return { status: "error" };
+    const parsed = GetSettingsResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) return { status: "error" };
     const values = parsed.data.data.values;
     const settings = defaultPersonaSettings();
     for (const { field, key } of PERSONA_KEYS) {
       const list = PersonaListSchema.safeParse(values[key]);
-      if (list.success) settings[field] = list.data;
+      // Both locales empty is the registry default: keep the locale defaults.
+      if (list.success && (list.data.vi.length > 0 || list.data.en.length > 0))
+        settings[field] = list.data;
     }
     return { status: "ready", settings };
   } catch {

@@ -130,3 +130,9 @@ export const CommandMenuEntrySchema = z.object({
   description: z.string().min(1).max(256),
 });
 export type CommandMenuEntry = z.infer<typeof CommandMenuEntrySchema>;
+
+/** `GET /commands/custom` response of the ai service. */
+export const ListCustomCommandsResponseSchema = z.object({
+  ok: z.literal(true),
+  data: z.object({ custom: z.array(CustomCommandInputSchema) }),
+});

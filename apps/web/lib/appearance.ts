@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { GetSettingsResponseSchema } from "@my-wife/contracts";
 import {
   DEFAULT_MODE,
   DEFAULT_SKIN,
@@ -22,11 +22,6 @@ export const APPEARANCE_KEYS = { skin: "appearance.skin", mode: "appearance.mode
 
 const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
 
-const SettingsEnvelopeSchema = z.object({
-  ok: z.literal(true),
-  data: z.object({ values: z.record(z.string(), z.unknown()) }),
-});
-
 /** Cookie strings the client control writes (not HttpOnly; the server reads them per request). */
 export function appearanceCookies(value: Appearance, secure: boolean): [string, string] {
   const tail = `; path=/; max-age=${ONE_YEAR_SECONDS}; samesite=lax${secure ? "; secure" : ""}`;
@@ -40,8 +35,8 @@ export async function loadAppearance(doFetch: FetchLike = fetch): Promise<Appear
   try {
     const res = await doFetch("/api/settings", { cache: "no-store" });
     if (!res.ok) return { status: "error" };
-    const parsed = SettingsEnvelopeSchema.safeParse(await res.json());
-    if (!parsed.success) return { status: "error" };
+    const parsed = GetSettingsResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) return { status: "error" };
     const values = parsed.data.data.values;
     const skin = values[APPEARANCE_KEYS.skin];
     const mode = values[APPEARANCE_KEYS.mode];
