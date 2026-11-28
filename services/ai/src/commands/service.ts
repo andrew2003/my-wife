@@ -10,6 +10,7 @@ import {
   type MessageRef,
 } from "@my-wife/contracts";
 import { renderMessage } from "../i18n";
+import { CAPTURE_HANDLERS, type CapturePorts } from "./capture";
 import { parseCommand } from "./parser";
 import { buildRegistry, type CommandRegistry, type RegistryEntry } from "./registry";
 
@@ -63,6 +64,10 @@ export interface CommandServiceDeps {
   /** Runs a custom prompt command through the chat model; the reply is text or a message ref. */
   runPrompt?: (userId: string, req: PromptRequest) => Promise<MessageRef | { text: string }>;
   ports: ControlPorts;
+  /** Backs `/task`, `/spend`, `/remember` and `/forget`; without it they answer not available. */
+  capture?: CapturePorts;
+  /** The clock, a parameter so tests can simulate time. */
+  now?: () => Date;
   /** The user's overrides and custom commands. */
   loadCommandSettings: (userId: string) => Promise<CommandSettings>;
   readSettings: (userId: string) => Promise<Record<string, unknown>>;
@@ -247,21 +252,29 @@ export class CommandService {
       return { status: "disabled", reply: { key: "commands.disabled", params: {} } };
     }
     const handler = target.def.builtin ? HANDLERS[target.def.id] : undefined;
+    const capture = target.def.builtin ? CAPTURE_HANDLERS[target.def.id] : undefined;
     const outcome: Outcome = target.custom
       ? await this.runCustom(target, args, req)
-      : handler
-        ? await handler({
+      : capture
+        ? await capture({
             userId: req.userId,
-            locale: req.locale,
             args,
-            registry,
-            ports: this.deps.ports,
+            capture: this.deps.capture,
+            now: (this.deps.now ?? (() => new Date()))(),
           })
-        : {
-            status: "refused",
-            reply: { key: "commands.not_available", params: {} },
-            reason: "not_allowed",
-          };
+        : handler
+          ? await handler({
+              userId: req.userId,
+              locale: req.locale,
+              args,
+              registry,
+              ports: this.deps.ports,
+            })
+          : {
+              status: "refused",
+              reply: { key: "commands.not_available", params: {} },
+              reason: "not_allowed",
+            };
     await this.announce(req, commandId, entry.def.ai, outcome.status, outcome.reason);
     return { status: outcome.status, reply: outcome.reply };
   }
