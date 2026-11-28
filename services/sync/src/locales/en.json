@@ -5,6 +5,7 @@
   "sync.error.bad_request": "The request is invalid.",
   "sync.calendar.masked_title": "Busy",
   "sync.sheet.banner": "This sheet is a read-only mirror. Edits are overwritten from the app on the next sync.",
+  "sync.readback.paused": "The Google Sheet no longer matches the expected layout, so edits from the sheet are paused. Fix the sheet or reset it from the app, then resume.",
   "sync.tab.categories": "Budget categories",
   "sync.tab.accounts": "Bank accounts",
   "sync.tab.weeklyPlan": "Weekly plan",
