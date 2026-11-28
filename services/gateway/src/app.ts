@@ -5,6 +5,7 @@ import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 export const SERVICE_NAME = "gateway";
 export const SESSION_COOKIE = "mw_session";
 export const USER_ID_HEADER = "x-user-id";
+export const USER_ROLE_HEADER = "x-user-role";
 
 export type GatewayOptions = {
   fetch?: typeof fetch;
@@ -17,6 +18,7 @@ export type GatewayOptions = {
     notify?: string;
     ingest?: string;
     monitor?: string;
+    sync?: string;
   };
 };
 
@@ -32,7 +34,10 @@ const SCHEDULE_PREFIXES = [
   "/sample-schedule",
   "/weeks",
   "/templates",
+  "/recurrences",
 ];
+/** Paths owned by the sync service (Google link and status). */
+const SYNC_PREFIXES = ["/sync"];
 /** Admin API (spec 50): owned by identity, needs role admin. */
 const ADMIN_PREFIXES = ["/admin"];
 const BUDGET_PREFIXES = ["/budget"];
@@ -106,6 +111,7 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
     notify: given?.notify ?? url("NOTIFY_URL", "notify"),
     ingest: given?.ingest ?? url("INGEST_URL", "ingest"),
     monitor: given?.monitor ?? url("MONITOR_URL", "monitor"),
+    sync: given?.sync ?? url("SYNC_URL", "sync"),
   };
 
   async function forward(
@@ -114,9 +120,12 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
     method: string,
     body: unknown,
     userId?: string,
+    role?: string,
   ) {
     const headers: Record<string, string> = {};
     if (userId) headers[USER_ID_HEADER] = userId;
+    // Set from the verified session only; a client-supplied value is never forwarded.
+    if (role) headers[USER_ROLE_HEADER] = role;
     let payload: string | undefined;
     if (body !== undefined && method !== "GET" && method !== "HEAD") {
       headers["content-type"] = "application/json";
@@ -185,13 +194,15 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
           ? upstreams.ai
           : isUnder(normalized.key, NOTIFY_PREFIXES)
             ? upstreams.notify
-            : isUnder(normalized.key, BUDGET_PREFIXES)
-              ? upstreams.budget
-              : isUnder(normalized.key, SCHEDULE_PREFIXES)
-                ? upstreams.schedule
-                : isUnder(normalized.key, RULES_PREFIXES)
-                  ? upstreams.rules
-                  : upstreams.identity;
+            : isUnder(normalized.key, SYNC_PREFIXES)
+              ? upstreams.sync
+              : isUnder(normalized.key, BUDGET_PREFIXES)
+                ? upstreams.budget
+                : isUnder(normalized.key, SCHEDULE_PREFIXES)
+                  ? upstreams.schedule
+                  : isUnder(normalized.key, RULES_PREFIXES)
+                    ? upstreams.rules
+                    : upstreams.identity;
         return await send(
           await forward(
             base,
@@ -199,6 +210,7 @@ export function createApp(config: AppConfig, deps: ServiceDeps = {}, options: Ga
             req.method,
             req.body,
             session.data.user.id,
+            session.data.user.role,
           ),
         );
       } catch (err) {

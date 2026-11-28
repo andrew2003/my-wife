@@ -202,6 +202,26 @@ export async function startAll(config: AppConfig, opts: RunnerOptions = {}): Pro
         const withPublish: RulesDeps = { ...deps, publish: publishVia(opts.rules?.publish) };
         deps = withPublish;
       }
+      if (name === "sync") {
+        // Offline stand-in for Google: status answers, linking is refused (no consent) and
+        // nothing leaves the machine.
+        const offline = async () => {
+          throw new Error("Google is not reachable in the development runner");
+        };
+        deps = {
+          ...deps,
+          syncAuth: {
+            google: {
+              buildAuthorizationUrl: () => "",
+              exchangeCode: offline,
+              testWrite: offline,
+              refreshAccessToken: offline,
+              revoke: async () => {},
+            },
+            hasConsent: async () => false,
+          },
+        } as ServiceDeps;
+      }
       if (name === "ingest") {
         const given = opts.ingest ?? {};
         const ingestDeps: IngestDeps = {
