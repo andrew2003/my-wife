@@ -8,6 +8,7 @@ import {
   httpHeartbeatSender,
   selectDelegate,
   type Delegate,
+  type DetectedEvent,
   type FrameAnalyzer,
 } from "../lib/camera-monitor";
 import { createFrameGuardedFetch } from "../lib/frame-guard";
@@ -22,11 +23,14 @@ export function CameraMonitor(props: {
   forcedDelegate?: string;
   /** `monitor.heartbeat_interval_seconds`, supplied by the page. */
   heartbeatEverySeconds: number;
+  /** Filtered events found on this device (never pixels), for counts on the screen. */
+  onEvents?: (events: DetectedEvent[]) => void;
 }) {
-  const { locale, sessionId, forcedDelegate, heartbeatEverySeconds } = props;
+  const { locale, sessionId, forcedDelegate, heartbeatEverySeconds, onEvents } = props;
   const video = useRef<HTMLVideoElement>(null);
   const [state, setState] = useState<"idle" | "running" | "denied">("idle");
   const [delegate, setDelegate] = useState<Delegate | null>(null);
+  const [presence, setPresence] = useState<"present" | "away">("present");
 
   async function start() {
     try {
@@ -41,7 +45,20 @@ export function CameraMonitor(props: {
         heartbeatEverySeconds,
         // The frame stays in the page; only the analyser sees it.
         grabFrame: () => video.current,
-        analyzer: quietAnalyzer,
+        analyzer: {
+          analyze: (frame, atMs) => {
+            const found = quietAnalyzer.analyze(frame, atMs);
+            if (found.length > 0) {
+              setPresence(
+                found.some((e) => e.type === "no_face" || e.type === "camera_off")
+                  ? "away"
+                  : "present",
+              );
+              onEvents?.(found);
+            }
+            return found;
+          },
+        },
         send: httpHeartbeatSender(createFrameGuardedFetch()),
         onVisibility: documentVisibility,
       }).start();
@@ -62,7 +79,10 @@ export function CameraMonitor(props: {
       {state === "running" && (
         <p data-testid="monitor-status">
           {translate(locale, "monitor.running")}{" "}
-          {delegate && translate(locale, "monitor.delegate", { delegate })}
+          {delegate && translate(locale, "monitor.delegate", { delegate })}{" "}
+          <span data-testid="presence-status" role="status">
+            {translate(locale, `monitor.presence.${presence}`)}
+          </span>
         </p>
       )}
       {state === "denied" && <p role="alert">{translate(locale, "monitor.denied")}</p>}
