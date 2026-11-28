@@ -26,4 +26,16 @@ describe("seedDemoWeek", () => {
     expect(seedDemoWeek({ ...args, newId: () => "b" })).toBe("exists");
     expect(store.allWeeks()).toHaveLength(1);
   });
+
+  it("seeds a week whose review is ready, so the review screen answers 200", async () => {
+    const planStore = createMemoryPlanStore();
+    seedDemoWeek({ store: planStore, userId: USER, firstDay: "2026-11-23", newId: () => "week-1" });
+    const app = await createApp(config, { planStore });
+    const res = await app.inject({
+      method: "GET",
+      url: "/weeks/week-1/review",
+      headers: { "x-user-id": USER },
+    });
+    expect(res.statusCode).toBe(200);
+  });
 });
