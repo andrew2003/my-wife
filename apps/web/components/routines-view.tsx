@@ -1,5 +1,7 @@
 import type { RoutineLevel } from "@my-wife/contracts";
 import { translate, type Locale } from "../lib/i18n";
+import { formatWakeTime, type WakeCardState } from "../lib/wake";
+import { Card, EmptyState, ErrorState, SegmentedControl, Skeleton } from "./ui";
 import {
   LEVEL_ORDER,
   ROUTINE_LEVEL_KEYS,
@@ -24,6 +26,10 @@ export interface RoutinesViewProps {
   saveState: SaveState;
   notice: SaveNotice | null;
   timeZone: string;
+  /** Seven days of the current week; null when the week is unknown (strips are hidden). */
+  week: string[] | null;
+  /** Today's recorded wake-up for the banner. */
+  wake: WakeCardState;
   onChange: (key: RoutineSettingKey, value: string | number) => void;
   onRefresh: () => void;
 }
@@ -31,16 +37,15 @@ export interface RoutinesViewProps {
 /** Shared loading, empty and error states of the routines screens; null means ready. */
 export function routinesStatusView(props: RoutinesViewProps) {
   const t = (key: string) => translate(props.locale, key);
-  if (props.status === "loading") return <p role="status">{t("routines.loading")}</p>;
-  if (props.status === "empty") return <p>{t("routines.empty")}</p>;
+  if (props.status === "loading") return <Skeleton label={t("routines.loading")} height="8rem" />;
+  if (props.status === "empty") return <EmptyState title={t("routines.empty")} />;
   if (props.status === "error" || !props.data) {
     return (
-      <div>
-        <p role="alert">{t("routines.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("routines.retry")}
-        </button>
-      </div>
+      <ErrorState
+        title={t("routines.error")}
+        retryLabel={t("routines.retry")}
+        onRetry={props.onRefresh}
+      />
     );
   }
   return null;
@@ -72,9 +77,60 @@ export function SaveFeedback(props: RoutinesViewProps) {
   );
 }
 
+/** Seven days of the week; no check-in history route exists yet, so every day is unknown. */
+function WeekStrip({ props, name }: { props: RoutinesViewProps; name: RoutineName }) {
+  const t = (key: string) => translate(props.locale, key);
+  if (!props.week) return null;
+  const tag = props.locale === "vi" ? "vi-VN" : "en-US";
+  const weekday = new Intl.DateTimeFormat(tag, { weekday: "short", timeZone: "UTC" });
+  return (
+    <ol
+      className="routine-strip"
+      aria-label={`${t("routines.week.title")}: ${t(`routines.routine.${name}`)}`}
+    >
+      {props.week.map((day) => {
+        const date = new Date(`${day}T00:00:00.000Z`);
+        const label = weekday.format(date);
+        return (
+          <li
+            key={day}
+            className="routine-strip-day"
+            aria-label={`${label} ${date.getUTCDate()}: ${t("routines.week.unknown")}`}
+          >
+            <span>{label}</span>
+            <strong>{date.getUTCDate()}</strong>
+            <span aria-hidden="true">·</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/** Banner with today's recorded wake-up; hidden until a wake is recorded. */
+function WakeBanner({ props }: { props: RoutinesViewProps }) {
+  const { wake } = props;
+  if (wake.status !== "recorded") return null;
+  const t = (key: string, params?: Record<string, string | number>) =>
+    translate(props.locale, key, params);
+  return (
+    <section className="routines-banner" aria-label={t("routines.banner.title")}>
+      <h2>{t("routines.banner.title")}</h2>
+      <p>
+        {t("routines.banner.recorded", { time: formatWakeTime(wake.wakeTime, props.timeZone) })}{" "}
+        {wake.minutesLate === 0
+          ? t("routines.banner.on_time")
+          : t("routines.banner.late", { minutes: wake.minutesLate })}
+      </p>
+      <a href="/routines/sleep">{t("routines.banner.link")}</a>
+    </section>
+  );
+}
+
 /** Presentational routine levels screen; state lives in the client wrapper. */
 export function RoutinesView(props: RoutinesViewProps) {
-  const t = (key: string) => translate(props.locale, key);
+  const t = (key: string, params?: Record<string, string | number>) =>
+    translate(props.locale, key, params);
   const early = routinesStatusView(props);
   if (early || !props.data) return early;
   const { data } = props;
@@ -82,34 +138,34 @@ export function RoutinesView(props: RoutinesViewProps) {
   return (
     <section className="routines" aria-label={t("routines.title")}>
       <h2>{t("routines.title")}</h2>
+      <WakeBanner props={props} />
       <p>{t("routines.loosening")}</p>
       <SaveFeedback {...props} />
-      <ul>
+      <div className="routine-list">
         {(Object.keys(ROUTINE_LEVEL_KEYS) as RoutineName[]).map((name) => {
           const level = data.levels[name];
-          const id = `routine-level-${name}`;
+          const title = t(`routines.routine.${name}`);
           return (
-            <li key={name}>
-              <label htmlFor={id}>
-                <strong>{t(`routines.routine.${name}`)}</strong>
-              </label>{" "}
-              <select
-                id={id}
-                value={level}
-                disabled={busy}
-                onChange={(e) => props.onChange(ROUTINE_LEVEL_KEYS[name], e.target.value)}
-              >
-                {LEVEL_ORDER.map((l: RoutineLevel) => (
-                  <option key={l} value={l}>
-                    {t(`routines.level.${l}`)}
-                  </option>
-                ))}
-              </select>
+            <Card key={name} className="routine-card">
+              <h3>{title}</h3>
+              <fieldset className="routine-level" disabled={busy}>
+                <SegmentedControl
+                  label={t("routines.level.label", { routine: title })}
+                  value={level}
+                  options={LEVEL_ORDER.map((l: RoutineLevel) => ({
+                    value: l,
+                    label: t(`routines.level.${l}`),
+                  }))}
+                  onChange={(v) => props.onChange(ROUTINE_LEVEL_KEYS[name], v)}
+                />
+              </fieldset>
               <p>{t(`routines.level.${level}.help`)}</p>
-            </li>
+              <p className="mw-hint">{t(`routines.note.${name}`)}</p>
+              <WeekStrip props={props} name={name} />
+            </Card>
           );
         })}
-      </ul>
+      </div>
     </section>
   );
 }

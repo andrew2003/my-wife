@@ -1,10 +1,13 @@
 import {
   GetSettingsResponseSchema,
   RoutineLevelSchema,
+  ScheduleWeekSchema,
   SETTINGS,
   UpdateSettingResponseSchema,
   type RoutineLevel,
 } from "@my-wife/contracts";
+import { z } from "zod";
+import { weekDays } from "./week-planner";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -72,6 +75,23 @@ export async function loadRoutines(doFetch: FetchLike = fetch): Promise<Routines
     return { status: "ready", data: { levels, sleep } };
   } catch {
     return { status: "error" };
+  }
+}
+
+/**
+ * Reads the first day of the current week and returns its seven days. Null when the week
+ * cannot be read: the screen then hides the week strips instead of guessing.
+ */
+export async function loadRoutineWeek(doFetch: FetchLike = fetch): Promise<string[] | null> {
+  try {
+    const res = await doFetch("/api/weeks/current", { cache: "no-store" });
+    if (!res.ok) return null;
+    const parsed = z
+      .object({ ok: z.literal(true), data: z.object({ week: ScheduleWeekSchema }) })
+      .safeParse(await res.json());
+    return parsed.success ? weekDays(parsed.data.data.week.firstDay) : null;
+  } catch {
+    return null;
   }
 }
 
