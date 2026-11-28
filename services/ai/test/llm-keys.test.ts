@@ -2,6 +2,7 @@ import { Writable } from "node:stream";
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "@my-wife/config";
+import { ListKeysResponseSchema } from "@my-wife/contracts";
 import { createApp } from "../src/index";
 import { InMemoryLlmKeyStore, type KeyValidator } from "../src/keys";
 
@@ -55,6 +56,13 @@ const list = (app: App) =>
   app.inject({ method: "GET", url: "/keys", headers: { "x-user-id": "u1" } });
 
 describe("bring-your-own llm keys", () => {
+  it("returns a body that parses with the shared list schema, including the cursor", async () => {
+    const { app } = await setup();
+    await save(app, SECRET);
+    const parsed = ListKeysResponseSchema.safeParse((await list(app)).json());
+    expect(parsed.success).toBe(true);
+    if (parsed.success && parsed.data.ok) expect(parsed.data.data.nextCursor).toBeNull();
+  });
   it("never exposes a saved key in responses, logs, events or the store", async () => {
     const { app, events, logs, keyStore } = await setup();
     const saved = await save(app, SECRET);
