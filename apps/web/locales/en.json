@@ -631,6 +631,8 @@
   "privacy.consent.bank.help": "Lets the app read transaction facts. It never moves money.",
   "privacy.consent.google_sync": "Google Sheets and Calendar sync",
   "privacy.consent.google_sync.help": "Lets the app write to your Google Sheets and Calendar.",
+  "privacy.consent.apple_calendar_sync": "Apple Calendar sync (CalDAV)",
+  "privacy.consent.apple_calendar_sync.help": "Syncs your schedule to Apple Calendar through CalDAV. It needs your consent and you can revoke it at any time.",
   "nav.area.today": "Today",
   "shell.more": "More",
   "shell.close": "Close",

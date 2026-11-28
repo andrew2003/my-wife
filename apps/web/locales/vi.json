@@ -631,6 +631,8 @@
   "privacy.consent.bank.help": "Cho phép ứng dụng đọc dữ kiện giao dịch. Ứng dụng không bao giờ chuyển tiền.",
   "privacy.consent.google_sync": "Đồng bộ Google Sheets và Calendar",
   "privacy.consent.google_sync.help": "Cho phép ứng dụng ghi vào Google Sheets và Calendar của bạn.",
+  "privacy.consent.apple_calendar_sync": "Đồng bộ Apple Calendar (CalDAV)",
+  "privacy.consent.apple_calendar_sync.help": "Đồng bộ lịch của bạn sang Apple Calendar qua CalDAV. Cần có sự đồng ý của bạn và bạn có thể thu hồi bất cứ lúc nào.",
   "nav.area.today": "Hôm nay",
   "shell.more": "Thêm",
   "shell.close": "Đóng",
