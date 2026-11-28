@@ -3,9 +3,10 @@
  * table (see `generateTokensCss`), and a test keeps the two in sync. Hex colors
  * are allowed only in this file and in the generated stylesheet.
  */
+import { SkinSchema, ThemeModeSchema } from "@my-wife/contracts";
 
-export const SKINS = ["navy", "hanfu", "silver", "street"] as const;
-export const MODES = ["light", "dark", "system"] as const;
+export const SKINS = SkinSchema.options;
+export const MODES = ThemeModeSchema.options;
 export type Skin = (typeof SKINS)[number];
 export type Mode = (typeof MODES)[number];
 export type ResolvedMode = Exclude<Mode, "system">;

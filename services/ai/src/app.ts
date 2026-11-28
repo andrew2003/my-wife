@@ -1,5 +1,6 @@
 import { servicePort, type AppConfig } from "@my-wife/config";
 import {
+  ListCustomCommandsResponseSchema,
   ChatMessageRequestSchema,
   ChatMessageResponseSchema,
   CommandSettingsSchema,
@@ -520,10 +521,12 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     throw error;
   };
   // Management of custom commands: create, try (validate only), delete and list.
-  app.get("/commands/custom", async (req) => ({
-    ok: true,
-    data: { custom: (await commandStore.load(userOf(req.headers["x-user-id"]))).custom },
-  }));
+  app.get("/commands/custom", async (req) =>
+    ListCustomCommandsResponseSchema.parse({
+      ok: true,
+      data: { custom: (await commandStore.load(userOf(req.headers["x-user-id"]))).custom },
+    }),
+  );
   for (const [url, mode] of [
     ["/commands/custom", "create"],
     ["/commands/custom/try", "tryOut"],
