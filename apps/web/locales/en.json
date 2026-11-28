@@ -702,5 +702,9 @@
   "expressions.reset": "Restore defaults",
   "expressions.saving": "Saving...",
   "expressions.saved": "Saved.",
-  "expressions.save_failed": "Could not save expressions. Please try again."
+  "expressions.save_failed": "Could not save expressions. Please try again.",
+  "companion.label": "Companion",
+  "companion.loading": "She is typing",
+  "companion.art_alt": "Your companion",
+  "companion.fallback": "I am here with you. Take it one step at a time."
 }
