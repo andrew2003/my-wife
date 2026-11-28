@@ -24,15 +24,23 @@ function fromAcceptLanguage(header: string | null | undefined): Locale | null {
   return null;
 }
 
-/** Locale order: cookie, profile, Accept-Language, then the configured default. */
+/**
+ * Locale order: cookie, profile, Accept-Language, then the configured default.
+ * For a signed-in user the profile is the source of truth and comes first, because the
+ * cookie can be stale after a change made from a chat channel; the cookie then only
+ * serves visitors without a profile.
+ */
 export function resolveLocale(input: {
   cookie?: string | undefined;
   profile?: string | undefined;
+  signedIn?: boolean | undefined;
   acceptLanguage?: string | null | undefined;
 }): Locale {
+  const profile = asLocale(input.profile);
+  if (input.signedIn && profile) return profile;
   return (
     asLocale(input.cookie) ??
-    asLocale(input.profile) ??
+    profile ??
     fromAcceptLanguage(input.acceptLanguage) ??
     configuredLocale()
   );

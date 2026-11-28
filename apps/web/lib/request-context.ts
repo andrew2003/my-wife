@@ -19,6 +19,7 @@ export async function getRequestContext(): Promise<RequestContext> {
   const locale = resolveLocale({
     cookie: store.get(LOCALE_COOKIE)?.value,
     profile: user?.locale,
+    signedIn: user !== null,
     acceptLanguage: (await headers()).get("accept-language"),
   });
   const appearance = {
