@@ -19,3 +19,6 @@ export {
   type StatusFacts,
   type UsageFacts,
 } from "./service";
+export { RULES_HANDLERS, type RulesPorts } from "./rules";
+export { runSummary, SUMMARY_SCOPES, type SummaryPorts, type SummaryScope } from "./summary";
+export { createRulesPorts, createSummaryPorts, type SummaryPortsDeps } from "./summary-ports";
