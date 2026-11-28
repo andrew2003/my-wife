@@ -1,3 +1,4 @@
+import { fetchWithPolicy } from "@my-wife/service-kit";
 import type { InboundReply, Question, SendResult } from "@my-wife/contracts";
 import type { MenuChannel } from "../commands/menu";
 import { renderMessage } from "../i18n";
@@ -36,7 +37,7 @@ export function createDiscordChannel(opts: DiscordChannelOptions): MenuChannel {
   const headers = { authorization: `Bot ${opts.token}`, "content-type": "application/json" };
 
   const api = async (method: string, path: string, body?: unknown): Promise<DiscordJson> => {
-    const res = await fetch(`${opts.baseUrl}/api/v10${path}`, {
+    const res = await fetchWithPolicy(`${opts.baseUrl}/api/v10${path}`, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -142,7 +143,7 @@ export function createDiscordChannel(opts: DiscordChannelOptions): MenuChannel {
     async receivePhoto(reply) {
       // The reference comes from an untrusted update: only fetch from known Discord hosts.
       if (!attachmentAllowed(reply.fileRef)) throw new Error("attachment host is not allowed");
-      const res = await fetch(reply.fileRef, { redirect: "error" });
+      const res = await fetchWithPolicy(reply.fileRef, { redirect: "error" }, { idempotent: true });
       if (!res.ok) throw new Error(`discord attachment download failed with HTTP ${res.status}`);
       return new Uint8Array(await res.arrayBuffer());
     },

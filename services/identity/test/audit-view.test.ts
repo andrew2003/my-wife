@@ -154,3 +154,13 @@ describe("GET /admin/audit", () => {
     expect((await get("limit=0")).statusCode).toBe(400);
   });
 });
+
+describe("parseAuditQuery default page size", () => {
+  it("bounds a query that asks for no limit", () => {
+    expect(parseAuditQuery({})?.limit).toBe(100);
+  });
+
+  it("keeps an explicit limit", () => {
+    expect(parseAuditQuery({ limit: "5" })?.limit).toBe(5);
+  });
+});
