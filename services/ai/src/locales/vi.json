@@ -55,7 +55,7 @@
   "commands.model.usage": "Dùng /model hoặc /model kèm tên mô hình.",
   "commands.prompt_reply": "{text}",
   "commands.prompt.usage": "Hãy thêm nội dung sau /{name}.",
-  "commands.mood.noted": "Đã ghi nhận tâm trạng của bạn ({expression}).",
+  "commands.mood.noted": "Đã ghi nhận tâm trạng của anh ({expression}).",
   "ai.command.context": "Người dùng vừa dùng lệnh tuỳ chỉnh /{name}. Mục đích của lệnh: {description}",
   "commands.desc.help": "Hiện các lệnh anh dùng được.",
   "commands.desc.model": "Xem mô hình, hoặc đổi sang mô hình khác sau khi kiểm tra.",

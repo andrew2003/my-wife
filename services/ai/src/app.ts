@@ -2,13 +2,23 @@ import { servicePort, type AppConfig } from "@my-wife/config";
 import {
   ChatMessageRequestSchema,
   ChatMessageResponseSchema,
+  CommandSettingsSchema,
+  CustomCommandInputSchema,
   DegradedStatusSchema,
   SaveLlmKeyRequestSchema,
   SETTINGS,
 } from "@my-wife/contracts";
+import { randomUUID } from "node:crypto";
 import type { Writable } from "node:stream";
 import { createServiceApp, type ServiceDeps } from "@my-wife/service-kit";
 import { ChatService } from "./chat/chat-service";
+import {
+  CommandRegistryError,
+  CommandService,
+  CustomCommandManager,
+  type ControlPorts,
+  type CustomCommandStore,
+} from "./commands";
 import { renderMessage } from "./i18n";
 import {
   createKeyValidator,
@@ -72,7 +82,9 @@ export interface AiDeps extends ServiceDeps {
       | "ai.model_changed"
       | "ai.degraded_entered"
       | "ai.degraded_exited"
-      | "ai.token_cap_reached";
+      | "ai.token_cap_reached"
+      | "command.executed"
+      | "command.refused";
     payload: unknown;
   }) => Promise<void>;
   memoryStore?: MemoryStore;
@@ -106,6 +118,10 @@ export interface AiDeps extends ServiceDeps {
   /** Longest accepted conversation summary; defaults to `AI_SUMMARY_MAX_LENGTH`. */
   summaryMaxLength?: number;
   memoryLimits?: { maxFactLength: number; maxPerTurn: number };
+  /** Targets of the control commands (/lang, /strict, ...); none are wired yet. */
+  commandPorts?: ControlPorts;
+  /** Per-user command overrides and custom commands; in memory until the database lands. */
+  commandStore?: Pick<CustomCommandStore, "load" | "save">;
   /** REST wrappers for quick capture; none are wired yet, so a capture is audited as failed. */
   toolBackends?: ToolBackends;
 }
@@ -152,6 +168,44 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
     warn: (fields, message) => app.log.warn(fields, message),
   });
   const now = deps.now ?? (() => new Date());
+  const commandSettings = new Map<string, unknown>();
+  const commandStore = deps.commandStore ?? {
+    load: async (userId: string) =>
+      CommandSettingsSchema.parse(commandSettings.get(userId) ?? { overrides: [], custom: [] }),
+    save: async (userId: string, settings: unknown) => {
+      commandSettings.set(userId, settings);
+    },
+  };
+  const unavailable = async (): Promise<never> => {
+    throw new Error("control port unavailable");
+  };
+  const commands = new CommandService({
+    ports: deps.commandPorts ?? {
+      setLocale: unavailable,
+      setStrictness: unavailable,
+      setQuiet: unavailable,
+      resetConversation: unavailable,
+      stop: unavailable,
+      skins: unavailable,
+      setSkin: unavailable,
+      currentModel: unavailable,
+      usage: unavailable,
+      status: unavailable,
+    },
+    loadCommandSettings: commandStore.load,
+    readSettings,
+    publish,
+    runPrompt: async (userId, req) =>
+      (await chat.handleCommandPrompt(req.command, req.text, req.locale, userId)).reply,
+  });
+  const customCommands = new CustomCommandManager({
+    ...commandStore,
+    maxCustom: async (userId) => {
+      const def = SETTINGS["chat.max_custom_commands"];
+      const parsed = def.schema.safeParse((await readSettings(userId))["chat.max_custom_commands"]);
+      return parsed.success ? parsed.data : def.default;
+    },
+  });
   const remarks = new RemarkService({
     provider,
     readSettings,
@@ -416,12 +470,77 @@ export function createApp(config: AppConfig, deps: AiDeps = {}) {
       }),
     };
   });
+  const commandError = (
+    error: unknown,
+    reply: { code: (n: number) => { send: (b: unknown) => unknown } },
+  ) => {
+    if (error instanceof CommandRegistryError)
+      return reply.code(422).send({ ok: false, error: error.code });
+    throw error;
+  };
+  // Management of custom commands: create, try (validate only), delete and list.
+  app.get("/commands/custom", async (req) => ({
+    ok: true,
+    data: { custom: (await commandStore.load(userOf(req.headers["x-user-id"]))).custom },
+  }));
+  for (const [url, mode] of [
+    ["/commands/custom", "create"],
+    ["/commands/custom/try", "tryOut"],
+  ] as const)
+    app.post(url, async (req, reply) => {
+      const parsed = CustomCommandInputSchema.safeParse(req.body);
+      if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_request" });
+      try {
+        await customCommands[mode](userOf(req.headers["x-user-id"]), parsed.data);
+        return reply.code(mode === "create" ? 201 : 200).send({ ok: true, data: {} });
+      } catch (error) {
+        return commandError(error, reply);
+      }
+    });
+  app.delete<{ Params: { name: string } }>("/commands/custom/:name", async (req, reply) => {
+    try {
+      await customCommands.remove(userOf(req.headers["x-user-id"]), req.params.name);
+      return { ok: true, data: {} };
+    } catch (error) {
+      if (error instanceof CommandRegistryError && error.code === "unknown_command")
+        return reply.code(404).send({ ok: false, error: "not_found" });
+      return commandError(error, reply);
+    }
+  });
   app.post("/chat/message", async (req, reply) => {
     const parsed = ChatMessageRequestSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ ok: false, error: "invalid_request" });
     // The gateway sets x-user-id; a missing header is the single local user.
     const header = req.headers["x-user-id"];
     const userId = typeof header === "string" && header !== "" ? header : "local";
+    let commandResult: Awaited<ReturnType<typeof commands.handle>>;
+    try {
+      commandResult = await commands.handle({
+        channel: "web",
+        userId,
+        text: parsed.data.text,
+        locale: config.uiLanguage,
+      });
+    } catch (error) {
+      app.log.warn(
+        { errorName: error instanceof Error ? error.name : "unknown" },
+        "command failed",
+      );
+      commandResult = {
+        status: "refused" as const,
+        reply: { key: "commands.not_available", params: {} },
+      };
+    }
+    if (commandResult)
+      return ChatMessageResponseSchema.parse({
+        ok: true,
+        data: {
+          messageId: randomUUID(),
+          reply: { text: renderMessage(commandResult.reply, config.uiLanguage) },
+          pendingConfirmations: [],
+          degraded: false,
+        },
+      });
     const result = await chat.handleMessage(parsed.data.text, config.uiLanguage, userId);
     const text =
       "key" in result.reply ? renderMessage(result.reply, config.uiLanguage) : result.reply.text;
