@@ -126,8 +126,8 @@ const STATIC_TOKENS: Record<string, string> = {
   "--mw-motion-base": "200ms",
   "--mw-layout-max": "72rem",
   "--mw-touch-min": "44px",
-  "--mw-font-ui": "system-ui, sans-serif",
-  "--mw-font-title": "Georgia, serif",
+  "--mw-font-ui": '"Be Vietnam Pro", system-ui, sans-serif',
+  "--mw-font-title": '"Playfair Display", Georgia, serif',
 };
 
 const COLOR_VARS: Record<keyof Palette, string> = {
