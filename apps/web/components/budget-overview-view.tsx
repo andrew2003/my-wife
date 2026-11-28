@@ -2,6 +2,9 @@ import type { PenaltyLedgerEntry } from "@my-wife/contracts";
 import type { Overview, PenaltiesResult } from "../lib/budget-overview";
 import type { FundingResult } from "../lib/funding";
 import { translate, type Locale } from "../lib/i18n";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const BUDGET_OVERVIEW_STATE_KEYS = stateKeys("budget");
 
 export type OverviewStatus = "loading" | "ready" | "empty" | "error";
 
@@ -37,19 +40,21 @@ export function BudgetOverviewView({
       timeZone,
     }).format(new Date(iso));
 
-  if (status === "loading") return <p role="status">{t("budget.loading")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={BUDGET_OVERVIEW_STATE_KEYS} />;
   if (status === "error") {
     return (
-      <div>
-        <p role="alert">{t("budget.error")}</p>
-        <button type="button" className="button" onClick={onRefresh}>
-          {t("budget.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={locale}
+        kind="error"
+        keys={BUDGET_OVERVIEW_STATE_KEYS}
+        onRetry={onRefresh}
+      />
     );
   }
 
-  if (status === "empty" || !overview) return <p>{t("budget.empty")}</p>;
+  if (status === "empty" || !overview)
+    return <ScreenState locale={locale} kind="empty" keys={BUDGET_OVERVIEW_STATE_KEYS} />;
 
   const names = new Map(overview.categories.map((c) => [c.category.id, c.category.name]));
   const penaltyAccount = overview.bankAccounts.find((a) => a.kind === "penalty_savings");

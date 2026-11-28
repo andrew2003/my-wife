@@ -11,6 +11,9 @@ import {
   type ExpressionState,
 } from "../lib/expressions";
 import { Mascot } from "./mascot";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const EXPRESSIONS_STATE_KEYS = stateKeys("expressions");
 
 export type ExpressionsStatus = "loading" | "ready" | "error";
 export type ExpressionsSaveState = "idle" | "saving" | "saved" | "failed";
@@ -32,15 +35,16 @@ export interface ExpressionsViewProps {
 export function ExpressionsView(props: ExpressionsViewProps) {
   const { locale, settings } = props;
   const t = (key: string) => translate(locale, key);
-  if (props.status === "loading") return <p role="status">{t("expressions.loading")}</p>;
+  if (props.status === "loading")
+    return <ScreenState locale={props.locale} kind="loading" keys={EXPRESSIONS_STATE_KEYS} />;
   if (props.status === "error") {
     return (
-      <div>
-        <p role="alert">{t("expressions.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("expressions.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={props.locale}
+        kind="error"
+        keys={EXPRESSIONS_STATE_KEYS}
+        onRetry={props.onRefresh}
+      />
     );
   }
   const busy = props.saveState === "saving";

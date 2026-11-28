@@ -376,6 +376,7 @@
   "calendar.title": "Lịch dương và âm",
   "calendar.loading": "Đang tải lịch...",
   "calendar.error": "Không hiển thị được lịch.",
+  "calendar.retry": "Về hôm nay",
   "calendar.prev": "Tháng trước",
   "calendar.next": "Tháng sau",
   "calendar.today": "Hôm nay",

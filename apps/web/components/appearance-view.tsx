@@ -1,6 +1,9 @@
 import type { Appearance } from "../lib/appearance";
 import { translate, type Locale } from "../lib/i18n";
 import { MODES, SKINS } from "../lib/theme";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const APPEARANCE_STATE_KEYS = stateKeys("appearance");
 
 export type AppearanceStatus = "loading" | "ready" | "error";
 export type AppearanceSaveState = "idle" | "saving" | "saved" | "failed";
@@ -19,15 +22,16 @@ export interface AppearanceViewProps {
 export function AppearanceView(props: AppearanceViewProps) {
   const { locale, appearance } = props;
   const t = (key: string) => translate(locale, key);
-  if (props.status === "loading") return <p role="status">{t("appearance.loading")}</p>;
+  if (props.status === "loading")
+    return <ScreenState locale={props.locale} kind="loading" keys={APPEARANCE_STATE_KEYS} />;
   if (props.status === "error") {
     return (
-      <div>
-        <p role="alert">{t("appearance.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("appearance.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={props.locale}
+        kind="error"
+        keys={APPEARANCE_STATE_KEYS}
+        onRetry={props.onRefresh}
+      />
     );
   }
   const busy = props.saveState === "saving";

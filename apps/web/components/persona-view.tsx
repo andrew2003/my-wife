@@ -7,6 +7,9 @@ import {
   type PersonaSettings,
   type PersonaTerm,
 } from "../lib/persona";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const PERSONA_STATE_KEYS = stateKeys("persona");
 
 export type PersonaStatus = "loading" | "ready" | "error";
 export type PersonaSaveState = "idle" | "saving" | "saved" | "failed";
@@ -26,15 +29,16 @@ export interface PersonaViewProps {
 export function PersonaView(props: PersonaViewProps) {
   const { locale, settings } = props;
   const t = (key: string) => translate(locale, key);
-  if (props.status === "loading") return <p role="status">{t("persona.loading")}</p>;
+  if (props.status === "loading")
+    return <ScreenState locale={props.locale} kind="loading" keys={PERSONA_STATE_KEYS} />;
   if (props.status === "error") {
     return (
-      <div>
-        <p role="alert">{t("persona.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("persona.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={props.locale}
+        kind="error"
+        keys={PERSONA_STATE_KEYS}
+        onRetry={props.onRefresh}
+      />
     );
   }
 

@@ -1,5 +1,8 @@
 import { translate, type Locale } from "../lib/i18n";
 import type { Review } from "../lib/weekly-review";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const WEEKLY_REVIEW_STATE_KEYS = stateKeys("review");
 
 export type WeeklyReviewStatus = "loading" | "ready" | "not_ready" | "empty" | "error";
 
@@ -21,17 +24,19 @@ export function WeeklyReviewView(props: WeeklyReviewViewProps) {
   const t = (key: string, params?: Record<string, string | number>) =>
     translate(locale, key, params);
 
-  if (status === "loading") return <p role="status">{t("review.loading")}</p>;
-  if (status === "empty") return <p>{t("review.empty")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={WEEKLY_REVIEW_STATE_KEYS} />;
+  if (status === "empty")
+    return <ScreenState locale={locale} kind="empty" keys={WEEKLY_REVIEW_STATE_KEYS} />;
   if (status === "not_ready") return <p>{t("review.not_ready")}</p>;
   if (status === "error" || !review) {
     return (
-      <div role="alert">
-        <p>{t("review.error")}</p>
-        <button type="button" className="button" onClick={props.onRetry}>
-          {t("review.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={locale}
+        kind="error"
+        keys={WEEKLY_REVIEW_STATE_KEYS}
+        onRetry={props.onRetry}
+      />
     );
   }
 

@@ -6,6 +6,9 @@ import {
 } from "@my-wife/contracts";
 import { translate, type Locale } from "../lib/i18n";
 import { maskKey, type HandoverResult, type SwitchInput } from "../lib/models";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const MODELS_STATE_KEYS = stateKeys("models");
 
 export type ModelsStatus = "loading" | "ready" | "empty" | "error";
 export type SwitchState =
@@ -53,15 +56,16 @@ function HandoverReport({ locale, result }: { locale: Locale; result: HandoverRe
 /** Presentational model and key screen; state lives in the client wrapper. */
 export function ModelsView(props: ModelsViewProps) {
   const t = (key: string) => translate(props.locale, key);
-  if (props.status === "loading") return <p role="status">{t("models.loading")}</p>;
+  if (props.status === "loading")
+    return <ScreenState locale={props.locale} kind="loading" keys={MODELS_STATE_KEYS} />;
   if (props.status === "error") {
     return (
-      <div>
-        <p role="alert">{t("models.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("models.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={props.locale}
+        kind="error"
+        keys={MODELS_STATE_KEYS}
+        onRetry={props.onRefresh}
+      />
     );
   }
   const busy = props.switchState === "switching";
@@ -69,7 +73,7 @@ export function ModelsView(props: ModelsViewProps) {
     <section className="models" aria-label={t("models.title")}>
       <h2>{t("models.title")}</h2>
       {props.status === "empty" ? (
-        <p>{t("models.empty")}</p>
+        <ScreenState locale={props.locale} kind="empty" keys={MODELS_STATE_KEYS} />
       ) : (
         <ul>
           {props.keys.map((k) => (

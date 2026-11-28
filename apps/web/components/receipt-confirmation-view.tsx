@@ -1,6 +1,9 @@
 import type { ReceiptParsedPayload, ReceiptState } from "@my-wife/contracts";
 import { translate, type Locale } from "../lib/i18n";
 import { isAwaitingConfirmation } from "../lib/receipt-confirmation";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const RECEIPT_CONFIRMATION_STATE_KEYS = stateKeys("receipt", { empty: "receipt.not_found" });
 
 export type ReceiptStatus = "loading" | "ready" | "empty" | "error";
 export type ReceiptOutcome = "confirmed" | "rejected" | "failed" | null;
@@ -24,16 +27,18 @@ export function ReceiptConfirmationView(props: ReceiptConfirmationViewProps) {
   const t = (key: string) => translate(locale, key);
   const tag = locale === "vi" ? "vi-VN" : "en-US";
 
-  if (status === "loading") return <p role="status">{t("receipt.loading")}</p>;
-  if (status === "empty") return <p>{t("receipt.not_found")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={RECEIPT_CONFIRMATION_STATE_KEYS} />;
+  if (status === "empty")
+    return <ScreenState locale={locale} kind="empty" keys={RECEIPT_CONFIRMATION_STATE_KEYS} />;
   if (status === "error" || !receipt || !state) {
     return (
-      <div>
-        <p role="alert">{t("receipt.error")}</p>
-        <button type="button" className="button" onClick={props.onRetry}>
-          {t("receipt.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={locale}
+        kind="error"
+        keys={RECEIPT_CONFIRMATION_STATE_KEYS}
+        onRetry={props.onRetry}
+      />
     );
   }
 

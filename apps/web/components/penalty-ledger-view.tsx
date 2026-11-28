@@ -1,6 +1,9 @@
 import type { PenaltyLedgerEntry } from "@my-wife/contracts";
 import { translate, type Locale } from "../lib/i18n";
 import { canAppeal } from "../lib/penalty-ledger";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const PENALTY_LEDGER_STATE_KEYS = stateKeys("penalty");
 
 export type LedgerStatus = "loading" | "ready" | "empty" | "error";
 export type AppealState = "idle" | "sending" | "sent" | "failed";
@@ -29,16 +32,18 @@ export function PenaltyLedgerView(props: PenaltyLedgerViewProps) {
   const when = (iso: string) =>
     new Intl.DateTimeFormat(tag, { dateStyle: "medium", timeZone }).format(new Date(iso));
 
-  if (status === "loading") return <p role="status">{t("penalty.loading")}</p>;
-  if (status === "empty") return <p>{t("penalty.empty")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={PENALTY_LEDGER_STATE_KEYS} />;
+  if (status === "empty")
+    return <ScreenState locale={locale} kind="empty" keys={PENALTY_LEDGER_STATE_KEYS} />;
   if (status === "error") {
     return (
-      <div>
-        <p role="alert">{t("penalty.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("penalty.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={locale}
+        kind="error"
+        keys={PENALTY_LEDGER_STATE_KEYS}
+        onRetry={props.onRefresh}
+      />
     );
   }
 

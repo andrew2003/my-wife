@@ -1,5 +1,8 @@
 import { translate, type Locale } from "../lib/i18n";
 import type { ClaimState, MenuResult, ProjectedSurplus, WishlistResult } from "../lib/cycle-close";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const CYCLE_CLOSE_STATE_KEYS = stateKeys("cycle_close");
 
 export type CycleCloseStatus = "loading" | "ready" | "empty" | "error";
 
@@ -26,16 +29,18 @@ export function CycleCloseView(props: CycleCloseViewProps) {
   const money = (vnd: number) =>
     `${new Intl.NumberFormat(tag).format(vnd)} ${t("cycle_close.currency")}`;
 
-  if (status === "loading") return <p role="status">{t("cycle_close.loading")}</p>;
-  if (status === "empty") return <p>{t("cycle_close.empty")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={CYCLE_CLOSE_STATE_KEYS} />;
+  if (status === "empty")
+    return <ScreenState locale={locale} kind="empty" keys={CYCLE_CLOSE_STATE_KEYS} />;
   if (status === "error") {
     return (
-      <div>
-        <p role="alert">{t("cycle_close.error")}</p>
-        <button type="button" className="button" onClick={props.onRefresh}>
-          {t("cycle_close.retry")}
-        </button>
-      </div>
+      <ScreenState
+        locale={locale}
+        kind="error"
+        keys={CYCLE_CLOSE_STATE_KEYS}
+        onRetry={props.onRefresh}
+      />
     );
   }
 
@@ -105,9 +110,24 @@ export function CycleCloseView(props: CycleCloseViewProps) {
   const wishlistSection = (
     <section aria-label={t("cycle_close.wishlist.title")}>
       <h2>{t("cycle_close.wishlist.title")}</h2>
-      {wishlist.status === "loading" && <p role="status">{t("cycle_close.loading")}</p>}
-      {wishlist.status === "empty" && <p>{t("cycle_close.wishlist.empty")}</p>}
-      {wishlist.status === "error" && <p role="alert">{t("cycle_close.wishlist.error")}</p>}
+      {wishlist.status === "loading" && (
+        <ScreenState locale={locale} kind="loading" keys={CYCLE_CLOSE_STATE_KEYS} height="4rem" />
+      )}
+      {wishlist.status === "empty" && (
+        <ScreenState
+          locale={locale}
+          kind="empty"
+          keys={stateKeys("cycle_close", { empty: "cycle_close.wishlist.empty" })}
+        />
+      )}
+      {wishlist.status === "error" && (
+        <ScreenState
+          locale={locale}
+          kind="error"
+          keys={stateKeys("cycle_close", { error: "cycle_close.wishlist.error" })}
+          onRetry={props.onRefresh}
+        />
+      )}
       {wishlist.status === "ready" && (
         <ul className="penalty-list">
           {wishlist.items.map((i) => (
@@ -129,9 +149,24 @@ export function CycleCloseView(props: CycleCloseViewProps) {
   const menuSection = (
     <section aria-label={t("cycle_close.menu.title")}>
       <h2>{t("cycle_close.menu.title")}</h2>
-      {menu.status === "loading" && <p role="status">{t("cycle_close.loading")}</p>}
-      {menu.status === "empty" && <p>{t("cycle_close.menu.empty")}</p>}
-      {menu.status === "error" && <p role="alert">{t("cycle_close.menu.error")}</p>}
+      {menu.status === "loading" && (
+        <ScreenState locale={locale} kind="loading" keys={CYCLE_CLOSE_STATE_KEYS} height="4rem" />
+      )}
+      {menu.status === "empty" && (
+        <ScreenState
+          locale={locale}
+          kind="empty"
+          keys={stateKeys("cycle_close", { empty: "cycle_close.menu.empty" })}
+        />
+      )}
+      {menu.status === "error" && (
+        <ScreenState
+          locale={locale}
+          kind="error"
+          keys={stateKeys("cycle_close", { error: "cycle_close.menu.error" })}
+          onRetry={props.onRefresh}
+        />
+      )}
       {menu.status === "ready" && (
         <div>
           <ul className="penalty-list">

@@ -1,6 +1,9 @@
 import type { AnomalyView } from "@my-wife/contracts";
 import { translate, type Locale } from "../lib/i18n";
 import { anomalyHref } from "../lib/receipt-confirmation";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const ANOMALY_LIST_STATE_KEYS = stateKeys("anomalies");
 
 export type AnomalyListStatus = "loading" | "ready" | "empty" | "error";
 
@@ -14,16 +17,13 @@ export interface AnomalyListViewProps {
 /** The anomaly inbox; receipt anomalies open the confirmation screen. */
 export function AnomalyListView({ locale, status, anomalies, onRetry }: AnomalyListViewProps) {
   const t = (key: string) => translate(locale, key);
-  if (status === "loading") return <p role="status">{t("anomalies.loading")}</p>;
-  if (status === "empty") return <p>{t("anomalies.empty")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={ANOMALY_LIST_STATE_KEYS} />;
+  if (status === "empty")
+    return <ScreenState locale={locale} kind="empty" keys={ANOMALY_LIST_STATE_KEYS} />;
   if (status === "error") {
     return (
-      <div>
-        <p role="alert">{t("anomalies.error")}</p>
-        <button type="button" className="button" onClick={onRetry}>
-          {t("anomalies.retry")}
-        </button>
-      </div>
+      <ScreenState locale={locale} kind="error" keys={ANOMALY_LIST_STATE_KEYS} onRetry={onRetry} />
     );
   }
   return (

@@ -1,5 +1,8 @@
 import { translate, type Locale } from "../lib/i18n";
 import { buildTransferQrPayload, qrDataUrl, type FundingAccount } from "../lib/funding";
+import { ScreenState, stateKeys } from "./screen-state";
+
+const FUNDING_STATE_KEYS = stateKeys("funding");
 
 export type FundingStatus = "loading" | "ready" | "empty" | "error";
 
@@ -16,16 +19,13 @@ export function FundingView({ locale, status, accounts, onRefresh }: FundingView
     translate(locale, key, params);
   const money = new Intl.NumberFormat(locale === "vi" ? "vi-VN" : "en-US");
 
-  if (status === "loading") return <p role="status">{t("funding.loading")}</p>;
-  if (status === "empty") return <p>{t("funding.empty")}</p>;
+  if (status === "loading")
+    return <ScreenState locale={locale} kind="loading" keys={FUNDING_STATE_KEYS} />;
+  if (status === "empty")
+    return <ScreenState locale={locale} kind="empty" keys={FUNDING_STATE_KEYS} />;
   if (status === "error") {
     return (
-      <div>
-        <p role="alert">{t("funding.error")}</p>
-        <button type="button" className="button" onClick={onRefresh}>
-          {t("funding.retry")}
-        </button>
-      </div>
+      <ScreenState locale={locale} kind="error" keys={FUNDING_STATE_KEYS} onRetry={onRefresh} />
     );
   }
 

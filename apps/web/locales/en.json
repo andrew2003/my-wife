@@ -376,6 +376,7 @@
   "calendar.title": "Solar and lunar calendar",
   "calendar.loading": "Loading the calendar...",
   "calendar.error": "Could not show the calendar.",
+  "calendar.retry": "Back to today",
   "calendar.prev": "Previous month",
   "calendar.next": "Next month",
   "calendar.today": "Today",
