@@ -23,7 +23,7 @@ import { CameraMonitor } from "./camera-monitor";
 import { FocusSessionView } from "./focus-session-view";
 import { EndSoundToggle, PipToggle } from "./session-countdown";
 import { formatRemaining } from "../lib/countdown";
-import { ErrorState, Skeleton } from "./ui";
+import { EmptyState, ErrorState, Skeleton } from "./ui";
 
 /** How often the fault count and the urgent ticket are re-read, in milliseconds. */
 const POLL_MS = 15_000;
@@ -117,6 +117,9 @@ export function FocusSessionScreen(props: {
     }
   };
 
+  if (sessionId === "") {
+    return <EmptyState title={translate(locale, "focus.empty")} />;
+  }
   if (status === "loading") return <Skeleton label={translate(locale, "focus.loading")} />;
   if (status === "error" || !session) {
     return (

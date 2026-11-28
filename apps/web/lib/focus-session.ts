@@ -49,6 +49,8 @@ export async function loadFocusSession(
   clock: Clock = systemClock,
   doFetch: FetchLike = fetch,
 ): Promise<FocusSession | null> {
+  // No session id (the screen opened without one): nothing to ask the server for.
+  if (sessionId === "") return null;
   try {
     const before = clock.now();
     const res = await doFetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
