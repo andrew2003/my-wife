@@ -136,6 +136,18 @@ describe("GET /budget/funding", () => {
     }
   });
 
+  it.each(["running", "closing", "closed"] as const)(
+    "still lists the transfers for a %s cycle",
+    async (state) => {
+      const { store, record } = await awaitingFunds();
+      record.cycle.state = state;
+      const app = await createApp(config, { store });
+      const res = await app.inject({ method: "GET", url: "/budget/funding", headers });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data.cycle.state).toBe(state);
+    },
+  );
+
   it("does not count a short payment as funded", async () => {
     const { store, record, transfers } = await awaitingFunds();
     const paid = transfers.find((t) => t.requiredVnd > 1)!;
