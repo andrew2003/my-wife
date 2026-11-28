@@ -6,6 +6,7 @@
   "scripts": {
     "build": "NODE_OPTIONS=--max-old-space-size=2048 next build",
     "start": "NODE_OPTIONS=--max-old-space-size=2048 next start",
+    "tokens": "node scripts/generate-tokens.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "NODE_OPTIONS=--max-old-space-size=2048 vitest run"

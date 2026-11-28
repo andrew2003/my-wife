@@ -13,7 +13,11 @@ const user = {
 };
 
 vi.mock("../lib/request-context", () => ({
-  getRequestContext: async () => ({ locale: "en", user }),
+  getRequestContext: async () => ({
+    locale: "en",
+    user,
+    appearance: { skin: "navy", mode: "system" },
+  }),
   getRequestLocale: async () => "en",
 }));
 

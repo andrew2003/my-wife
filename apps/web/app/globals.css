@@ -12,12 +12,12 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.75rem;
-  border: 1px solid #ddd;
+  border: 1px solid var(--mw-color-border);
   border-radius: 0.5rem;
 }
 .checklist-item.state-done .checklist-title {
   text-decoration: line-through;
-  color: #666;
+  color: var(--mw-color-muted);
 }
 .checklist-text {
   display: grid;
@@ -25,7 +25,7 @@
 }
 .checklist-meta {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--mw-color-muted);
 }
 .checklist-actions {
   display: flex;
@@ -37,6 +37,8 @@
   padding: 0 1rem;
 }
 body {
+  background: var(--mw-color-bg);
+  color: var(--mw-color-text);
   margin: 0;
   font-family: system-ui, sans-serif;
 }
@@ -51,8 +53,8 @@ body {
   display: block;
   padding: 0.75rem 1rem;
   text-align: center;
-  background: #111;
-  color: #fff;
+  background: var(--mw-color-primary);
+  color: var(--mw-color-on-primary);
   border-radius: 0.5rem;
   text-decoration: none;
 }
@@ -61,7 +63,7 @@ body {
   gap: 1rem;
   align-items: center;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--mw-color-border);
 }
 .shell nav ul {
   display: flex;
@@ -84,8 +86,8 @@ body {
   z-index: 50;
 }
 .tour {
-  background: #fff;
-  color: #111;
+  background: var(--mw-color-surface);
+  color: var(--mw-color-text);
   width: min(100%, 28rem);
   padding: 1.25rem;
   border-radius: 0.75rem 0.75rem 0 0;

@@ -1,4 +1,5 @@
 import { configuredLocale, translate } from "../lib/i18n";
+import { PALETTES } from "../lib/theme";
 
 /** A manifest has no user context, so it uses the configured default language. */
 export default function manifest() {
@@ -9,8 +10,8 @@ export default function manifest() {
     description: translate(locale, "app.description"),
     start_url: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#ffffff",
+    background_color: PALETTES.navy.light.surface,
+    theme_color: PALETTES.navy.light.bg,
     icons: [],
   };
 }
