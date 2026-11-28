@@ -173,6 +173,8 @@ body {
   color: var(--mw-color-muted);
 }
 .shell-content {
+  box-sizing: border-box;
+  width: 100%;
   min-width: 0;
   max-width: var(--mw-layout-max);
   margin: 0 auto;
