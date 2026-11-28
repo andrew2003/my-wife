@@ -23,6 +23,25 @@ test("fake camera: heartbeats only, CPU delegate, no frame leaves the page", asy
       });
       return;
     }
+    if (req.method() === "GET" && new URL(req.url()).pathname === `/api/sessions/${SESSION_ID}`) {
+      // This scenario is about the camera, not the schedule: the focus screen needs a running session.
+      const now = Date.now();
+      const session = {
+        id: SESSION_ID,
+        startedAt: new Date(now).toISOString(),
+        durationMinutes: 25,
+        plannedEndAt: new Date(now + 25 * 60_000).toISOString(),
+        serverNow: new Date(now).toISOString(),
+        phase: "work",
+        break: null,
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true, data: { session } }),
+      });
+      return;
+    }
     if (req.method() !== "GET") {
       others.push({ type: req.headers()["content-type"] ?? "", body: req.postDataBuffer() });
     }

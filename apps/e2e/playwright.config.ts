@@ -59,6 +59,8 @@ export default defineConfig({
         LOG_LEVEL: "warn",
         E2E_SEED_SESSION: "1",
         E2E_SESSION_COOKIE_FILE: SESSION_COOKIE_FILE,
+        DEMO_LOGIN: "1",
+        WEB_URL,
         SESSION_SECRET: "e2e-only-secret-e2e-only-secret-0000",
       },
     },
